@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import Layout from '../components/Layout';
-import { 
+import {
   Search,
   Wallet,
   ArrowUp,
@@ -59,7 +59,7 @@ export default function ViewAllRecords() {
       textColor: 'text-orange-900',
       iconBg: 'bg-orange-200',
     },
-  
+
   ];
 
   const transactions = [
@@ -161,7 +161,7 @@ export default function ViewAllRecords() {
     if (activeTab !== 'all' && transaction.type !== activeTab) {
       return false;
     }
-    
+
     // Filter by search query
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -171,168 +171,165 @@ export default function ViewAllRecords() {
         transaction.date.includes(query)
       );
     }
-    
+
     return true;
   });
 
   return (
     <Layout>
-      
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {summaryCards.map((card, index) => {
-              const Icon = card.icon;
-              return (
-                <Card key={index} className={`${card.cardBg} hover:shadow-xl transition-all duration-300 border-0 rounded-2xl overflow-hidden border-gray-200 border-2`}>
-                  <CardContent className="p-4 relative h-40 flex flex-col justify-between">
-                    {/* Illustration/Icon Area */}
-                    <div className="absolute right-3 top-3">
-                      <div className={`${card.iconBg} p-3 rounded-xl`}>
-                        <Icon className={`w-8 h-8 ${card.textColor}`} />
-                      </div>
-                    </div>
-                    
-                    {/* Decorative Elements */}
-                    <div className="absolute right-0 top-0 w-24 h-24 opacity-10">
-                      <div className={`${card.iconBg} rounded-full w-full h-full`}></div>
-                    </div>
-                    
-                    {/* Content */}
-                    <div className="relative z-10 mt-auto">
-                      <p className={`text-xs font-medium ${card.textColor} opacity-80 mb-1`}>
-                        {card.title}
-                      </p>
-                      <div className="flex items-baseline space-x-1">
-                        <p className={`text-2xl font-bold ${card.textColor}`}>
-                          {card.value}
-                        </p>
-                        {card.currency && (
-                          <span className={`text-base font-semibold ${card.textColor} opacity-80`}>
-                            {card.currency}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {summaryCards.map((card, index) => {
+          const Icon = card.icon;
+          return (
+            <Card key={index} className={`${card.cardBg} hover:shadow-xl transition-all duration-300 border-0 rounded-2xl overflow-hidden border-gray-200 border-2`}>
+              <CardContent className="p-4 relative h-40 flex flex-col justify-between">
+                {/* Illustration/Icon Area */}
+                <div className="absolute right-3 top-3">
+                  <div className={`${card.iconBg} p-3 rounded-xl`}>
+                    <Icon className={`w-8 h-8 ${card.textColor}`} />
+                  </div>
+                </div>
+
+                {/* Decorative Elements */}
+                <div className="absolute right-0 top-0 w-24 h-24 opacity-10">
+                  <div className={`${card.iconBg} rounded-full w-full h-full`}></div>
+                </div>
+
+                {/* Content */}
+                <div className="relative z-10 mt-auto">
+                  <p className={`text-xs font-medium ${card.textColor} opacity-80 mb-1`}>
+                    {card.title}
+                  </p>
+                  <div className="flex items-baseline space-x-1">
+                    <p className={`text-2xl font-bold ${card.textColor}`}>
+                      {card.value}
+                    </p>
+                    {card.currency && (
+                      <span className={`text-base font-semibold ${card.textColor} opacity-80`}>
+                        {card.currency}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Search Bar and Tabs */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <div className="relative flex-1 w-full sm:max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by description, customer, or reference..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'all'
+              ? 'bg-[#eab308] text-white'
+              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setActiveTab('online')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'online'
+              ? 'bg-[#eab308] text-white'
+              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              }`}
+          >
+            Online
+          </button>
+          <button
+            onClick={() => setActiveTab('cheque')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cheque'
+              ? 'bg-[#eab308] text-white'
+              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              }`}
+          >
+            Cheque
+          </button>
+        </div>
+      </div>
+
+      {/* Transaction Table */}
+      <Card className="bg-white border border-gray-200 overflow-hidden">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-[#eab308] border-0">
+                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                    Date
+                  </TableHead>
+                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                    Description
+                  </TableHead>
+                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                    Details
+                  </TableHead>
+                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                    Debit
+                  </TableHead>
+                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                    Credit
+                  </TableHead>
+                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                    Balance
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredTransactions.map((transaction, index) => (
+                  <TableRow key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                    <TableCell className="text-gray-700 text-sm py-4 text-center">
+                      {transaction.date}
+                    </TableCell>
+                    <TableCell className="text-gray-700 font-medium text-sm py-4 text-center">
+                      {transaction.description}
+                    </TableCell>
+                    <TableCell className="text-gray-600 text-sm py-4 text-center">
+                      {transaction.details}
+                    </TableCell>
+                    <TableCell className="text-sm py-4 text-center">
+                      {transaction.debit ? (
+                        <span className="text-red-600 font-semibold">
+                          {transaction.debit} AED
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm py-4 text-center">
+                      {transaction.credit ? (
+                        <span className="text-green-600 font-semibold">
+                          {transaction.credit} AED
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-gray-700 font-semibold text-sm py-4 text-center">
+                      {transaction.balance} AED
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-
-          {/* Search Bar and Tabs */}
-          <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="relative flex-1 w-full sm:max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by description, customer, or reference..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveTab('all')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === 'all'
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setActiveTab('online')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === 'online'
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Online
-              </button>
-              <button
-                onClick={() => setActiveTab('cheque')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === 'cheque'
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Cheque
-              </button>
-            </div>
-          </div>
-
-          {/* Transaction Table */}
-          <Card className="bg-white border border-gray-200 overflow-hidden">
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-teal-600 border-0">
-                      <TableHead className="font-semibold text-white text-sm text-center py-4">
-                        Date
-                      </TableHead>
-                      <TableHead className="font-semibold text-white text-sm text-center py-4">
-                        Description
-                      </TableHead>
-                      <TableHead className="font-semibold text-white text-sm text-center py-4">
-                        Details
-                      </TableHead>
-                      <TableHead className="font-semibold text-white text-sm text-center py-4">
-                        Debit
-                      </TableHead>
-                      <TableHead className="font-semibold text-white text-sm text-center py-4">
-                        Credit
-                      </TableHead>
-                      <TableHead className="font-semibold text-white text-sm text-center py-4">
-                        Balance
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredTransactions.map((transaction, index) => (
-                      <TableRow key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <TableCell className="text-gray-700 text-sm py-4 text-center">
-                          {transaction.date}
-                        </TableCell>
-                        <TableCell className="text-gray-700 font-medium text-sm py-4 text-center">
-                          {transaction.description}
-                        </TableCell>
-                        <TableCell className="text-gray-600 text-sm py-4 text-center">
-                          {transaction.details}
-                        </TableCell>
-                        <TableCell className="text-sm py-4 text-center">
-                          {transaction.debit ? (
-                            <span className="text-red-600 font-semibold">
-                              {transaction.debit} AED
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm py-4 text-center">
-                          {transaction.credit ? (
-                            <span className="text-green-600 font-semibold">
-                              {transaction.credit} AED
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-gray-700 font-semibold text-sm py-4 text-center">
-                          {transaction.balance} AED
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
+        </CardContent>
+      </Card>
     </Layout>
   );
 }

@@ -5,6 +5,8 @@ import ViewAllRecords from './pages/ViewAllRecords';
 import BankTransaction from './pages/BankTransaction';
 import PostDatedCheque from './pages/PostDatedCheque';
 import PaymentMatching from './pages/PaymentMatching';
+import PayablesCategory from './pages/PayablesCategory';
+import GCECBeneficiary from './pages/GCECBeneficiary';
 import './App.css';
 
 const App = () => {
@@ -17,6 +19,8 @@ const App = () => {
         <Route path="/bank" element={<BankTransaction />} />
         <Route path="/cheque" element={<PostDatedCheque />} />
         <Route path="/matching" element={<PaymentMatching />} />
+        <Route path="/category" element={<PayablesCategory />} />
+        <Route path="/beneficiary" element={<GCECBeneficiary />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

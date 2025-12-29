@@ -74,7 +74,7 @@ type ChequeFormData = z.infer<typeof chequeSchema>;
 
 export default function PostDatedCheque() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+
   const form = useForm<ChequeFormData>({
     resolver: zodResolver(chequeSchema),
     defaultValues: {
@@ -122,7 +122,7 @@ export default function PostDatedCheque() {
       chequeType: data.chequeType,
     };
     setCheques([newCheque, ...cheques]);
-    
+
     // Reset form and close modal
     form.reset();
     setIsModalOpen(false);
@@ -134,7 +134,7 @@ export default function PostDatedCheque() {
         <h2 className="text-2xl font-bold text-gray-900">Post-Dated Cheque</h2>
         <Button
           onClick={() => setIsModalOpen(true)}
-          className="bg-[#d4bf7f] hover:bg-[#b9a168] text-white flex items-center space-x-2"
+          className="bg-[#eab308] hover:bg-[#eab308] text-white flex items-center space-x-2"
         >
           <Plus className="w-4 h-4" />
           <span>Add New</span>
@@ -147,7 +147,7 @@ export default function PostDatedCheque() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#d4bf7f] border-0">
+                <TableRow className="bg-[#eab308] border-0">
                   <TableHead className="font-semibold text-white text-sm text-center py-4">
                     Cheque Date
                   </TableHead>
@@ -157,12 +157,12 @@ export default function PostDatedCheque() {
                   <TableHead className="font-semibold text-white text-sm text-center py-4">
                     Cheque Number
                   </TableHead>
-                 
+
                   <TableHead className="font-semibold text-white text-sm text-center py-4">
                     Amount (AED)
                   </TableHead>
                   <TableHead className="font-semibold text-white text-sm text-center py-4">
-                   Remarks
+                    Remarks
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -170,40 +170,34 @@ export default function PostDatedCheque() {
                 {cheques.map((cheque) => {
                   const isSecurityCheque = cheque.chequeType === 'Security Cheque';
                   return (
-                    <TableRow 
-                      key={cheque.id} 
-                      className={`border-b ${
-                        isSecurityCheque 
-                          ? 'bg-red-600 hover:bg-red-700' 
-                          : 'border-gray-100 hover:bg-gray-50'
-                      }`}
+                    <TableRow
+                      key={cheque.id}
+                      className={`border-b ${isSecurityCheque
+                        ? 'bg-red-600 hover:bg-red-700'
+                        : 'border-gray-100 hover:bg-gray-50'
+                        }`}
                     >
-                      <TableCell className={`text-sm py-4 text-center ${
-                        isSecurityCheque ? 'text-white' : 'text-gray-700'
-                      }`}>
+                      <TableCell className={`text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        }`}>
                         {cheque.chequeDate}
                       </TableCell>
-                      <TableCell className={`text-sm py-4 text-center ${
-                        isSecurityCheque ? 'text-white' : 'text-gray-700'
-                      }`}>
+                      <TableCell className={`text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        }`}>
                         {cheque.customerName}
                       </TableCell>
-                      <TableCell className={`font-medium text-sm py-4 text-center ${
-                        isSecurityCheque ? 'text-white' : 'text-gray-700'
-                      }`}>
+                      <TableCell className={`font-medium text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        }`}>
                         {cheque.chequeNumber}
                       </TableCell>
-                     
-                      <TableCell className={`font-semibold text-sm py-4 text-center ${
-                        isSecurityCheque ? 'text-white' : 'text-gray-700'
-                      }`}>
+
+                      <TableCell className={`font-semibold text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        }`}>
                         {cheque.amount} AED
                       </TableCell>
-                      <TableCell className={`text-sm py-4 text-center ${
-                        isSecurityCheque ? 'text-white' : 'text-gray-600'
-                      }`}>
+                      <TableCell className={`text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                        }`}>
                         {cheque.chequeType === 'Security Cheque' ? 'Security Cheque' : ''}
-                        {}
+                        { }
                       </TableCell>
                     </TableRow>
                   );
@@ -256,7 +250,7 @@ export default function PostDatedCheque() {
                     return `${day}/${month}/${year}`;
                   };
 
-                  const [selectedDate, setSelectedDate] = useState<Date | null>(() => 
+                  const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
                     parseDate(field.value)
                   );
                   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
@@ -425,7 +419,7 @@ export default function PostDatedCheque() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-[#d4bf7f] hover:bg-[#b9a168] text-white py-3 mt-6"
+                className="w-full bg-[#eab308]  text-white py-3 mt-6"
               >
                 Save Cheque
               </Button>

@@ -74,7 +74,7 @@ type PaymentFormData = z.infer<typeof paymentSchema>;
 
 export default function PaymentMatching() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema),
     defaultValues: {
@@ -122,7 +122,7 @@ export default function PaymentMatching() {
       amount: formattedAmount,
     };
     setPayments([newPayment, ...payments]);
-    
+
     // Reset form and close modal
     form.reset();
     setIsModalOpen(false);
@@ -134,7 +134,7 @@ export default function PaymentMatching() {
         <h2 className="text-2xl font-bold text-gray-900">Payment Matching</h2>
         <Button
           onClick={() => setIsModalOpen(true)}
-          className="bg-[#e0b3af] hover:bg-[#c08a86] text-white flex items-center space-x-2"
+          className="bg-[#eab308] text-white flex items-center space-x-2"
         >
           <Plus className="w-4 h-4" />
           <span>Add New</span>
@@ -147,11 +147,11 @@ export default function PaymentMatching() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#e0b3af] border-0">
+                <TableRow className="bg-[#eab308] border-0">
                   <TableHead className="font-semibold text-white text-sm text-center py-4">
                     Payment Date
                   </TableHead>
-              
+
                   <TableHead className="font-semibold text-white text-sm text-center py-4">
                     Customer Name
                   </TableHead>
@@ -169,7 +169,7 @@ export default function PaymentMatching() {
                     <TableCell className="text-gray-700 text-sm py-4 text-center">
                       {payment.paymentDate}
                     </TableCell>
-                 
+
                     <TableCell className="text-gray-700 text-sm py-4 text-center">
                       {payment.customerName}
                     </TableCell>
@@ -228,7 +228,7 @@ export default function PaymentMatching() {
                     return `${day}/${month}/${year}`;
                   };
 
-                  const [selectedDate, setSelectedDate] = useState<Date | null>(() => 
+                  const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
                     parseDate(field.value)
                   );
                   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
@@ -399,7 +399,7 @@ export default function PaymentMatching() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 mt-6"
+                className="w-full bg-[#eab308] text-white py-3 mt-6"
               >
                 Save Payment
               </Button>

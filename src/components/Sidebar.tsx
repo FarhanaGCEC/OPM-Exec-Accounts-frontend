@@ -1,11 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { 
+import {
   LayoutGrid,
   FileText,
   Building2,
   Clock,
   DollarSign,
- 
+
   LogOut,
   Users,
   ListOrdered,
@@ -46,10 +46,10 @@ export default function Sidebar() {
       {/* Logo Section */}
       <div className="p-6 border-gray-800">
         <div className="flex items-center space-x-3 mb-2">
-          <img 
-            src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1767004411/gcec-logo-removebg-preview_dtdfbt.png" 
-            alt="GCEC Cloud Logo" 
-            className="h-16" 
+          <img
+            src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1767004411/gcec-logo-removebg-preview_dtdfbt.png"
+            alt="GCEC Cloud Logo"
+            className="h-16"
           />
         </div>
       </div>
@@ -64,11 +64,10 @@ export default function Sidebar() {
               <button
                 key={item.id}
                 onClick={() => navigate(item.path)}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
-                  active
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${active
                     ? 'bg-yellow-500 text-gray-900'
                     : 'text-gray-400 hover:text-gray-300'
-                }`}
+                  }`}
               >
                 <Icon className={`w-5 h-5 ${active ? 'text-gray-900' : 'text-gray-400'}`} />
                 <span className={`text-sm font-medium ${active ? 'text-gray-900' : 'text-gray-400'}`}>
@@ -80,15 +79,26 @@ export default function Sidebar() {
         </div>
       </nav>
 
-      {/* Logout */}
+      {/* User & Logout Section */}
       <div className="p-4 border-t border-gray-800">
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors text-gray-400 hover:text-gray-300"
-        >
-          <LogOut className="w-5 h-5 text-gray-400" />
-          <span className="text-sm text-gray-400">Logout</span>
-        </button>
+        <div className="flex items-center justify-between">
+          {/* Admin Profile (Left) */}
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
+              <span className="text-white text-xs font-semibold">A</span>
+            </div>
+            <span className="text-sm font-medium text-gray-400">Admin</span>
+          </div>
+
+          {/* Logout Button (Right) */}
+          <button
+            onClick={handleLogout}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+            title="Logout"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
       </div>
     </aside>
   );

@@ -75,7 +75,7 @@ type TransactionFormData = z.infer<typeof transactionSchema>;
 
 export default function BankTransaction() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+
   const form = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
@@ -135,7 +135,7 @@ export default function BankTransaction() {
       balance: '0', // Calculate based on previous balance
     };
     setTransactions([newTransaction, ...transactions]);
-    
+
     // Reset form and close modal
     form.reset();
     setIsModalOpen(false);
@@ -147,7 +147,7 @@ export default function BankTransaction() {
         <h2 className="text-2xl font-bold text-gray-900">Bank Transactions</h2>
         <Button
           onClick={() => setIsModalOpen(true)}
-          className="bg-[#bacad9] hover:bg-[#8592a6] text-white flex items-center space-x-2"
+          className="bg-[#eab308] hover:bg-[#eab308] text-white flex items-center space-x-2"
         >
           <Plus className="w-4 h-4" />
           <span>Add New</span>
@@ -160,7 +160,7 @@ export default function BankTransaction() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#bacad9] border-0">
+                <TableRow className="bg-[#eab308] border-0">
                   <TableHead className="font-semibold text-white text-sm text-center py-4">
                     Date
                   </TableHead>
@@ -263,7 +263,7 @@ export default function BankTransaction() {
                     return `${day}/${month}/${year}`;
                   };
 
-                  const [selectedDate, setSelectedDate] = useState<Date | null>(() => 
+                  const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
                     parseDate(field.value)
                   );
                   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
@@ -432,7 +432,7 @@ export default function BankTransaction() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3 mt-6"
+                className="w-full bg-[#eab308] text-white py-3 mt-6"
               >
                 Save Transaction
               </Button>

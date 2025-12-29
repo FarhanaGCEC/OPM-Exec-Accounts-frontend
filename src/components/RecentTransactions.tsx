@@ -26,11 +26,10 @@ interface RecentTransactionsProps {
 const TransactionTypeBadge = ({ type }: { type: 'Debit' | 'Credit' }) => {
   return (
     <span
-      className={`inline-flex items-center px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${
-        type === 'Debit'
-          ? 'bg-red-100 text-red-700'
-          : 'bg-green-100 text-green-700'
-      }`}
+      className={`inline-flex items-center px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${type === 'Debit'
+        ? 'bg-red-100 text-red-700'
+        : 'bg-green-100 text-green-700'
+        }`}
     >
       {type}
     </span>
@@ -62,9 +61,8 @@ const TransactionRowMobile = ({ transaction }: { transaction: Transaction }) => 
         <div>
           <p className="text-xs text-gray-500">Amount</p>
           <p
-            className={`font-semibold text-sm ${
-              transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
-            }`}
+            className={`font-semibold text-sm ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
+              }`}
           >
             {transaction.amount} AED
           </p>
@@ -89,9 +87,8 @@ const TransactionTableRow = ({ transaction }: { transaction: Transaction }) => {
         <TransactionTypeBadge type={transaction.type} />
       </TableCell>
       <TableCell
-        className={`font-semibold text-sm py-4 ${
-          transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
-        }`}
+        className={`font-semibold text-sm py-4 ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
+          }`}
       >
         {transaction.amount} AED
       </TableCell>
@@ -136,20 +133,20 @@ export default function RecentTransactions({
         <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader >
-              <TableRow className="border-b border-gray-200">
-                <TableHead className="font-semibold text-gray-700 text-sm text-center">
+              <TableRow className="bg-[#eab308] border-b border-gray-200">
+                <TableHead className="font-semibold text-white text-sm text-center">
                   DATE
                 </TableHead>
-                <TableHead className="font-semibold text-gray-700 text-sm text-center">
+                <TableHead className="font-semibold text-white text-sm text-center">
                   DESCRIPTION
                 </TableHead>
-                <TableHead className="font-semibold text-gray-700 text-sm text-center">
+                <TableHead className="font-semibold text-white text-sm text-center">
                   TYPE
                 </TableHead>
-                <TableHead className="font-semibold text-gray-700 text-sm text-center">
+                <TableHead className="font-semibold text-white text-sm text-center">
                   AMOUNT
                 </TableHead>
-                <TableHead className="font-semibold text-gray-700 text-sm text-center">
+                <TableHead className="font-semibold text-white text-sm text-center">
                   STATUS
                 </TableHead>
               </TableRow>
