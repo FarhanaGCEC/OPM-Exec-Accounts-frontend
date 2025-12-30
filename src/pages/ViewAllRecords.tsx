@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Card, CardContent } from '../components/ui/card';
+import { Card, CardContent} from '../components/ui/card';
 import Layout from '../components/Layout';
 import {
-  Search,
+  
   Wallet,
   ArrowUp,
   ArrowDown,
@@ -19,7 +19,7 @@ import {
 
 export default function ViewAllRecords() {
   const [activeTab, setActiveTab] = useState('online');
-  const [searchQuery, setSearchQuery] = useState('');
+ 
 
   const summaryCards = [
     {
@@ -161,15 +161,7 @@ export default function ViewAllRecords() {
       return false;
     }
 
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return (
-        transaction.description.toLowerCase().includes(query) ||
-        transaction.details.toLowerCase().includes(query) ||
-        transaction.date.includes(query)
-      );
-    }
+ 
 
     return true;
   });
@@ -177,13 +169,19 @@ export default function ViewAllRecords() {
   return (
     <Layout>
 
+<div className="mb-6 flex flex-col gap-2 items-start justify-start">
+  <h2 className="text-2xl font-bold text-gray-900">Account Summary</h2>
 
+</div>
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+     
         {summaryCards.map((card, index) => {
           const Icon = card.icon;
           return (
+           
             <Card key={index} className={`${card.cardBg} hover:shadow-xl transition-all duration-300 border-0 rounded-2xl overflow-hidden border-gray-200 border-2`}>
+           
               <CardContent className="p-4 relative h-40 flex flex-col justify-between">
                 {/* Illustration/Icon Area */}
                 <div className="absolute right-3 top-3">
@@ -215,13 +213,15 @@ export default function ViewAllRecords() {
                 </div>
               </CardContent>
             </Card>
+        
           );
         })}
       </div>
 
       {/* Search Bar and Tabs */}
       <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="relative flex-1 w-full sm:max-w-md">
+        <h2 className="text-2xl font-bold text-gray-900">Detail Statement</h2>
+        {/* <div className="relative flex-1 w-full sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
@@ -230,7 +230,7 @@ export default function ViewAllRecords() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
           />
-        </div>
+        </div> */}
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('all')}

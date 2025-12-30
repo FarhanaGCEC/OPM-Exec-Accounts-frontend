@@ -2,13 +2,20 @@ import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
 
 export interface BankTransaction {
-  id: string;
+  id?: string | number;
   date: string;
-  type: 'Debit' | 'Credit';
-  description: string;
-  details: string;
-  amount: string;
-  balance: string;
+  category?: string; // Category name from API
+  categoryId?: string | number; // For POST/PUT requests
+  type?: 'Debit' | 'Credit'; // For POST/PUT requests
+  paymentType: 'creditcard' | 'cheque' | 'cash';
+  chequeNumber?: string;
+  debit?: number | null; // From API response
+  credit?: number | null; // From API response
+  amount?: number | string; // For POST/PUT requests
+  balance?: string | number;
+  createdBy?: number;
+  createdByUsername?: string;
+  createdAt?: string;
 }
 
 export interface PostDatedCheque {
@@ -32,19 +39,19 @@ export interface PaymentMatching {
 export const transactionService = {
   // Bank Transactions
   getBankTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
-    return api.get<BankTransaction[]>('/transactions/bank');
+    return api.get<BankTransaction[]>('/transactions');
   },
 
   createBankTransaction: async (data: Omit<BankTransaction, 'id' | 'balance'>): Promise<ApiResponse<BankTransaction>> => {
-    return api.post<BankTransaction>('/transactions/bank', data);
+    return api.post<BankTransaction>('/transactions', data);
   },
 
   updateBankTransaction: async (id: string, data: Partial<BankTransaction>): Promise<ApiResponse<BankTransaction>> => {
-    return api.put<BankTransaction>(`/transactions/bank/${id}`, data);
+    return api.put<BankTransaction>(`/transactions/${id}`, data);
   },
 
   deleteBankTransaction: async (id: string): Promise<ApiResponse<void>> => {
-    return api.delete<void>(`/transactions/bank/${id}`);
+    return api.delete<void>(`/transactions/${id}`);
   },
 
   // Post-Dated Cheques

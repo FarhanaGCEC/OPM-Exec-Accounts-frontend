@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutGrid,
-  FileText,
   Building2,
   Clock,
   DollarSign,
@@ -19,13 +18,12 @@ interface MenuItem {
 
 const menuItems: MenuItem[] = [
   { id: 'overview', label: 'Dashboard', icon: LayoutGrid, path: '/dashboard' },
-  { id: 'records', label: 'View All Records', icon: FileText, path: '/records' },
   { id: 'bank', label: ' DailyTransactions', icon: Building2, path: '/bank' },
   { id: 'cheque', label: 'Post-Dated Cheque', icon: Clock, path: '/cheque' },
   { id: 'matching', label: 'Customer Credit Cards Payments', icon: DollarSign, path: '/matching' },
   { id: 'category', label: 'Payables List', icon: ListOrdered, path: '/category' },
-  // { id: 'beneficiary', label: 'GCEC Beneficiary', icon: Users, path: '/beneficiary' },
-  // { id: 'export', label: 'Export Data', icon: Download, path: '/export' },
+  { id: 'reciveables', label: 'Reciveables List', icon: ListOrdered, path: '/reciveables' },
+
 ];
 
 export default function Sidebar() {
