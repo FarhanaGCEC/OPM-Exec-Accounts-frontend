@@ -148,17 +148,17 @@ export default function PaymentMatching() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Payment Date
                   </TableHead>
 
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Customer Name
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Payment Method
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Amount (AED)
                   </TableHead>
                 </TableRow>
@@ -166,17 +166,17 @@ export default function PaymentMatching() {
               <TableBody>
                 {payments.map((payment) => (
                   <TableRow key={payment.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <TableCell className="text-gray-700 text-sm py-4 text-center">
+                    <TableCell className="text-gray-700 text-sm py-4 text-left">
                       {payment.paymentDate}
                     </TableCell>
 
-                    <TableCell className="text-gray-700 text-sm py-4 text-center">
+                    <TableCell className="text-gray-700 text-sm py-4 text-left">
                       {payment.customerName}
                     </TableCell>
-                    <TableCell className="text-gray-600 text-sm py-4 text-center">
+                    <TableCell className="text-gray-600 text-sm py-4 text-left">
                       Credit Card
                     </TableCell>
-                    <TableCell className="text-gray-700 font-semibold text-sm py-4 text-center">
+                    <TableCell className="text-gray-700 font-semibold text-sm py-4 text-left">
                       {payment.amount} AED
                     </TableCell>
                   </TableRow>

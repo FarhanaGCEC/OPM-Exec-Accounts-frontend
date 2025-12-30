@@ -11,9 +11,10 @@ import { Input } from '../components/ui/input';
 import { Checkbox } from '../components/ui/checkbox';
 import { User, Lock } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { authService } from '../services/authService';
 
 type LoginFormData = {
-  email: string;
+  username: string;
   password: string;
 };
 
@@ -23,7 +24,7 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [formData, setFormData] = useState<LoginFormData>({
-    email: '',
+    username: '',
     password: '',
   });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginFormData, string>>>({});
@@ -31,10 +32,9 @@ export default function Auth() {
   const validateForm = (): boolean => {
     const newErrors: Partial<Record<keyof LoginFormData, string>> = {};
     
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Invalid email format';
+    if (!formData.username) {
+      newErrors.username = 'Username is required';
+    
     }
     
     if (!formData.password) {
@@ -56,26 +56,38 @@ export default function Auth() {
     
     setError(false);
     setLoading(true);
+    
     try {
-      // TODO: Replace with actual authentication logic
-      // For now, just simulate an API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await authService.login({
+        username: formData.username,
+        password: formData.password,
+       
+      });
       
-      // Simulate successful authentication
-      // In production, replace this with actual API call
-      // For demo purposes, accept any valid email/password
-      if (formData.email && formData.password.length >= 6) {
-        // Store auth token/session if needed
+      if (response.success && response.data) {
+        // Store auth token
+        localStorage.setItem('authToken', response.data.token);
+        
+        // Store user name
+        if (response.data.user?.name) {
+          localStorage.setItem('userName', response.data.user.name);
+        } else if (response.data.user?.username) {
+          localStorage.setItem('userName', response.data.user.username);
+        }
+        
+        // Store remember me preference
         if (rememberMe) {
           localStorage.setItem('rememberMe', 'true');
         }
+        
         // Redirect to dashboard
         navigate('/dashboard');
       } else {
         setError(true);
       }
-    } catch (err) {
+    } catch (err: any) {
       setError(true);
+      console.error('Login error:', err);
     } finally {
       setLoading(false);
     }
@@ -115,21 +127,21 @@ export default function Auth() {
                   <User className="w-5 h-5 text-gray-600" strokeWidth={2} />
                 </div>
                 <Input
-                  id="email"
+                  id="username"
                   placeholder="Username"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  type="text"
+                  value={formData.username}
+                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                   className={cn(
                     "pl-10 pr-4 py-2 bg-white rounded-md text-gray-800 border",
-                    errors.email || error ? "border-red-500" : "border-gray-300"
+                    errors.username || error ? "border-red-500" : "border-gray-300"
                   )}
                   style={{ position: 'relative', zIndex: 10 }}
                 />
               </div>
-              {errors.email && (
+              {errors.username && (
                 <p className="mt-1 text-sm text-red-500 min-h-[20px]">
-                  {errors.email}
+                  {errors.username}
                 </p>
               )}
             </div>

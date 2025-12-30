@@ -148,20 +148,20 @@ export default function PostDatedCheque() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Cheque Date
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Customer Name
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Cheque Number
                   </TableHead>
 
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Amount (AED)
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Remarks
                   </TableHead>
                 </TableRow>
@@ -177,24 +177,24 @@ export default function PostDatedCheque() {
                         : 'border-gray-100 hover:bg-gray-50'
                         }`}
                     >
-                      <TableCell className={`text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                      <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                         }`}>
                         {cheque.chequeDate}
                       </TableCell>
-                      <TableCell className={`text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                      <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                         }`}>
                         {cheque.customerName}
                       </TableCell>
-                      <TableCell className={`font-medium text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                      <TableCell className={`font-medium text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                         }`}>
                         {cheque.chequeNumber}
                       </TableCell>
 
-                      <TableCell className={`font-semibold text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                      <TableCell className={`font-semibold text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                         }`}>
                         {cheque.amount} AED
                       </TableCell>
-                      <TableCell className={`text-sm py-4 text-center ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                      <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
                         }`}>
                         {cheque.chequeType === 'Security Cheque' ? 'Security Cheque' : ''}
                         { }

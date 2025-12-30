@@ -161,22 +161,22 @@ export default function BankTransaction() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Date
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Description
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Details
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Debit
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Credit
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-center py-4">
+                  <TableHead className="font-semibold text-white text-sm text-left py-4">
                     Balance
                   </TableHead>
                 </TableRow>
@@ -184,16 +184,16 @@ export default function BankTransaction() {
               <TableBody>
                 {transactions.map((transaction) => (
                   <TableRow key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <TableCell className="text-gray-700 text-sm py-4 text-center">
+                    <TableCell className="text-gray-700 text-sm py-4 text-left">
                       {transaction.date}
                     </TableCell>
-                    <TableCell className="text-gray-700 font-medium text-sm py-4 text-center">
+                    <TableCell className="text-gray-700 font-medium text-sm py-4 text-left">
                       {transaction.description}
                     </TableCell>
-                    <TableCell className="text-gray-600 text-sm py-4 text-center">
+                    <TableCell className="text-gray-600 text-sm py-4 text-left">
                       {transaction.details}
                     </TableCell>
-                    <TableCell className="text-sm py-4 text-center">
+                    <TableCell className="text-sm py-4 text-left">
                       {transaction.type === 'Debit' ? (
                         <span className="text-red-600 font-semibold">
                           {transaction.amount} AED
@@ -202,7 +202,7 @@ export default function BankTransaction() {
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-sm py-4 text-center">
+                    <TableCell className="text-sm py-4 text-left">
                       {transaction.type === 'Credit' ? (
                         <span className="text-green-600 font-semibold">
                           {transaction.amount} AED
@@ -211,7 +211,7 @@ export default function BankTransaction() {
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-gray-700 font-semibold text-sm py-4 text-center">
+                    <TableCell className="text-gray-700 font-semibold text-sm py-4 text-left">
                       {transaction.balance} AED
                     </TableCell>
                   </TableRow>

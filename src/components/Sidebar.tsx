@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutGrid,
@@ -5,9 +6,7 @@ import {
   Building2,
   Clock,
   DollarSign,
-
   LogOut,
-  Users,
   ListOrdered,
 } from 'lucide-react';
 
@@ -21,24 +20,49 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
   { id: 'overview', label: 'Dashboard', icon: LayoutGrid, path: '/dashboard' },
   { id: 'records', label: 'View All Records', icon: FileText, path: '/records' },
-  { id: 'bank', label: 'Transactions/Payables', icon: Building2, path: '/bank' },
+  { id: 'bank', label: ' DailyTransactions', icon: Building2, path: '/bank' },
   { id: 'cheque', label: 'Post-Dated Cheque', icon: Clock, path: '/cheque' },
   { id: 'matching', label: 'Customer Credit Cards Payments', icon: DollarSign, path: '/matching' },
-  { id: 'category', label: 'Payables Category', icon: ListOrdered, path: '/category' },
-  { id: 'beneficiary', label: 'GCEC Beneficiary', icon: Users, path: '/beneficiary' },
+  { id: 'category', label: 'Payables List', icon: ListOrdered, path: '/category' },
+  // { id: 'beneficiary', label: 'GCEC Beneficiary', icon: Users, path: '/beneficiary' },
   // { id: 'export', label: 'Export Data', icon: Download, path: '/export' },
 ];
 
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [userName, setUserName] = useState<string>('Admin');
+
+  // Get user name from localStorage
+  useEffect(() => {
+    const name = localStorage.getItem('userName') || 'Admin';
+    setUserName(name);
+    
+    // Listen for storage changes (in case name is updated elsewhere)
+    const handleStorageChange = () => {
+      const updatedName = localStorage.getItem('userName') || 'Admin';
+      setUserName(updatedName);
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const handleLogout = () => {
+    // Clear auth data
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userName');
+    localStorage.removeItem('rememberMe');
     navigate('/');
   };
 
   const isActive = (path: string) => {
     return location.pathname === path;
+  };
+
+  // Get first letter of name for avatar
+  const getInitial = (name: string) => {
+    return name.charAt(0).toUpperCase();
   };
 
   return (
@@ -82,12 +106,16 @@ export default function Sidebar() {
       {/* User & Logout Section */}
       <div className="p-4 border-t border-gray-800">
         <div className="flex items-center justify-between">
-          {/* Admin Profile (Left) */}
+          {/* User Profile (Left) */}
           <div className="flex items-center space-x-2">
             <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs font-semibold">A</span>
+              <span className="text-white text-xs font-semibold">
+                {getInitial(userName)}
+              </span>
             </div>
-            <span className="text-sm font-medium text-gray-400">Admin</span>
+            <span className="text-sm font-medium text-gray-400">
+              {userName}
+            </span>
           </div>
 
           {/* Logout Button (Right) */}
