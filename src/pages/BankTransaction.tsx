@@ -35,10 +35,11 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, DollarSign, TrendingUp, TrendingDown, Wallet } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, TrendingDown, TrendingUp, Wallet, Download } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
+import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import type { ApiResponse } from '../lib/api';
@@ -62,7 +63,7 @@ const transactionSchema = z.object({
   }),
   categoryId: z.string()
     .min(1, 'Category is required'),
-  paymentType: z.enum(['creditcard', 'cheque', 'cash'], {
+  paymentType: z.enum(['creditcard', 'cheque', 'cash', 'banktransfer'], {
     required_error: 'Please select a payment type',
   }),
   chequeNumber: z.string().optional(),
@@ -109,7 +110,8 @@ export default function BankTransaction() {
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [categories, setCategories] = useState<PayablesCategory[]>([]);
+  const [payablesCategories, setPayablesCategories] = useState<PayablesCategory[]>([]);
+  const [receivablesCategories, setReceivablesCategories] = useState<ReceivablesCategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -129,6 +131,7 @@ export default function BankTransaction() {
   });
 
   const paymentType = form.watch('paymentType');
+  const transactionType = form.watch('type');
 
   // Clear cheque number when payment type changes away from cheque
   useEffect(() => {
@@ -137,18 +140,34 @@ export default function BankTransaction() {
     }
   }, [paymentType, form]);
 
-  // Fetch categories on component mount
+  // Clear category when transaction type changes
+  useEffect(() => {
+    form.setValue('categoryId', '');
+  }, [transactionType, form]);
+
+  // Fetch both payables and receivables categories
   const fetchCategories = useCallback(async () => {
     try {
       setLoadingCategories(true);
-      const response: ApiResponse<PayablesCategory[]> = await payablesService.getPayables();
       
-      if (response.success && response.data && Array.isArray(response.data)) {
-        const categoriesData = response.data.map(cat => ({
+      // Fetch payables categories
+      const payablesResponse: ApiResponse<PayablesCategory[]> = await payablesService.getPayables();
+      if (payablesResponse.success && payablesResponse.data && Array.isArray(payablesResponse.data)) {
+        const payablesData = payablesResponse.data.map(cat => ({
           ...cat,
           id: String(cat.id),
         }));
-        setCategories(categoriesData);
+        setPayablesCategories(payablesData);
+      }
+      
+      // Fetch receivables categories
+      const receivablesResponse: ApiResponse<ReceivablesCategory[]> = await receivablesService.getReceivables();
+      if (receivablesResponse.success && receivablesResponse.data && Array.isArray(receivablesResponse.data)) {
+        const receivablesData = receivablesResponse.data.map(cat => ({
+          ...cat,
+          id: String(cat.id),
+        }));
+        setReceivablesCategories(receivablesData);
       }
     } catch (err) {
       console.error('Error fetching categories:', err);
@@ -160,6 +179,15 @@ export default function BankTransaction() {
   useEffect(() => {
     fetchCategories();
   }, [fetchCategories]);
+
+  // Get categories based on transaction type
+  const getAvailableCategories = () => {
+    if (transactionType === 'Debit') {
+      return payablesCategories;
+    } else {
+      return receivablesCategories;
+    }
+  };
 
   // Fetch transactions on component mount
   const fetchTransactions = useCallback(async () => {
@@ -187,12 +215,16 @@ export default function BankTransaction() {
             ? transaction.balance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
             : String(transaction.balance || '0');
           
+          // Convert 'online' from API to 'banktransfer' for frontend consistency
+          const frontendPaymentType = transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
+          
           return {
             ...transaction,
             id: String(transaction.id || ''),
             date: formattedDate, // Formatted date for display
             originalDate: transaction.date, // Store original ISO date for editing
             categoryName: transaction.category || 'N/A', // Use category from API
+            paymentType: frontendPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
             debit: transaction.debit,
             credit: transaction.credit,
             debitFormatted: debitAmount,
@@ -226,18 +258,21 @@ export default function BankTransaction() {
       const amountNumber = parseFloat(data.amount.replace(/,/g, ''));
 
       // Prepare payload for API
+      // Convert 'banktransfer' to 'online' for API
+      const apiPaymentType = data.paymentType === 'banktransfer' ? 'online' : data.paymentType;
+      
       const payload: {
         date: string;
         type: 'Debit' | 'Credit';
         categoryId: string | number;
-        paymentType: 'creditcard' | 'cheque' | 'cash';
+        paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
         chequeNumber?: string;
         amount: number;
       } = {
         date: data.date, // Format: dd/mm/yyyy
         type: data.type,
         categoryId: data.categoryId,
-        paymentType: data.paymentType,
+        paymentType: apiPaymentType as 'creditcard' | 'cheque' | 'cash' | 'online',
         amount: amountNumber,
       };
 
@@ -259,8 +294,9 @@ export default function BankTransaction() {
       }
 
       if (response.success && response.data) {
-        // Find category name for display
-        const selectedCategory = categories.find(cat => String(cat.id) === data.categoryId);
+        // Find category name for display based on transaction type
+        const categoryList = data.type === 'Debit' ? payablesCategories : receivablesCategories;
+        const selectedCategory = categoryList.find(cat => String(cat.id) === data.categoryId);
         
         // Format amount with commas for display
         const amountValue = typeof response.data.amount === 'number' 
@@ -355,19 +391,23 @@ export default function BankTransaction() {
       ? String(transaction.debit).replace(/,/g, '')
       : String(transaction.credit || 0).replace(/,/g, '');
     
-    // Find category ID from category name
-    const category = categories.find(cat => cat.name === transaction.categoryName);
+    // Find category ID from category name - search in the correct list based on type
+    const categoryList = transactionType === 'Debit' ? payablesCategories : receivablesCategories;
+    const category = categoryList.find(cat => cat.name === transaction.categoryName);
+    
+    // Ensure paymentType is 'banktransfer' not 'online' for form
+    const formPaymentType = transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
     
     form.reset({
       date: dateValue,
       type: transactionType as 'Debit' | 'Credit',
       categoryId: category ? String(category.id) : '',
-      paymentType: transaction.paymentType,
+      paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
       chequeNumber: transaction.chequeNumber && transaction.chequeNumber !== '-' ? transaction.chequeNumber : '',
       amount: amountValue,
     });
     setIsModalOpen(true);
-  }, [form, categories]);
+  }, [form, payablesCategories, receivablesCategories]);
 
   const handleDeleteClick = useCallback((id: string) => {
     setDeletingTransactionId(id);
@@ -438,104 +478,207 @@ export default function BankTransaction() {
         return (balance as number) || 0;
       })()
     : 0;
-  const totalTransactions = transactions.length;
 
   // Summary cards data
   const summaryCards = [
-    {
-      title: 'Total Debit',
-      value: totalDebit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-      currency: 'AED',
-      icon: TrendingDown,
-      cardBg: 'bg-gradient-to-br from-red-50 to-red-100',
-      iconBg: 'bg-red-500',
-      textColor: 'text-red-700',
-    },
-    {
-      title: 'Total Credit',
-      value: totalCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-      currency: 'AED',
-      icon: TrendingUp,
-      cardBg: 'bg-gradient-to-br from-green-50 to-green-100',
-      iconBg: 'bg-green-500',
-      textColor: 'text-green-700',
-    },
     {
       title: 'Current Balance',
       value: currentBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
       currency: 'AED',
       icon: Wallet,
-      cardBg: 'bg-gradient-to-br from-blue-50 to-blue-100',
-      iconBg: 'bg-blue-500',
-      textColor: 'text-blue-700',
+      cardBg: 'bg-white',
+      iconBg: 'bg-green-100',
+      iconColor: 'text-green-600',
+      textColor: 'text-green-700',
     },
     {
-      title: 'Total Transactions',
-      value: totalTransactions.toString(),
-      currency: '',
-      icon: DollarSign,
-      cardBg: 'bg-gradient-to-br from-yellow-50 to-yellow-100',
-      iconBg: 'bg-yellow-500',
-      textColor: 'text-yellow-700',
+      title: 'Total Debits',
+      value: totalDebit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+      currency: 'AED',
+      icon: TrendingDown,
+      cardBg: 'bg-white',
+      iconBg: 'bg-red-100',
+      iconColor: 'text-red-600',
+      textColor: 'text-red-700',
     },
+    {
+      title: 'Total Credits',
+      value: totalCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+      currency: 'AED',
+      icon: TrendingUp,
+      cardBg: 'bg-white',
+      iconBg: 'bg-green-100',
+      iconColor: 'text-green-600',
+      textColor: 'text-green-700',
+    },
+  
   ];
 
   // Filter transactions based on active tab
   const filteredTransactions = transactions.filter(transaction => {
     // Filter by payment type
-    if (activeTab === 'online' && transaction.paymentType !== 'creditcard') return false;
+    // 'online' tab shows both creditcard and banktransfer (which comes as 'online' from API)
+    if (activeTab === 'online' && transaction.paymentType !== 'creditcard' && transaction.paymentType !== 'banktransfer') return false;
     if (activeTab === 'cheque' && transaction.paymentType !== 'cheque') return false;
     if (activeTab === 'cash' && transaction.paymentType !== 'cash') return false;
     
     return true;
   });
 
+  // CSV Download function
+  const handleDownloadCSV = useCallback(() => {
+    // Parse dates from transactions
+    const parseDate = (t: any) => {
+      if (t.originalDate) return new Date(t.originalDate);
+      const parts = t.date?.split('-');
+      if (parts?.length === 3) {
+        const months: any = { 
+          Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
+        };
+        return new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+      }
+      return null;
+    };
+
+    const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
+    const startDate = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
+    const endDate = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
+
+    const formatDate = (d: Date) => {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+    };
+
+    // Get closing balance
+    const latestBalance = filteredTransactions[0]?.balance || 0;
+    const closingBalanceValue = Number(String(latestBalance).replace(/,/g, '').replace('AED', '').trim()) || 0;
+    const closingBalance = closingBalanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const csvRows: string[] = [];
+
+    // ----- COMPANY HEADER (outside table) -----
+    csvRows.push('GCEC CLOUD SECURITY & SURVEILLANCE');
+    csvRows.push('');
+    csvRows.push('');
+
+    // ----- ACCOUNT INFORMATION (outside table - using quotes and empty columns to separate from table) -----
+    csvRows.push(`"Account No.","12990685920001 - AED","","","",""`);
+    csvRows.push(`"IBAN","AE720030012990685920001","","","",""`);
+    csvRows.push(`"Start Date","${formatDate(startDate)}","","","",""`);
+    csvRows.push(`"End Date","${formatDate(endDate)}","","","",""`);
+    csvRows.push(`"Closing (Available) Balance","AED ${closingBalance}","","","",""`);
+    csvRows.push('');
+    csvRows.push('');
+    csvRows.push('');
+
+    // ----- TABLE HEADER -----
+    csvRows.push('Date,Description,Details,Debit,Credit,Balance');
+
+    // ----- TABLE ROWS -----
+    filteredTransactions.forEach(t => {
+      // Format payment type for Details column
+      let details = '';
+      if (t.paymentType === 'cheque' && t.chequeNumber && t.chequeNumber !== '-') {
+        details = t.chequeNumber.replace('#', '').trim().padStart(6, '0');
+      } else if (['banktransfer', 'creditcard'].includes(t.paymentType || '')) {
+        details = 'Online';
+      } else if (t.paymentType) {
+        details = t.paymentType;
+      }
+
+      // Format amounts - show 0.00 for zero values (no AED prefix for zero credit)
+      const debitValue = t.debit || 0;
+      const creditValue = t.credit || 0;
+      
+      const debit = debitValue > 0 
+        ? `AED ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : 'AED 0.00';
+      
+      const credit = creditValue > 0
+        ? `AED ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '0.00';
+
+      // Format balance
+      const balanceStr = t.balance || '0';
+      const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
+      const balance = `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      // Escape CSV values properly
+      const safe = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
+
+      csvRows.push([
+        safe(t.date || ''),
+        safe(t.categoryName || 'N/A'),
+        safe(details),
+        safe(debit),
+        safe(credit),
+        safe(balance)
+      ].join(','));
+    });
+
+    // ----- DOWNLOAD -----
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.csv`;
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+  }, [filteredTransactions]);
+  
+  
+
   return (
     <Layout>
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-     
-     {summaryCards.map((card, index) => {
-       const Icon = card.icon;
-       return (
-        
-         <Card key={index} className={`${card.cardBg} hover:shadow-xl transition-all duration-300 border-0 rounded-2xl overflow-hidden border-gray-200 border-2`}>
-        
-           <CardContent className="p-4 relative h-40 flex flex-col justify-between">
-             {/* Illustration/Icon Area */}
-             <div className="absolute right-3 top-3">
-               <div className={`${card.iconBg} p-3 rounded-xl`}>
-                 <Icon className={`w-8 h-8 ${card.textColor}`} />
-               </div>
-             </div>
+        <h1 className="text-2xl text-left font-bold text-gray-900 mb-2">Account Summary</h1>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+   
+          {summaryCards.map((card, index) => {
+            const Icon = card.icon;
+            return (
+            
+              <Card key={index} className={`${card.cardBg} hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden`}>
+                <CardContent className="p-6">
+                  {/* Icon and Content Layout */}
+                  <div className="flex flex-col">
+                    {/* Icon at top */}
+                    <div className="mb-4">
+                      <div className={`${card.iconBg} w-12 h-12 rounded-lg flex items-center justify-center`}>
+                        <Icon className={`w-6 h-6 ${card.iconColor}`} strokeWidth={2} />
+                      </div>
+                    </div>
 
-             {/* Decorative Elements */}
-             <div className="absolute right-0 top-0 w-24 h-24 opacity-10">
-               <div className={`${card.iconBg} rounded-full w-full h-full`}></div>
-             </div>
-
-             {/* Content */}
-             <div className="relative z-10 mt-auto">
-               <p className={`text-xs font-medium ${card.textColor} opacity-80 mb-1`}>
-                 {card.title}
-               </p>
-               <div className="flex items-baseline space-x-1">
-                 <p className={`text-2xl font-bold ${card.textColor}`}>
-                   {card.value}
-                 </p>
-                 {card.currency && (
-                   <span className={`text-base font-semibold ${card.textColor} opacity-80`}>
-                     {card.currency}
-                   </span>
-                 )}
-               </div>
-             </div>
-           </CardContent>
-         </Card>
-     
-       );
-     })}
-   </div>
+                    {/* Value and Label */}
+                    <div className="mt-auto">
+                      <div className="flex items-baseline space-x-1 mb-1">
+                        <p className={`text-2xl font-bold ${card.textColor}`}>
+                          {card.value}
+                        </p>
+                        {card.currency && (
+                          <span className={`text-base font-semibold ${card.textColor}`}>
+                            {card.currency}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-sm font-medium text-gray-600`}>
+                        {card.title}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+            );
+          })}
+        </div>
 
    {/* Search Bar and Tabs */}
    <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -554,8 +697,8 @@ export default function BankTransaction() {
        <button
          onClick={() => setActiveTab('all')}
          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'all'
-           ? 'bg-[#eab308] text-white'
-           : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+           ? 'bg-[#eab308] text-black'
+           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
        >
          All
@@ -563,8 +706,8 @@ export default function BankTransaction() {
        <button
          onClick={() => setActiveTab('online')}
          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'online'
-           ? 'bg-[#eab308] text-white'
-           : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+           ? 'bg-[#eab308] text-black'
+           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
        >
          Online
@@ -572,8 +715,8 @@ export default function BankTransaction() {
        <button
          onClick={() => setActiveTab('cheque')}
          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cheque'
-           ? 'bg-[#eab308] text-white'
-           : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+           ? 'bg-[#eab308] text-black'
+           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
        >
          Cheque
@@ -581,8 +724,8 @@ export default function BankTransaction() {
        <button
          onClick={() => setActiveTab('cash')}
          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cash'
-           ? 'bg-[#eab308] text-white'
-           : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+           ? 'bg-[#eab308] text-black'
+           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
        >
          Cash
@@ -590,10 +733,19 @@ export default function BankTransaction() {
      </div>
    </div>
       
-      <div className="mb-6 flex items-center justify-end">
+      <div className="mb-6 flex items-center justify-end gap-3">
+        <Button
+          onClick={handleDownloadCSV}
+          variant="outline"
+          className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+          disabled={loading || filteredTransactions.length === 0}
+        >
+          <Download className="w-4 h-4" />
+          <span>Download CSV</span>
+        </Button>
         <Button
           onClick={handleAddNew}
-          className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2"
+          className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2"
           disabled={loading}
         >
           <Plus className="w-4 h-4" />
@@ -614,25 +766,25 @@ export default function BankTransaction() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Date
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Category
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Payment Type
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Debit
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Credit
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Balance
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -664,6 +816,8 @@ export default function BankTransaction() {
                       <TableCell className="text-gray-600 text-sm py-4 text-left">
                         {transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
                           ? `#${transaction.chequeNumber}`
+                          : transaction.paymentType === 'banktransfer'
+                          ? 'Online'
                           : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
                       </TableCell>
                       <TableCell className="text-sm py-4 text-left">
@@ -691,7 +845,7 @@ export default function BankTransaction() {
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => handleEdit(transaction)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                            className="p-2 text-black hover:bg-blue-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
                             title="Edit transaction"
                             aria-label={`Edit ${transaction.categoryName}`}
                           >
@@ -699,7 +853,7 @@ export default function BankTransaction() {
                           </button>
                           <button
                             onClick={() => handleDeleteClick(String(transaction.id))}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+                            className="p-2 text-black hover:bg-red-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
                             title="Delete transaction"
                             aria-label={`Delete ${transaction.categoryName}`}
                           >
@@ -830,7 +984,7 @@ export default function BankTransaction() {
                             <PopoverTrigger asChild>
                               <button
                                 type="button"
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer z-10"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-black hover:text-gray-600 cursor-pointer z-10"
                               >
                                 <CalendarIcon className="w-5 h-5" />
                               </button>
@@ -900,12 +1054,14 @@ export default function BankTransaction() {
                             <Loader2 className="w-4 h-4 animate-spin mx-auto mb-1" />
                             Loading categories...
                           </div>
-                        ) : categories.length === 0 ? (
+                        ) : getAvailableCategories().length === 0 ? (
                           <div className="p-2 text-center text-sm text-gray-500">
-                            No categories found
+                            {transactionType === 'Debit' 
+                              ? 'No payables categories found. Please add categories in Payables List.'
+                              : 'No receivables categories found. Please add categories in Receivables List.'}
                           </div>
                         ) : (
-                          categories.map((category) => (
+                          getAvailableCategories().map((category) => (
                             <SelectItem key={String(category.id)} value={String(category.id)}>
                               {category.name}
                             </SelectItem>
@@ -937,6 +1093,7 @@ export default function BankTransaction() {
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="cheque">Cheque</SelectItem>
                         <SelectItem value="creditcard">Credit Card</SelectItem>
+                        <SelectItem value="banktransfer">Online</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -997,7 +1154,7 @@ export default function BankTransaction() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-[#eab308] hover:bg-[#d4a007] text-white py-3 mt-6"
+                className="w-full bg-[#eab308] hover:bg-[#d4a007] text-black py-3 mt-6"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (

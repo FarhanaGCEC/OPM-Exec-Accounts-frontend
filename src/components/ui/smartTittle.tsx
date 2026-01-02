@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+
 import { useState } from "react";
 
 interface SmartTitleProps {
@@ -19,11 +19,11 @@ const SmartTitle = ({ text, length = 30 }: SmartTitleProps) => {
       <span className="p-tittle-md">
         {showLess ? `${text?.slice(0, length)}...` : text}
       </span>
-      <Link
+      <a
         href="#"
         style={{ color: "var(--text-color)", cursor: "pointer" }}
         onClick={() => setShowLess(!showLess)}
-      ></Link>
+      ></a>
     </>
   );
 };

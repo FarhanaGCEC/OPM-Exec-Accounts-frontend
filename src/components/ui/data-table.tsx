@@ -1,16 +1,16 @@
 "use client";
 import * as React from "react";
 import {
-  ColumnDef,
-  SortingState,
+  type ColumnDef,
+  type SortingState,
   flexRender,
   getSortedRowModel,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   useReactTable,
-  ColumnFiltersState,
-  VisibilityState,
+  type ColumnFiltersState,
+  type VisibilityState,
 } from "@tanstack/react-table";
 
 import {
@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/src/components/ui/table";
-import { Input } from "@/src/components/ui/input";
+
 import { Button } from "@/src/components/ui/button";
 import {
   DropdownMenu,
@@ -37,7 +37,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-} from "@/components/ui/pagination";
+} from "@/src/components/ui/pagination";
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -48,7 +48,7 @@ interface DataTableProps<TData, TValue> {
 export function DataTable<TData, TValue>({
   columns,
   data,
-  filterColumn = "name", // Default to "name" if not provided
+
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -90,7 +90,7 @@ export function DataTable<TData, TValue>({
           <DropdownMenuContent align="end">
             {table
               .getAllColumns()
-              .filter((column) => column.getCanHide())
+              .filter(( column) => column.getCanHide())
               .map((column) => (
                 <DropdownMenuCheckboxItem
                   key={column.id}

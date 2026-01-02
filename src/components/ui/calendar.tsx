@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -36,7 +36,15 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
         maxDate={maxDate}
         disabled={disabled}
         className="w-80 p-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-        renderCustomHeader={({ monthDate, decreaseMonth, increaseMonth }) => (
+        renderCustomHeader={({ 
+          monthDate, 
+          decreaseMonth, 
+          increaseMonth 
+        }: {
+          monthDate: Date;
+          decreaseMonth: () => void;
+          increaseMonth: () => void;
+        }) => (
           <div className="flex items-center justify-between px-2 py-1 w-full">
             <button
               onClick={decreaseMonth}

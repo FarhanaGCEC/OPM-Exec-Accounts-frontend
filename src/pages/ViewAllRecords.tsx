@@ -278,22 +278,22 @@ export default function ViewAllRecords() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Date
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Description
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Details
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Debit
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Credit
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Balance
                   </TableHead>
                 </TableRow>

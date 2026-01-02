@@ -244,8 +244,8 @@ export default function ReciveableCategory() {
                     className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
                     disabled={loading}
                 >
-                    <Plus className="w-4 h-4" />
-                    <span>Add New Category</span>
+                    <Plus className="w-4 h-4 text-black" />
+                    <span className="text-black">Add New Receivables Category</span>
                 </Button>
             </div>
 
@@ -261,10 +261,10 @@ export default function ReciveableCategory() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                                    <TableHead className="font-semibold text-white text-sm text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-4">
                                         Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-white text-sm text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-4">
                                         Actions
                                     </TableHead>
                                 </TableRow>
@@ -369,7 +369,7 @@ export default function ReciveableCategory() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#eab308] hover:bg-[#d4a007] text-white px-6"
+                                    className="bg-[#eab308] hover:bg-[#d4a007] text-black px-6"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (
@@ -378,7 +378,7 @@ export default function ReciveableCategory() {
                                             Saving...
                                         </>
                                     ) : (
-                                        editingCategory ? 'Update Category' : 'Create Category'
+                                        editingCategory ? 'Update Receivables Category' : 'Add Receivables Category'
                                     )}
                                 </Button>
                             </div>

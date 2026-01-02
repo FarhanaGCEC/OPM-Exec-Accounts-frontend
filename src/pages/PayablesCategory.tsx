@@ -67,28 +67,49 @@ export default function PayablesCategory() {
             setError(null);
             console.log('[PayablesCategory] Fetching categories...');
             const response: ApiResponse<PayablesCategory[]> = await payablesService.getPayables();
-            console.log('[PayablesCategory] API Response:', response);
+            console.log('[PayablesCategory] Full API Response:', JSON.stringify(response, null, 2));
             
-            if (response.success && response.data && Array.isArray(response.data)) {
-                // Convert id to string if it's a number (for consistency)
-                const categoriesData: PayablesCategory[] = response.data.map(cat => ({
-                    ...cat,
-                    id: String(cat.id), // Convert id to string
-                }));
-                console.log('[PayablesCategory] Setting categories:', categoriesData);
+            // Handle response structure
+            console.log('[PayablesCategory] Response success:', response.success);
+            console.log('[PayablesCategory] Response data type:', typeof response.data);
+            console.log('[PayablesCategory] Response data is array:', Array.isArray(response.data));
+            
+            if (response.success && response.data) {
+                let categoriesData: PayablesCategory[] = [];
+                
+                // Handle if response.data is directly an array
+                if (Array.isArray(response.data)) {
+                    categoriesData = response.data.map((cat: PayablesCategory) => ({
+                        ...cat,
+                        id: String(cat.id),
+                    }));
+                } else if (typeof response.data === 'object') {
+                    // Handle nested structure
+                    const dataObj = response.data as any;
+                    const dataArray = dataObj.data || dataObj.categories || [];
+                    if (Array.isArray(dataArray)) {
+                        categoriesData = dataArray.map((cat: PayablesCategory) => ({
+                            ...cat,
+                            id: String(cat.id),
+                        }));
+                    }
+                }
+                
+                console.log('[PayablesCategory] Processed categories count:', categoriesData.length);
+                console.log('[PayablesCategory] Categories:', categoriesData);
                 setCategories(categoriesData);
             } else {
                 const errorMsg = response?.message || 'Failed to fetch categories';
-                console.error('[PayablesCategory] API returned unsuccessful response:', errorMsg, response);
+                console.error('[PayablesCategory] API error:', errorMsg);
+                console.error('[PayablesCategory] Full response:', response);
                 setError(errorMsg);
-                setCategories([]); // Set empty array on error
+                setCategories([]);
             }
         } catch (err: any) {
-            // Handle both Error instances and ApiError objects
             const errorMessage = err?.message || err?.error || 'Failed to fetch categories';
             console.error('[PayablesCategory] Error fetching categories:', err);
             setError(errorMessage);
-            setCategories([]); // Set empty array on error
+            setCategories([]);
         } finally {
             setLoading(false);
         }
@@ -244,8 +265,8 @@ export default function PayablesCategory() {
                     className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
                     disabled={loading}
                 >
-                    <Plus className="w-4 h-4" />
-                    <span>Add New Category</span>
+                    <Plus className="w-4 h-4 text-black" />
+                    <span className="text-black">Add New Payables Category</span>
                 </Button>
             </div>
 
@@ -261,10 +282,10 @@ export default function PayablesCategory() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                                    <TableHead className="font-semibold text-white text-sm text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-4">
                                         Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-white text-sm text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-4">
                                         Actions
                                     </TableHead>
                                 </TableRow>
@@ -369,7 +390,7 @@ export default function PayablesCategory() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#eab308] hover:bg-[#d4a007] text-white px-6"
+                                    className="bg-[#eab308] hover:bg-[#d4a007] text-black px-6"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (
@@ -378,7 +399,7 @@ export default function PayablesCategory() {
                                             Saving...
                                         </>
                                     ) : (
-                                        editingCategory ? 'Update Category' : 'Create Category'
+                                        editingCategory ? 'Update Payables Category' : 'Add Payables Category'
                                     )}
                                 </Button>
                             </div>

@@ -92,10 +92,10 @@ export default function GCECBeneficiary() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-[#eab308] border-0">
-                                    <TableHead className="font-semibold text-white text-sm text-center py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-center py-4">
                                         Beneficiary Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-white text-sm text-center py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-center py-4">
                                         Bank Name
                                     </TableHead>
                                 </TableRow>

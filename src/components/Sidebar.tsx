@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  LayoutGrid,
-  Building2,
-  Clock,
-  DollarSign,
   LogOut,
   ListOrdered,
+  Home,
+  CreditCard,
+  FileText,
+  
 } from 'lucide-react';
 
 interface MenuItem {
@@ -17,11 +17,11 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { id: 'overview', label: 'Dashboard', icon: LayoutGrid, path: '/dashboard' },
-  { id: 'bank', label: ' DailyTransactions', icon: Building2, path: '/bank' },
-  { id: 'cheque', label: 'Post-Dated Cheque', icon: Clock, path: '/cheque' },
-  { id: 'matching', label: 'Customer Credit Cards Payments', icon: DollarSign, path: '/matching' },
-  { id: 'category', label: 'Payables List', icon: ListOrdered, path: '/category' },
+  { id: 'overview', label: 'Dashboard', icon: Home, path: '/dashboard' },
+  { id: 'bank', label: ' DailyTransactions', icon: CreditCard, path: '/bank' },
+  { id: 'cheque', label: 'Post-Dated Cheque', icon: FileText, path: '/cheque' },
+  { id: 'matching', label: 'Customer Credit Cards Payments', icon: CreditCard, path: '/matching' },
+  { id: 'category', label: 'Payables List', icon: ListOrdered , path: '/category' },
   { id: 'reciveables', label: 'Reciveables List', icon: ListOrdered, path: '/reciveables' },
 
 ];

@@ -68,7 +68,7 @@ const deleteUser = async (id: string) => {
 const loginExample = async () => {
   try {
     const response = await authService.login({
-      email: 'user@example.com',
+      username: 'user@example.com',
       password: 'password123',
       rememberMe: true,
     });
@@ -99,8 +99,9 @@ const createTransactionExample = async () => {
     const response = await transactionService.createBankTransaction({
       date: '2024-01-15',
       type: 'Debit',
-      description: 'Payment',
-      details: 'Details here',
+      category: 'Payment',
+      paymentType: 'creditcard',
+      chequeNumber: 'Details here',
       amount: '1000',
     });
     return response.data;

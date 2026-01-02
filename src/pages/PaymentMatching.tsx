@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -35,17 +35,16 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
+import { transactionService, type PaymentMatching as PaymentMatchingType } from '../services/transactionService';
+import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
+import type { ApiResponse } from '../lib/api';
 
-interface PaymentMatching {
-  id: string;
-  paymentDate: string;
-  invoiceNumber: string;
-  customerName: string;
-  paymentMethod: string;
-  amount: string;
+interface PaymentMatching extends PaymentMatchingType {
+  date?: string; // Formatted date for display
+  amountFormatted?: string; // Formatted amount for display
 }
 
 // Zod validation schema
@@ -53,9 +52,7 @@ const paymentSchema = z.object({
   paymentDate: z.string()
     .min(10, 'Payment date is required')
     .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
-  invoiceNumber: z.string()
-    .min(1, 'Invoice number is required')
-    .min(3, 'Invoice number must be at least 3 characters'),
+  invoiceNumber: z.string().optional(),
   customerName: z.string()
     .min(1, 'Customer name is required')
     .min(3, 'Customer name must be at least 3 characters'),
@@ -72,8 +69,63 @@ const paymentSchema = z.object({
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
+// Format date from ISO to DD-MMM-YYYY (e.g., "01-Jan-2026")
+const formatDateForDisplay = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    
+    const day = String(date.getDate()).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  } catch {
+    return dateString;
+  }
+};
+
+// Convert DD-MMM-YYYY or ISO to dd/mm/yyyy for form
+const convertDateForForm = (dateString: string): string => {
+  try {
+    // Try ISO format first
+    const isoDate = new Date(dateString);
+    if (!isNaN(isoDate.getTime())) {
+      const day = String(isoDate.getDate()).padStart(2, '0');
+      const month = String(isoDate.getMonth() + 1).padStart(2, '0');
+      const year = isoDate.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+    
+    // Try DD-MMM-YYYY format
+    const parts = dateString.split('-');
+    if (parts.length === 3) {
+      const day = parts[0].padStart(2, '0');
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthIndex = months.findIndex(m => m === parts[1]);
+      if (monthIndex !== -1) {
+        const month = String(monthIndex + 1).padStart(2, '0');
+        const year = parts[2];
+        return `${day}/${month}/${year}`;
+      }
+    }
+    
+    return dateString;
+  } catch {
+    return dateString;
+  }
+};
+
 export default function PaymentMatching() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<PaymentMatching | null>(null);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+  const [payments, setPayments] = useState<PaymentMatching[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema),
@@ -86,120 +138,332 @@ export default function PaymentMatching() {
     },
   });
 
-  const [payments, setPayments] = useState<PaymentMatching[]>([
-    {
-      id: '1',
-      paymentDate: '10-Jan-2024',
-      invoiceNumber: 'INV-001',
-      customerName: 'Ahmed Trading LLC',
-      paymentMethod: 'Credit Card',
-      amount: '12,500',
-    },
-    {
-      id: '2',
-      paymentDate: '15-Jan-2024',
-      invoiceNumber: 'INV-002',
-      customerName: 'Emirates Trading Co.',
-      paymentMethod: 'Bank Transfer',
-      amount: '8,750',
-    },
-  ]);
+  // Fetch payments from API
+  const fetchPayments = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('[PaymentMatching] Fetching payments...');
+      const response: ApiResponse<PaymentMatchingType[]> = await transactionService.getPaymentMatchings();
+      console.log('[PaymentMatching] API Response:', response);
+      
+      if (response.success && response.data && Array.isArray(response.data)) {
+        const paymentsData: PaymentMatching[] = response.data.map(payment => {
+          // Format date as DD-MMM-YYYY (e.g., "01-Jan-2026")
+          const formattedDate = formatDateForDisplay(payment.paymentDate);
+          
+          // Format amount
+          let formattedAmount: string;
+          if (typeof payment.amount === 'number') {
+            formattedAmount = payment.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+          } else if (typeof payment.amount === 'string') {
+            const numAmount = parseFloat(payment.amount);
+            formattedAmount = isNaN(numAmount) ? payment.amount : numAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+          } else {
+            formattedAmount = String(payment.amount);
+          }
+          
+          return {
+            ...payment,
+            id: String(payment.id),
+            date: formattedDate,
+            amountFormatted: formattedAmount,
+          };
+        });
+        console.log('[PaymentMatching] Processed payments:', paymentsData);
+        setPayments(paymentsData);
+      } else {
+        const errorMsg = response?.message || 'Failed to fetch payments';
+        console.error('[PaymentMatching] API error:', errorMsg);
+        setError(errorMsg);
+        setPayments([]);
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error || 'Failed to fetch payments';
+      console.error('[PaymentMatching] Error fetching payments:', err);
+      setError(errorMessage);
+      setPayments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const onSubmit = (data: PaymentFormData) => {
-    // Format amount with commas
-    const formattedAmount = parseFloat(data.amount.replace(/,/g, '')).toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
+  useEffect(() => {
+    fetchPayments();
+  }, [fetchPayments]);
+
+  const onSubmit = useCallback(async (data: PaymentFormData) => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+
+      // Prepare payload - all required fields must be included
+      // Keep date in dd/mm/yyyy format as API expects
+      const payload: any = {
+        paymentDate: data.paymentDate, // Keep as dd/mm/yyyy format
+        customerName: data.customerName,
+        paymentMethod: data.paymentMethod,
+        amount: parseFloat(data.amount.replace(/,/g, '')),
+      };
+
+      // Add invoiceNumber if provided
+      if (data.invoiceNumber && data.invoiceNumber.trim()) {
+        payload.invoiceNumber = data.invoiceNumber.trim();
+      }
+
+      console.log('[PaymentMatching] Payload being sent:', JSON.stringify(payload, null, 2));
+
+      let response: ApiResponse<PaymentMatchingType>;
+      
+      if (editingPayment) {
+        console.log('[PaymentMatching] Updating payment:', editingPayment.id, payload);
+        response = await transactionService.updatePaymentMatching(String(editingPayment.id), payload);
+      } else {
+        console.log('[PaymentMatching] Creating payment:', payload);
+        response = await transactionService.createPaymentMatching(payload);
+      }
+
+      if (response.success && response.data) {
+        const updatedPayment: PaymentMatching = {
+          ...response.data,
+          id: String(response.data.id),
+          date: formatDateForDisplay(response.data.paymentDate),
+          amountFormatted: typeof response.data.amount === 'number'
+            ? response.data.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+            : typeof response.data.amount === 'string'
+            ? parseFloat(response.data.amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+            : String(response.data.amount),
+        };
+
+        if (editingPayment) {
+          setPayments(prevPayments =>
+            prevPayments.map(payment =>
+              payment.id === editingPayment.id ? updatedPayment : payment
+            )
+          );
+        } else {
+          setPayments(prevPayments => [updatedPayment, ...prevPayments]);
+        }
+
+        setIsModalOpen(false);
+        form.reset();
+        setEditingPayment(null);
+        setError(null);
+        
+        // Refetch to ensure consistency
+        fetchPayments().catch(err => console.error('Error refetching after save:', err));
+      } else {
+        const errorMsg = response.message || 'Failed to save payment';
+        setError(errorMsg);
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error || 'Failed to save payment';
+      console.error('[PaymentMatching] Error saving payment:', err);
+      setError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [editingPayment, form, fetchPayments]);
+
+  const handleEdit = useCallback((payment: PaymentMatching) => {
+    setEditingPayment(payment);
+    const formDate = convertDateForForm(payment.paymentDate);
+    form.reset({
+      paymentDate: formDate,
+      invoiceNumber: payment.invoiceNumber || '',
+      customerName: payment.customerName,
+      paymentMethod: payment.paymentMethod,
+      amount: typeof payment.amount === 'number' 
+        ? payment.amount.toString() 
+        : typeof payment.amount === 'string'
+        ? payment.amount.replace(/,/g, '')
+        : '',
     });
+    setError(null);
+    setIsModalOpen(true);
+  }, [form]);
 
-    // Add new payment
-    const newPayment: PaymentMatching = {
-      id: Date.now().toString(),
-      paymentDate: data.paymentDate,
-      invoiceNumber: data.invoiceNumber,
-      customerName: data.customerName,
-      paymentMethod: data.paymentMethod,
-      amount: formattedAmount,
-    };
-    setPayments([newPayment, ...payments]);
+  const handleAddNew = useCallback(() => {
+    setEditingPayment(null);
+    form.reset({
+      paymentDate: '',
+      invoiceNumber: '',
+      customerName: '',
+      paymentMethod: 'Credit Card',
+      amount: '',
+    });
+    setError(null);
+    setIsModalOpen(true);
+  }, [form]);
 
-    // Reset form and close modal
-    form.reset();
-    setIsModalOpen(false);
-  };
+  const handleDeleteClick = useCallback((id: string) => {
+    setDeletingPaymentId(id);
+    setError(null);
+    setIsDeleteModalOpen(true);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deletingPaymentId) return;
+
+    try {
+      setIsDeleting(true);
+      setError(null);
+      const response: ApiResponse<void> = await transactionService.deletePaymentMatching(deletingPaymentId);
+      
+      if (response.success) {
+        setPayments(prevPayments =>
+          prevPayments.filter(payment => payment.id !== deletingPaymentId)
+        );
+        setDeletingPaymentId(null);
+        setIsDeleteModalOpen(false);
+      } else {
+        setError(response.message || 'Failed to delete payment');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error || 'Failed to delete payment';
+      setError(errorMessage);
+      console.error('Error deleting payment:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deletingPaymentId]);
+
+  const handleModalClose = useCallback((open: boolean) => {
+    setIsModalOpen(open);
+    if (!open) {
+      form.reset();
+      setEditingPayment(null);
+      setError(null);
+    }
+  }, [form]);
+
+  const getPaymentDescription = useCallback(() => {
+    if (!deletingPaymentId) return '';
+    const payment = payments.find(p => p.id === deletingPaymentId);
+    return payment ? `${payment.customerName} - ${payment.date || payment.paymentDate}` : '';
+  }, [deletingPaymentId, payments]);
 
   return (
     <Layout>
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Payment Matching</h2>
+        <h2 className="text-2xl font-bold text-gray-900">Sales Invoice amount paid against GCEC Purchase Bills</h2>
         <Button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#eab308] text-white flex items-center space-x-2"
+          onClick={handleAddNew}
+          className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
+          disabled={loading}
         >
-          <Plus className="w-4 h-4" />
-          <span>Add New</span>
+          <Plus className="w-4 h-4 text-black" />
+          <span className="text-black">Add New</span>
         </Button>
       </div>
 
+      {error && !isModalOpen && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+
       {/* Payments Table */}
-      <Card className="bg-white border border-gray-200">
+      <Card className="bg-white border border-gray-200 shadow-sm">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Payment Date
                   </TableHead>
-
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Customer Name
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Payment Method
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Amount (AED)
+                  </TableHead>
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                    Actions
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {payments.map((payment) => (
-                  <TableRow key={payment.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <TableCell className="text-gray-700 text-sm py-4 text-left">
-                      {payment.paymentDate}
-                    </TableCell>
-
-                    <TableCell className="text-gray-700 text-sm py-4 text-left">
-                      {payment.customerName}
-                    </TableCell>
-                    <TableCell className="text-gray-600 text-sm py-4 text-left">
-                      Credit Card
-                    </TableCell>
-                    <TableCell className="text-gray-700 font-semibold text-sm py-4 text-left">
-                      {payment.amount} AED
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
+                      <p className="text-sm text-gray-500">Loading payments...</p>
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : !Array.isArray(payments) || payments.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8">
+                      <p className="text-sm text-gray-500 mb-1">No payments found.</p>
+                      <p className="text-xs text-gray-400">Click "Add New" to create your first payment.</p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  payments.map((payment) => (
+                    <TableRow
+                      key={payment.id}
+                      className="border-b border-gray-100 hover:bg-gray-50"
+                    >
+                      <TableCell className="text-sm py-4 text-left text-gray-700">
+                        {payment.date || formatDateForDisplay(payment.paymentDate)}
+                      </TableCell>
+                      <TableCell className="text-sm py-4 text-left text-gray-700">
+                        {payment.customerName}
+                      </TableCell>
+                      <TableCell className="text-gray-600 text-sm py-4 text-left">
+                        {payment.paymentMethod}
+                      </TableCell>
+                      <TableCell className="text-gray-700 font-semibold text-sm py-4 text-left">
+                        {payment.amountFormatted || (typeof payment.amount === 'number' 
+                          ? payment.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+                          : payment.amount)} AED
+                      </TableCell>
+                      <TableCell className="text-sm py-4 text-left">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => handleEdit(payment)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                            title="Edit payment"
+                            aria-label={`Edit ${payment.customerName}`}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(String(payment.id))}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+                            title="Delete payment"
+                            aria-label={`Delete ${payment.customerName}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
 
-      {/* Add Payment Matching Modal */}
-      <Dialog open={isModalOpen} onOpenChange={(open) => {
-        setIsModalOpen(open);
-        if (!open) {
-          form.reset();
-        }
-      }}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* Add/Edit Payment Matching Modal */}
+      <Dialog open={isModalOpen} onOpenChange={handleModalClose}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-gray-900">
-              Add Payment Matching
+              {editingPayment ? 'Update Credit Card Payment' : 'Add Credit Card Payment'}
             </DialogTitle>
           </DialogHeader>
+          {error && (
+            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
               {/* Payment Date Field */}
@@ -260,7 +524,7 @@ export default function PaymentMatching() {
                   return (
                     <FormItem>
                       <FormLabel className="text-sm font-medium text-gray-700">
-                        Payment Date
+                        Payment Date <span className="text-red-500">*</span>
                       </FormLabel>
                       <FormControl>
                         <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
@@ -273,7 +537,6 @@ export default function PaymentMatching() {
                                 if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                 if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                 field.onChange(value);
-                                // Update selectedDate when user types a complete date
                                 if (value.length === 10) {
                                   const date = parseDate(value);
                                   if (date) {
@@ -283,13 +546,14 @@ export default function PaymentMatching() {
                               }}
                               maxLength={10}
                               className="w-full pr-10"
+                              disabled={isSubmitting}
                             />
                             <PopoverTrigger asChild>
                               <button
                                 type="button"
                                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer z-10"
                               >
-                                <CalendarIcon className="w-5 h-5" />
+                                <CalendarIcon className="w-5 h-5 text-black" />
                               </button>
                             </PopoverTrigger>
                           </div>
@@ -320,6 +584,7 @@ export default function PaymentMatching() {
                       <Input
                         placeholder="INV-001"
                         {...field}
+                        disabled={isSubmitting}
                       />
                     </FormControl>
                     <FormMessage />
@@ -334,12 +599,13 @@ export default function PaymentMatching() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm font-medium text-gray-700">
-                      Customer Name
+                      Customer Name <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
                         placeholder="e.g., Ahmed Trading LLC"
                         {...field}
+                        disabled={isSubmitting}
                       />
                     </FormControl>
                     <FormMessage />
@@ -354,7 +620,7 @@ export default function PaymentMatching() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm font-medium text-gray-700">
-                      Payment Method
+                      Payment Method <span className="text-red-500">*</span>
                     </FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
@@ -381,7 +647,7 @@ export default function PaymentMatching() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm font-medium text-gray-700">
-                      Amount (AED)
+                      Amount (AED) <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -389,6 +655,7 @@ export default function PaymentMatching() {
                         step="0.01"
                         placeholder="0.00"
                         {...field}
+                        disabled={isSubmitting}
                       />
                     </FormControl>
                     <FormMessage />
@@ -397,17 +664,44 @@ export default function PaymentMatching() {
               />
 
               {/* Submit Button */}
-              <Button
-                type="submit"
-                className="w-full bg-[#eab308] text-white py-3 mt-6"
-              >
-                Save Payment
-              </Button>
+              <div className="flex justify-end space-x-3 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleModalClose(false)}
+                  disabled={isSubmitting}
+                  className="px-6 text-black"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-[#eab308] hover:bg-[#d4a007] text-black px-6"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      {editingPayment ? 'Updating...' : 'Saving...'}
+                    </>
+                  ) : (
+                    editingPayment ? 'Update Credit Card Payment' : 'Add Credit Card Payment'
+                  )}
+                </Button>
+              </div>
             </form>
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmationDialog
+        open={isDeleteModalOpen}
+        onOpenChange={setIsDeleteModalOpen}
+        onConfirm={handleDeleteConfirm}
+        itemName={getPaymentDescription()}
+        isLoading={isDeleting}
+      />
     </Layout>
   );
 }
-

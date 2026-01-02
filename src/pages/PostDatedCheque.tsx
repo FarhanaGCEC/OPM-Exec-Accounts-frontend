@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -35,17 +35,16 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
+import { transactionService, type PostDatedCheque as PostDatedChequeType } from '../services/transactionService';
+import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
+import type { ApiResponse } from '../lib/api';
 
-interface PostDatedCheque {
-  id: string;
-  chequeDate: string;
-  chequeNumber: string;
-  customerName: string;
-  amount: string;
-  chequeType: string;
+interface PostDatedCheque extends PostDatedChequeType {
+  date?: string; // Formatted date for display
+  amountFormatted?: string; // Formatted amount for display
 }
 
 // Zod validation schema
@@ -58,22 +57,92 @@ const chequeSchema = z.object({
     .min(3, 'Cheque number must be at least 3 characters'),
   customerName: z.string()
     .min(1, 'Customer name is required')
-    .min(3, 'Customer name must be at least 3 characters'),
+    .min(3, 'Customer name must be at least 3 characters')
+    .optional(),
   amount: z.string()
     .min(1, 'Amount is required')
     .refine((val) => {
       const num = parseFloat(val.replace(/,/g, ''));
       return !isNaN(num) && num > 0;
     }, 'Amount must be greater than 0'),
-  chequeType: z.string({
+  pdcType: z.enum(['GCEC PDC', 'Customer PDC', 'Custom PDC'], {
+    required_error: 'Please select a PDC type',
+  }),
+  chequeType: z.enum(['Payment Cheque', 'Security Cheque'], {
     required_error: 'Please select a cheque type',
-  }).min(1, 'Cheque type is required'),
+  }),
+  // Optional fields for Custom PDC
+  customDetails: z.string().optional(),
+}).refine((data) => {
+  // If Custom PDC, customDetails is required
+  if (data.pdcType === 'Custom PDC') {
+    return data.customDetails && data.customDetails.trim().length > 0;
+  }
+  return true;
+}, {
+  message: 'Custom details are required for Custom PDC',
+  path: ['customDetails'],
 });
 
 type ChequeFormData = z.infer<typeof chequeSchema>;
 
+// Format date from ISO to DD-MMM-YYYY (e.g., "01-Jan-2026")
+const formatDateForDisplay = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    
+    const day = String(date.getDate()).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  } catch {
+    return dateString;
+  }
+};
+
+// Convert DD-MMM-YYYY or ISO to dd/mm/yyyy for form
+const convertDateForForm = (dateString: string): string => {
+  try {
+    // Try ISO format first
+    const isoDate = new Date(dateString);
+    if (!isNaN(isoDate.getTime())) {
+      const day = String(isoDate.getDate()).padStart(2, '0');
+      const month = String(isoDate.getMonth() + 1).padStart(2, '0');
+      const year = isoDate.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+    
+    // Try DD-MMM-YYYY format
+    const parts = dateString.split('-');
+    if (parts.length === 3) {
+      const day = parts[0].padStart(2, '0');
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthIndex = months.findIndex(m => m === parts[1]);
+      if (monthIndex !== -1) {
+        const month = String(monthIndex + 1).padStart(2, '0');
+        const year = parts[2];
+        return `${day}/${month}/${year}`;
+      }
+    }
+    
+    return dateString;
+  } catch {
+    return dateString;
+  }
+};
+
 export default function PostDatedCheque() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [editingCheque, setEditingCheque] = useState<PostDatedCheque | null>(null);
+  const [deletingChequeId, setDeletingChequeId] = useState<string | null>(null);
+  const [cheques, setCheques] = useState<PostDatedCheque[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const form = useForm<ChequeFormData>({
     resolver: zodResolver(chequeSchema),
@@ -82,147 +151,461 @@ export default function PostDatedCheque() {
       chequeNumber: '',
       customerName: '',
       amount: '',
+      pdcType: 'GCEC PDC',
       chequeType: 'Payment Cheque',
+      customDetails: '',
     },
   });
 
-  const [cheques, setCheques] = useState<PostDatedCheque[]>([
-    {
-      id: '1',
-      chequeDate: '15-Mar-2024',
-      chequeNumber: 'CHQ-2401',
-      customerName: 'Emirates Trading Co.',
-      amount: '25,000',
-      chequeType: 'Payment Cheque',
-    },
-    {
-      id: '2',
-      chequeDate: '20-Mar-2024',
-      chequeNumber: 'CHQ-2402',
-      customerName: 'Ahmed Trading LLC',
-      amount: '15,500',
-      chequeType: 'Security Cheque',
-    },
-  ]);
+  const pdcType = form.watch('pdcType');
 
-  const onSubmit = (data: ChequeFormData) => {
-    // Format amount with commas
-    const formattedAmount = parseFloat(data.amount.replace(/,/g, '')).toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
+  // Fetch cheques from API
+  const fetchCheques = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('[PostDatedCheque] Fetching cheques...');
+      const response: ApiResponse<PostDatedChequeType[]> = await transactionService.getPostDatedCheques();
+      console.log('[PostDatedCheque] API Response:', response);
+      
+      if (response.success && response.data && Array.isArray(response.data)) {
+        const chequesData: PostDatedCheque[] = response.data.map(cheque => {
+          // Format date as DD-MMM-YYYY (e.g., "01-Jan-2026")
+          const formattedDate = formatDateForDisplay(cheque.chequeDate);
+          
+          // Format amount
+          let formattedAmount: string;
+          if (typeof cheque.amount === 'number') {
+            formattedAmount = cheque.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+          } else if (typeof cheque.amount === 'string') {
+            const numAmount = parseFloat(cheque.amount);
+            formattedAmount = isNaN(numAmount) ? cheque.amount : numAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+          } else {
+            formattedAmount = String(cheque.amount);
+          }
+          
+          return {
+            ...cheque,
+            id: String(cheque.id),
+            date: formattedDate,
+            amountFormatted: formattedAmount,
+          };
+        });
+        console.log('[PostDatedCheque] Processed cheques:', chequesData);
+        setCheques(chequesData);
+      } else {
+        const errorMsg = response?.message || 'Failed to fetch cheques';
+        console.error('[PostDatedCheque] API error:', errorMsg);
+        setError(errorMsg);
+        setCheques([]);
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error || 'Failed to fetch cheques';
+      console.error('[PostDatedCheque] Error fetching cheques:', err);
+      setError(errorMessage);
+      setCheques([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCheques();
+  }, [fetchCheques]);
+
+  const onSubmit = useCallback(async (data: ChequeFormData) => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+
+      // Prepare payload - all required fields must be included
+      // Keep date in dd/mm/yyyy format as API expects
+      const payload: any = {
+        chequeDate: data.chequeDate, // Keep as dd/mm/yyyy format
+        chequeNumber: data.chequeNumber,
+        amount: parseFloat(data.amount.replace(/,/g, '')),
+        pdcType: data.pdcType,
+        chequeType: data.chequeType,
+        customerName: data.customerName ? data.customerName.trim() : '', // Always include, empty string if not provided
+      };
+
+      // Add custom fields if Custom PDC
+      if (data.pdcType === 'Custom PDC') {
+        if (data.customDetails) payload.description = data.customDetails;
+      }
+
+      console.log('[PostDatedCheque] Payload being sent:', JSON.stringify(payload, null, 2));
+
+      let response: ApiResponse<PostDatedChequeType>;
+      
+      if (editingCheque) {
+        console.log('[PostDatedCheque] Updating cheque:', editingCheque.id, payload);
+        response = await transactionService.updatePostDatedCheque(String(editingCheque.id), payload);
+      } else {
+        console.log('[PostDatedCheque] Creating cheque:', payload);
+        response = await transactionService.createPostDatedCheque(payload);
+      }
+
+      if (response.success && response.data) {
+        const updatedCheque: PostDatedCheque = {
+          ...response.data,
+          id: String(response.data.id),
+          date: formatDateForDisplay(response.data.chequeDate),
+          amountFormatted: typeof response.data.amount === 'number'
+            ? response.data.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+            : typeof response.data.amount === 'string'
+            ? parseFloat(response.data.amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+            : String(response.data.amount),
+        };
+
+        if (editingCheque) {
+          setCheques(prevCheques =>
+            prevCheques.map(cheque =>
+              cheque.id === editingCheque.id ? updatedCheque : cheque
+            )
+          );
+        } else {
+          setCheques(prevCheques => [updatedCheque, ...prevCheques]);
+        }
+
+        setIsModalOpen(false);
+        form.reset();
+        setEditingCheque(null);
+        setError(null);
+        
+        // Refetch to ensure consistency
+        fetchCheques().catch(err => console.error('Error refetching after save:', err));
+      } else {
+        const errorMsg = response.message || 'Failed to save cheque';
+        setError(errorMsg);
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error || 'Failed to save cheque';
+      console.error('[PostDatedCheque] Error saving cheque:', err);
+      setError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [editingCheque, form, fetchCheques]);
+
+  const handleEdit = useCallback((cheque: PostDatedCheque) => {
+    setEditingCheque(cheque);
+    const formDate = convertDateForForm(cheque.chequeDate);
+    form.reset({
+      chequeDate: formDate,
+      chequeNumber: cheque.chequeNumber,
+      customerName: cheque.customerName || '',
+      amount: typeof cheque.amount === 'number' 
+        ? cheque.amount.toString() 
+        : typeof cheque.amount === 'string'
+        ? cheque.amount.replace(/,/g, '')
+        : '',
+      pdcType: cheque.pdcType as 'GCEC PDC' | 'Customer PDC' | 'Custom PDC',
+      chequeType: (cheque.chequeType || 'Payment Cheque') as 'Payment Cheque' | 'Security Cheque',
+      customDetails: cheque.description || '',
     });
+    setError(null);
+    setIsModalOpen(true);
+  }, [form]);
 
-    // Add new cheque
-    const newCheque: PostDatedCheque = {
-      id: Date.now().toString(),
-      chequeDate: data.chequeDate,
-      chequeNumber: data.chequeNumber,
-      customerName: data.customerName,
-      amount: formattedAmount,
-      chequeType: data.chequeType,
-    };
-    setCheques([newCheque, ...cheques]);
+  const handleAddNew = useCallback(() => {
+    setEditingCheque(null);
+    form.reset({
+      chequeDate: '',
+      chequeNumber: '',
+      customerName: '',
+      amount: '',
+      pdcType: 'GCEC PDC',
+      chequeType: 'Payment Cheque',
+      customDetails: '',
+    });
+    setError(null);
+    setIsModalOpen(true);
+  }, [form]);
 
-    // Reset form and close modal
-    form.reset();
-    setIsModalOpen(false);
-  };
+  const handleDeleteClick = useCallback((id: string) => {
+    setDeletingChequeId(id);
+    setError(null);
+    setIsDeleteModalOpen(true);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deletingChequeId) return;
+
+    try {
+      setIsDeleting(true);
+      setError(null);
+      const response: ApiResponse<void> = await transactionService.deletePostDatedCheque(deletingChequeId);
+      
+      if (response.success) {
+        setCheques(prevCheques =>
+          prevCheques.filter(cheque => cheque.id !== deletingChequeId)
+        );
+        setDeletingChequeId(null);
+        setIsDeleteModalOpen(false);
+      } else {
+        setError(response.message || 'Failed to delete cheque');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error || 'Failed to delete cheque';
+      setError(errorMessage);
+      console.error('Error deleting cheque:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deletingChequeId]);
+
+  const handleModalClose = useCallback((open: boolean) => {
+    setIsModalOpen(open);
+    if (!open) {
+      form.reset();
+      setEditingCheque(null);
+      setError(null);
+    }
+  }, [form]);
+
+  const getChequeDescription = useCallback(() => {
+    if (!deletingChequeId) return '';
+    const cheque = cheques.find(c => c.id === deletingChequeId);
+    return cheque ? `${cheque.chequeNumber} - ${cheque.date || cheque.chequeDate}` : '';
+  }, [deletingChequeId, cheques]);
 
   return (
     <Layout>
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Post-Dated Cheque</h2>
         <Button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-[#eab308] hover:bg-[#eab308] text-white flex items-center space-x-2"
+          onClick={handleAddNew}
+          className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
+          disabled={loading}
         >
-          <Plus className="w-4 h-4" />
-          <span>Add New</span>
+          <Plus className="w-4 h-4 text-black" />
+          <span className="text-black">Add New</span>
         </Button>
       </div>
 
+      {error && !isModalOpen && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+
       {/* Cheques Table */}
-      <Card className="bg-white border border-gray-200">
+      <Card className="bg-white border border-gray-200 shadow-sm">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Cheque Date
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Customer Name
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Cheque Number
                   </TableHead>
-
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
                     Amount (AED)
                   </TableHead>
-                  <TableHead className="font-semibold text-white text-sm text-left py-4">
-                    Remarks
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                    PDC Type
+                  </TableHead>
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                    Cheque Type
+                  </TableHead>
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                    Custom Details
+                  </TableHead>
+                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                    Actions
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {cheques.map((cheque) => {
-                  const isSecurityCheque = cheque.chequeType === 'Security Cheque';
-                  return (
-                    <TableRow
-                      key={cheque.id}
-                      className={`border-b ${isSecurityCheque
-                        ? 'bg-red-600 hover:bg-red-700'
-                        : 'border-gray-100 hover:bg-gray-50'
-                        }`}
-                    >
-                      <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
-                        }`}>
-                        {cheque.chequeDate}
-                      </TableCell>
-                      <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
-                        }`}>
-                        {cheque.customerName}
-                      </TableCell>
-                      <TableCell className={`font-medium text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
-                        }`}>
-                        {cheque.chequeNumber}
-                      </TableCell>
-
-                      <TableCell className={`font-semibold text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
-                        }`}>
-                        {cheque.amount} AED
-                      </TableCell>
-                      <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
-                        }`}>
-                        {cheque.chequeType === 'Security Cheque' ? 'Security Cheque' : ''}
-                        { }
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
+                      <p className="text-sm text-gray-500">Loading cheques...</p>
+                    </TableCell>
+                  </TableRow>
+                ) : !Array.isArray(cheques) || cheques.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8">
+                      <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
+                      <p className="text-xs text-gray-400">Click "Add New" to create your first cheque.</p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  cheques.map((cheque) => {
+                    const isSecurityCheque = cheque.chequeType === 'Security Cheque';
+                    return (
+                      <TableRow
+                        key={cheque.id}
+                        className={`border-b ${isSecurityCheque
+                          ? 'bg-red-600 hover:bg-red-700'
+                          : 'border-gray-100 hover:bg-gray-50'
+                          }`}
+                      >
+                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                          }`}>
+                          {cheque.date || formatDateForDisplay(cheque.chequeDate)}
+                        </TableCell>
+                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                          }`}>
+                          {cheque.customerName || '-'}
+                        </TableCell>
+                        <TableCell className={`font-medium text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                          }`}>
+                          {cheque.chequeNumber}
+                        </TableCell>
+                        <TableCell className={`font-semibold text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                          }`}>
+                          {cheque.amountFormatted || (typeof cheque.amount === 'number' 
+                            ? cheque.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+                            : cheque.amount)} AED
+                        </TableCell>
+                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                          }`}>
+                          {cheque.pdcType}
+                        </TableCell>
+                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                          }`}>
+                          {cheque.chequeType || '-'}
+                        </TableCell>
+                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                          }`}>
+                          {cheque.pdcType === 'Custom PDC' && cheque.description ? cheque.description : '-'}
+                        </TableCell>
+                        <TableCell className="text-sm py-4 text-left">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleEdit(cheque)}
+                              className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                                isSecurityCheque
+                                  ? 'text-white hover:bg-red-500 focus:ring-white'
+                                  : 'text-blue-600 hover:bg-blue-50 focus:ring-blue-500'
+                              }`}
+                              title="Edit cheque"
+                              aria-label={`Edit ${cheque.chequeNumber}`}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(String(cheque.id))}
+                              className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                                isSecurityCheque
+                                  ? 'text-white hover:bg-red-500 focus:ring-white'
+                                  : 'text-red-600 hover:bg-red-50 focus:ring-red-500'
+                              }`}
+                              title="Delete cheque"
+                              aria-label={`Delete ${cheque.chequeNumber}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
 
-      {/* Add Post-Dated Cheque Modal */}
-      <Dialog open={isModalOpen} onOpenChange={(open) => {
-        setIsModalOpen(open);
-        if (!open) {
-          form.reset();
-        }
-      }}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* Add/Edit Post-Dated Cheque Modal */}
+      <Dialog open={isModalOpen} onOpenChange={handleModalClose}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-gray-900">
-              Add Post-Dated Cheque
+              {editingCheque ? 'Edit Post-Dated Cheque' : 'Add Post-Dated Cheque'}
             </DialogTitle>
           </DialogHeader>
+          {error && (
+            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
+              {/* PDC Type Field */}
+              <FormField
+                control={form.control}
+                name="pdcType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm font-medium text-gray-700">
+                      PDC Type <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select PDC type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="GCEC PDC">GCEC PDC</SelectItem>
+                        <SelectItem value="Customer PDC">Customer PDC</SelectItem>
+                        <SelectItem value="Custom PDC">Custom PDC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Custom PDC Fields - Conditionally shown right after PDC Type */}
+              {pdcType === 'Custom PDC' && (
+                <FormField
+                  control={form.control}
+                  name="customDetails"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm font-medium text-gray-700">
+                        Custom Details <span className="text-red-500">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Enter custom details"
+                          {...field}
+                          disabled={isSubmitting}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {/* Cheque Type Field */}
+              <FormField
+                control={form.control}
+                name="chequeType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm font-medium text-gray-700">
+                      Cheque Type <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select cheque type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="Payment Cheque">Payment Cheque</SelectItem>
+                        <SelectItem value="Security Cheque">Security Cheque</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               {/* Cheque Date Field */}
               <FormField
                 control={form.control}
@@ -237,7 +620,6 @@ export default function PostDatedCheque() {
                     const month = parseInt(parts[1], 10);
                     const year = parseInt(parts[2], 10);
                     if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
-                    // Create date in local timezone to avoid timezone issues
                     return new Date(year, month - 1, day);
                   };
 
@@ -282,7 +664,7 @@ export default function PostDatedCheque() {
                   return (
                     <FormItem>
                       <FormLabel className="text-sm font-medium text-gray-700">
-                        Cheque Date
+                        Cheque Date <span className="text-red-500">*</span>
                       </FormLabel>
                       <FormControl>
                         <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
@@ -295,7 +677,6 @@ export default function PostDatedCheque() {
                                 if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                 if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                 field.onChange(value);
-                                // Update selectedDate when user types a complete date
                                 if (value.length === 10) {
                                   const date = parseDate(value);
                                   if (date) {
@@ -305,6 +686,7 @@ export default function PostDatedCheque() {
                               }}
                               maxLength={10}
                               className="w-full pr-10"
+                              disabled={isSubmitting}
                             />
                             <PopoverTrigger asChild>
                               <button
@@ -336,12 +718,13 @@ export default function PostDatedCheque() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm font-medium text-gray-700">
-                      Cheque Number
+                      Cheque Number <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
                         placeholder="CHQ-2401"
                         {...field}
+                        disabled={isSubmitting}
                       />
                     </FormControl>
                     <FormMessage />
@@ -349,7 +732,7 @@ export default function PostDatedCheque() {
                 )}
               />
 
-              {/* Customer Name Field */}
+              {/* Customer Name Field - Optional */}
               <FormField
                 control={form.control}
                 name="customerName"
@@ -362,6 +745,7 @@ export default function PostDatedCheque() {
                       <Input
                         placeholder="e.g., Emirates Trading Co."
                         {...field}
+                        disabled={isSubmitting}
                       />
                     </FormControl>
                     <FormMessage />
@@ -376,7 +760,7 @@ export default function PostDatedCheque() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-sm font-medium text-gray-700">
-                      Amount (AED)
+                      Amount (AED) <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -384,6 +768,7 @@ export default function PostDatedCheque() {
                         step="0.01"
                         placeholder="0.00"
                         {...field}
+                        disabled={isSubmitting}
                       />
                     </FormControl>
                     <FormMessage />
@@ -391,43 +776,45 @@ export default function PostDatedCheque() {
                 )}
               />
 
-              {/* Cheque Type Field */}
-              <FormField
-                control={form.control}
-                name="chequeType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
-                      Cheque Type
-                    </FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select cheque type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Payment Cheque">Payment Cheque</SelectItem>
-                        <SelectItem value="Security Cheque">Security Cheque</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               {/* Submit Button */}
-              <Button
-                type="submit"
-                className="w-full bg-[#eab308]  text-white py-3 mt-6"
-              >
-                Save Cheque
-              </Button>
+              <div className="flex justify-end space-x-3 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleModalClose(false)}
+                  disabled={isSubmitting}
+                  className="px-6 text-black"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-[#eab308] hover:bg-[#d4a007] text-black px-6"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      {editingCheque ? 'Updating...' : 'Saving...'}
+                    </>
+                  ) : (
+                    editingCheque ? 'Update Cheque' : 'Save Cheque'
+                  )}
+                </Button>
+              </div>
             </form>
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmationDialog
+        open={isDeleteModalOpen}
+        onOpenChange={setIsDeleteModalOpen}
+        onConfirm={handleDeleteConfirm}
+        itemName={getChequeDescription()}
+        isLoading={isDeleting}
+      />
     </Layout>
   );
 }
-
