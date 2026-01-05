@@ -373,7 +373,7 @@ export default function PostDatedCheque() {
   return (
     <Layout>
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Post-Dated Cheque</h2>
+        <h2 className="text-2xl font-bold text-gray-900 pl-8">Post-Dated Cheque</h2>
         <Button
           onClick={handleAddNew}
           className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
