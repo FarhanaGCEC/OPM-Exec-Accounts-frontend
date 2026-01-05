@@ -21,11 +21,6 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    include: ['react-is'],
-  },
-  build: {
-    commonjsOptions: {
-      include: [/react-is/, /node_modules/],
-    },
+    include: ['react-is', 'recharts'],
   },
 })
