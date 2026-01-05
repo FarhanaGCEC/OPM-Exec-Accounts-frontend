@@ -386,7 +386,7 @@ export default function PostDatedCheque() {
 
       {error && !isModalOpen && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-base text-red-600">{error}</p>
         </div>
       )}
 
@@ -397,28 +397,28 @@ export default function PostDatedCheque() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     Cheque Date
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     Customer Name
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     Cheque Number
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     Amount (AED)
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     PDC Type
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     Cheque Type
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     Custom Details
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-base text-left py-4">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -428,14 +428,14 @@ export default function PostDatedCheque() {
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm text-gray-500">Loading cheques...</p>
+                      <p className="text-base text-gray-500">Loading cheques...</p>
                     </TableCell>
                   </TableRow>
                 ) : !Array.isArray(cheques) || cheques.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8">
-                      <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
-                      <p className="text-xs text-gray-400">Click "Add New" to create your first cheque.</p>
+                      <p className="text-base text-gray-500 mb-1">No cheques found.</p>
+                      <p className="text-sm text-gray-400">Click "Add New" to create your first cheque.</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -449,37 +449,37 @@ export default function PostDatedCheque() {
                           : 'border-gray-100 hover:bg-gray-50'
                           }`}
                       >
-                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                           }`}>
                           {cheque.date || formatDateForDisplay(cheque.chequeDate)}
                         </TableCell>
-                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                           }`}>
                           {cheque.customerName || '-'}
                         </TableCell>
-                        <TableCell className={`font-medium text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        <TableCell className={`font-medium text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                           }`}>
                           {cheque.chequeNumber}
                         </TableCell>
-                        <TableCell className={`font-semibold text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
+                        <TableCell className={`font-semibold text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'
                           }`}>
                           {cheque.amountFormatted || (typeof cheque.amount === 'number' 
                             ? cheque.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
                             : cheque.amount)} AED
                         </TableCell>
-                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
                           }`}>
                           {cheque.pdcType}
                         </TableCell>
-                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
                           }`}>
                           {cheque.chequeType || '-'}
                         </TableCell>
-                        <TableCell className={`text-sm py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
+                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'
                           }`}>
                           {cheque.pdcType === 'Custom PDC' && cheque.description ? cheque.description : '-'}
                         </TableCell>
-                        <TableCell className="text-sm py-4 text-left">
+                        <TableCell className="text-base py-4 text-left">
                           <div className="flex items-center space-x-2">
                             <button
                               onClick={() => handleEdit(cheque)}
@@ -527,7 +527,7 @@ export default function PostDatedCheque() {
           </DialogHeader>
           {error && (
             <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-              <p className="text-sm text-red-600">{error}</p>
+              <p className="text-base text-red-600">{error}</p>
             </div>
           )}
           <Form {...form}>
@@ -538,7 +538,7 @@ export default function PostDatedCheque() {
                 name="pdcType"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-base font-medium text-gray-700">
                       PDC Type <span className="text-red-500">*</span>
                     </FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
@@ -565,7 +565,7 @@ export default function PostDatedCheque() {
                   name="customDetails"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm font-medium text-gray-700">
+                      <FormLabel className="text-base font-medium text-gray-700">
                         Custom Details <span className="text-red-500">*</span>
                       </FormLabel>
                       <FormControl>
@@ -587,7 +587,7 @@ export default function PostDatedCheque() {
                 name="chequeType"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-base font-medium text-gray-700">
                       Cheque Type <span className="text-red-500">*</span>
                     </FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
@@ -663,7 +663,7 @@ export default function PostDatedCheque() {
 
                   return (
                     <FormItem>
-                      <FormLabel className="text-sm font-medium text-gray-700">
+                      <FormLabel className="text-base font-medium text-gray-700">
                         Cheque Date <span className="text-red-500">*</span>
                       </FormLabel>
                       <FormControl>
@@ -717,7 +717,7 @@ export default function PostDatedCheque() {
                 name="chequeNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-base font-medium text-gray-700">
                       Cheque Number <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>
@@ -738,7 +738,7 @@ export default function PostDatedCheque() {
                 name="customerName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-base font-medium text-gray-700">
                       Customer Name
                     </FormLabel>
                     <FormControl>
@@ -759,7 +759,7 @@ export default function PostDatedCheque() {
                 name="amount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-base font-medium text-gray-700">
                       Amount (AED) <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>

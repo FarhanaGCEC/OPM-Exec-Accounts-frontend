@@ -19,6 +19,8 @@ type LoginFormData = {
 };
 
 export default function Auth() {
+  console.log('[Auth] Auth component rendering...');
+  
   const navigate = useNavigate();
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -93,6 +95,8 @@ export default function Auth() {
     }
   };
 
+  console.log('[Auth] Rendering JSX...');
+  
   return (
     <div className="flex items-center justify-center min-h-screen bg-white">
       <Card className="w-full bg-gray-100 rounded-lg border-0 shadow-lg sm:w-96 md:w-96 relative pt-16">
@@ -104,6 +108,13 @@ export default function Auth() {
               width={150} 
               height={150}
               className="block"
+              onError={(e) => {
+                console.error('[Auth] Image failed to load');
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+              onLoad={() => {
+                console.log('[Auth] Image loaded successfully');
+              }}
             />
           </div>
           <h2 className="text-2xl font-bold text-center text-black mt-2">

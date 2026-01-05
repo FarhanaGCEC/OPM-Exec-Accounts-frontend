@@ -197,7 +197,7 @@ export default function ViewAllRecords() {
 
                 {/* Content */}
                 <div className="relative z-10 mt-auto">
-                  <p className={`text-xs font-medium ${card.textColor} opacity-80 mb-1`}>
+                  <p className={`text-sm font-medium ${card.textColor} opacity-80 mb-1`}>
                     {card.title}
                   </p>
                   <div className="flex items-baseline space-x-1">
@@ -205,7 +205,7 @@ export default function ViewAllRecords() {
                       {card.value}
                     </p>
                     {card.currency && (
-                      <span className={`text-base font-semibold ${card.textColor} opacity-80`}>
+                      <span className={`text-lg font-semibold ${card.textColor} opacity-80`}>
                         {card.currency}
                       </span>
                     )}
@@ -228,13 +228,13 @@ export default function ViewAllRecords() {
             placeholder="Search by description, customer, or reference..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
+            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
           />
         </div> */}
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('all')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'all'
+            className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'all'
               ? 'bg-[#eab308] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
@@ -243,7 +243,7 @@ export default function ViewAllRecords() {
           </button>
           <button
             onClick={() => setActiveTab('online')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'online'
+            className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'online'
               ? 'bg-[#eab308] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
@@ -252,7 +252,7 @@ export default function ViewAllRecords() {
           </button>
           <button
             onClick={() => setActiveTab('cheque')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cheque'
+            className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cheque'
               ? 'bg-[#eab308] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
@@ -261,7 +261,7 @@ export default function ViewAllRecords() {
           </button>
           <button
             onClick={() => setActiveTab('cash')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cash'
+            className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cash'
               ? 'bg-[#eab308] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
@@ -278,22 +278,22 @@ export default function ViewAllRecords() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Date
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Description
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Details
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Debit
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Credit
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Balance
                   </TableHead>
                 </TableRow>
@@ -301,16 +301,16 @@ export default function ViewAllRecords() {
               <TableBody>
                 {filteredTransactions.map((transaction, index) => (
                   <TableRow key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <TableCell className="text-gray-700 text-sm py-4 text-left">
+                    <TableCell className="text-gray-700 text-lg py-4 text-left">
                       {transaction.date}
                     </TableCell>
-                    <TableCell className="text-gray-700 font-medium text-sm py-4 text-left">
+                    <TableCell className="text-gray-700 font-medium text-lg py-4 text-left">
                       {transaction.description}
                     </TableCell>
-                    <TableCell className="text-gray-600 text-sm py-4 text-left">
+                    <TableCell className="text-gray-600 text-lg py-4 text-left">
                       {transaction.details}
                     </TableCell>
-                    <TableCell className="text-sm py-4 text-left">
+                    <TableCell className="text-lg py-4 text-left">
                       {transaction.debit ? (
                         <span className="text-red-600 font-semibold">
                           {transaction.debit} AED
@@ -319,7 +319,7 @@ export default function ViewAllRecords() {
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-sm py-4 text-left">
+                    <TableCell className="text-lg py-4 text-left">
                       {transaction.credit ? (
                         <span className="text-green-600 font-semibold">
                           {transaction.credit} AED
@@ -328,7 +328,7 @@ export default function ViewAllRecords() {
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-gray-700 font-semibold text-sm py-4 text-left">
+                    <TableCell className="text-gray-700 font-semibold text-lg py-4 text-left">
                       {transaction.balance} AED
                     </TableCell>
                   </TableRow>

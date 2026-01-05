@@ -79,6 +79,45 @@ export interface PaymentMatching {
   createdAt?: string;
 }
 
+// Analytics API Response
+export interface AnalyticsDataset {
+  label: string;
+  data: number[];
+  backgroundColor: string;
+  borderColor: string;
+  borderWidth: number;
+}
+
+export interface AnalyticsData {
+  labels: string[];
+  datasets: AnalyticsDataset[];
+}
+
+export interface AnalyticsSummary {
+  totalDebit: number;
+  totalCredit: number;
+  totalTransactions: number;
+}
+
+export interface AnalyticsResponseData {
+  period: string;
+  data: AnalyticsData;
+  summary: AnalyticsSummary;
+}
+
+// Account Summary
+export interface PendingChecks {
+  count: number;
+  totalAmount: number;
+}
+
+export interface AccountSummary {
+  totalBalance: number;
+  totalCredit: number;
+  totalDebit: number;
+  pendingChecks: PendingChecks;
+}
+
 export const transactionService = {
   // Bank Transactions
   getBankTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
@@ -310,6 +349,16 @@ export const transactionService = {
 
   deletePaymentMatching: async (id: string): Promise<ApiResponse<void>> => {
     return api.delete<void>(`/credit-card-payments/${id}`);
+  },
+
+  // Analytics
+  getTransactionAnalytics: async (period: 'monthly' | 'yearly' = 'monthly'): Promise<ApiResponse<AnalyticsResponseData>> => {
+    return api.get<AnalyticsResponseData>(`/analytics/transactions?period=${period}`);
+  },
+
+  // Account Summary
+  getAccountSummary: async (): Promise<ApiResponse<AccountSummary>> => {
+    return api.get<AccountSummary>('/account-summary');
   },
 };
 

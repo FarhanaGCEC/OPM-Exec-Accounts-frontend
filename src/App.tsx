@@ -10,7 +10,11 @@ import ReciveableCategory from './pages/ReciveableCategory';
 import GCECBeneficiary from './pages/GCECBeneficiary';
 import './App.css';
 
+console.log('[App] App component loading...');
+
 const App = () => {
+  console.log('[App] App component rendering...');
+  
   return (
     <Router
       future={{

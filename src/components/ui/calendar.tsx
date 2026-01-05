@@ -35,7 +35,7 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
         minDate={minDate}
         maxDate={maxDate}
         disabled={disabled}
-        className="w-80 p-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+        className="w-84 p-2 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-blue-500 focus:outline-none"
         renderCustomHeader={({ 
           monthDate, 
           decreaseMonth, 
@@ -55,7 +55,7 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm font-medium">
+            <span className="text-base font-medium">
               {monthDate.toLocaleString("default", { month: "long" })}{" "}
               {monthDate.getFullYear()}
             </span>

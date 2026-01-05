@@ -107,7 +107,7 @@ const Calendar: React.FC<CalendarProps> = ({
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <div className="text-sm font-semibold">
+        <div className="text-base font-semibold">
           {monthNames[month]} {year}
         </div>
         <Button
@@ -125,7 +125,7 @@ const Calendar: React.FC<CalendarProps> = ({
         {weekDays.map((day) => (
           <div
             key={day}
-            className="text-center text-xs font-medium text-gray-500 py-2"
+            className="text-center text-sm font-medium text-gray-500 py-2"
           >
             {day}
           </div>
@@ -148,7 +148,7 @@ const Calendar: React.FC<CalendarProps> = ({
               type="button"
               onClick={() => handleDateClick(day)}
               className={cn(
-                "aspect-square rounded-md text-sm font-medium transition-colors",
+                "aspect-square rounded-md text-base font-medium transition-colors",
                 "hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1",
                 selected
                   ? "bg-blue-600 text-white hover:bg-blue-700"

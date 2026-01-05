@@ -259,7 +259,7 @@ export default function PayablesCategory() {
     return (
         <Layout>
             <div className="mb-6 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-gray-900">Payables Category</h2>
+                <h2 className="text-2xl font-bold text-gray-900 pl-8">Payables Category</h2>
                 <Button
                     onClick={handleAddNew}
                     className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
@@ -272,7 +272,7 @@ export default function PayablesCategory() {
 
             {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
-                    <p className="text-sm text-red-600">{error}</p>
+                    <p className="text-md text-red-600">{error}</p>
                 </div>
             )}
 
@@ -282,10 +282,10 @@ export default function PayablesCategory() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                                    <TableHead className="font-semibold text-black text-sm text-left py-4">
+                                    <TableHead className="font-semibold text-black text-md text-left py-4">
                                         Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-4">
+                                    <TableHead className="font-semibold text-black text-md text-left py-4">
                                         Actions
                                     </TableHead>
                                 </TableRow>
@@ -295,14 +295,14 @@ export default function PayablesCategory() {
                                     <TableRow>
                                         <TableCell colSpan={2} className="text-center py-8">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
-                                            <p className="text-sm text-gray-500">Loading categories...</p>
+                                            <p className="text-md text-gray-500">Loading categories...</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : !Array.isArray(categories) || categories.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={2} className="text-center py-8">
-                                            <p className="text-sm text-gray-500 mb-1">No categories found.</p>
-                                            <p className="text-xs text-gray-400">Click "Add New Category" to create your first category.</p>
+                                            <p className="text-md text-gray-500 mb-1">No categories found.</p>
+                                            <p className="text-md text-gray-400">Click "Add New Category" to create your first category.</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -311,10 +311,10 @@ export default function PayablesCategory() {
                                             key={category.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
-                                            <TableCell className="text-gray-700 font-medium text-sm py-4 text-left">
+                                            <TableCell className="text-gray-700 font-medium text-md py-4 text-left">
                                                 {category.name}
                                             </TableCell>
-                                            <TableCell className="text-sm py-4 text-left">
+                                            <TableCell className="text-md py-4 text-left">
                                                 <div className="flex items-center space-x-2">
                                                     <button
                                                         onClick={() => handleEdit(category)}
@@ -352,7 +352,7 @@ export default function PayablesCategory() {
                     </DialogHeader>
                     {error && (
                         <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-                            <p className="text-sm text-red-600">{error}</p>
+                            <p className="text-base text-red-600">{error}</p>
                         </div>
                     )}
                     <Form {...form}>
@@ -362,7 +362,7 @@ export default function PayablesCategory() {
                                 name="name"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-sm font-medium text-gray-700">
+                                        <FormLabel className="text-base font-medium text-gray-700">
                                             Category Name
                                         </FormLabel>
                                         <FormControl>

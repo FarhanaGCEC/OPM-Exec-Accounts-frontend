@@ -35,7 +35,8 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, TrendingDown, TrendingUp, Wallet, Download } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, Download, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
@@ -485,31 +486,19 @@ export default function BankTransaction() {
       title: 'Current Balance',
       value: currentBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
       currency: 'AED',
-      icon: Wallet,
-      cardBg: 'bg-white',
-      iconBg: 'bg-green-100',
-      iconColor: 'text-green-600',
-      textColor: 'text-green-700',
+      textColor: currentBalance < 0 ? 'text-red-600' : 'text-gray-900',
     },
     {
       title: 'Total Debits',
       value: totalDebit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
       currency: 'AED',
-      icon: TrendingDown,
-      cardBg: 'bg-white',
-      iconBg: 'bg-red-100',
-      iconColor: 'text-red-600',
-      textColor: 'text-red-700',
+      textColor: 'text-gray-900',
     },
     {
       title: 'Total Credits',
       value: totalCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
       currency: 'AED',
-      icon: TrendingUp,
-      cardBg: 'bg-white',
-      iconBg: 'bg-green-100',
-      iconColor: 'text-green-600',
-      textColor: 'text-green-700',
+      textColor: 'text-gray-900',
     },
   
   ];
@@ -632,50 +621,152 @@ export default function BankTransaction() {
     URL.revokeObjectURL(url);
 
   }, [filteredTransactions]);
+
+  // Excel Download function
+  const handleDownloadExcel = useCallback(() => {
+    // Parse dates from transactions
+    const parseDate = (t: any) => {
+      if (t.originalDate) return new Date(t.originalDate);
+      const parts = t.date?.split('-');
+      if (parts?.length === 3) {
+        const months: any = { 
+          Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
+        };
+        return new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+      }
+      return null;
+    };
+
+    const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
+    const startDate = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
+    const endDate = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
+
+    const formatDate = (d: Date) => {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+    };
+
+    // Get closing balance
+    const latestBalance = filteredTransactions[0]?.balance || 0;
+    const closingBalanceValue = Number(String(latestBalance).replace(/,/g, '').replace('AED', '').trim()) || 0;
+    const closingBalance = closingBalanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // Create workbook
+    const workbook = XLSX.utils.book_new();
+
+    // Prepare data for Excel
+    const excelData: any[] = [];
+
+    // Add company header
+    excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE']);
+    excelData.push([]);
+    excelData.push([]);
+
+    // Add account information
+    excelData.push(['Account No.:', '12990685920001 - AED']);
+    excelData.push(['IBAN:', 'AE720030012990685920001']);
+    excelData.push(['Start Date:', formatDate(startDate)]);
+    excelData.push(['End Date:', formatDate(endDate)]);
+    excelData.push(['Closing (Available) Balance:', `AED ${closingBalance}`]);
+    excelData.push([]);
+    excelData.push([]);
+
+    // Add table headers
+    excelData.push(['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance']);
+
+    // Add transaction rows
+    filteredTransactions.forEach(t => {
+      // Format payment type for Details column
+      let details = '';
+      if (t.paymentType === 'cheque' && t.chequeNumber && t.chequeNumber !== '-') {
+        details = t.chequeNumber.replace('#', '').trim().padStart(6, '0');
+      } else if (['banktransfer', 'creditcard'].includes(t.paymentType || '')) {
+        details = 'Online';
+      } else if (t.paymentType) {
+        details = t.paymentType;
+      }
+
+      // Format amounts
+      const debitValue = t.debit || 0;
+      const creditValue = t.credit || 0;
+      
+      const debit = debitValue > 0 
+        ? `AED ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : 'AED 0.00';
+      
+      const credit = creditValue > 0
+        ? `AED ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '0.00';
+
+      // Format balance
+      const balanceStr = t.balance || '0';
+      const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
+      const balance = `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      excelData.push([
+        t.date || '',
+        t.categoryName || 'N/A',
+        details,
+        debit,
+        credit,
+        balance
+      ]);
+    });
+
+    // Create worksheet from data
+    const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 15 }, // Date
+      { wch: 25 }, // Description
+      { wch: 15 }, // Details
+      { wch: 18 }, // Debit
+      { wch: 18 }, // Credit
+      { wch: 18 }, // Balance
+    ];
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Account Statement');
+
+    // Generate Excel file and download
+    const fileName = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+
+  }, [filteredTransactions]);
   
   
 
   return (
     <Layout>
         {/* Summary Cards */}
-        <h1 className="text-2xl text-left font-bold text-gray-900 mb-2">Account Summary</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <h1 className="text-2xl text-left font-bold text-gray-900  pl-8">Account Summary</h1>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 ">
    
           {summaryCards.map((card, index) => {
-            const Icon = card.icon;
             return (
-            
-              <Card key={index} className={`${card.cardBg} hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden`}>
+              <Card key={index} className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden mt-4">
                 <CardContent className="p-6">
-                  {/* Icon and Content Layout */}
-                  <div className="flex flex-col">
-                    {/* Icon at top */}
-                    <div className="mb-4">
-                      <div className={`${card.iconBg} w-12 h-12 rounded-lg flex items-center justify-center`}>
-                        <Icon className={`w-6 h-6 ${card.iconColor}`} strokeWidth={2} />
-                      </div>
-                    </div>
-
-                    {/* Value and Label */}
-                    <div className="mt-auto">
-                      <div className="flex items-baseline space-x-1 mb-1">
-                        <p className={`text-2xl font-bold ${card.textColor}`}>
-                          {card.value}
-                        </p>
-                        {card.currency && (
-                          <span className={`text-base font-semibold ${card.textColor}`}>
-                            {card.currency}
-                          </span>
-                        )}
-                      </div>
-                      <p className={`text-sm font-medium text-gray-600`}>
-                        {card.title}
+                  <div className="flex flex-col items-center justify-center text-center">
+                    {/* Title */}
+                    <p className="text-base font-medium text-gray-600 mb-3">
+                      {card.title}
+                    </p>
+                    {/* Value and Currency */}
+                    <div className="flex items-baseline space-x-2">
+                      <p className={`text-3xl font-bold ${card.textColor}`}>
+                        {card.value}
                       </p>
+                      {card.currency && (
+                        <span className={`text-xl font-semibold ${card.textColor}`}>
+                          {card.currency}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </CardContent>
               </Card>
-              
             );
           })}
         </div>
@@ -690,13 +781,13 @@ export default function BankTransaction() {
          placeholder="Search by description, customer, or reference..."
          value={searchQuery}
          onChange={(e) => setSearchQuery(e.target.value)}
-         className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
+         className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
        />
      </div> */}
      <div className="flex gap-2">
        <button
          onClick={() => setActiveTab('all')}
-         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'all'
+         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'all'
            ? 'bg-[#eab308] text-black'
            : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
@@ -705,7 +796,7 @@ export default function BankTransaction() {
        </button>
        <button
          onClick={() => setActiveTab('online')}
-         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'online'
+         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'online'
            ? 'bg-[#eab308] text-black'
            : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
@@ -714,7 +805,7 @@ export default function BankTransaction() {
        </button>
        <button
          onClick={() => setActiveTab('cheque')}
-         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cheque'
+         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cheque'
            ? 'bg-[#eab308] text-black'
            : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
@@ -723,7 +814,7 @@ export default function BankTransaction() {
        </button>
        <button
          onClick={() => setActiveTab('cash')}
-         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'cash'
+         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cash'
            ? 'bg-[#eab308] text-black'
            : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
            }`}
@@ -744,6 +835,15 @@ export default function BankTransaction() {
           <span>Download CSV</span>
         </Button>
         <Button
+          onClick={handleDownloadExcel}
+          variant="outline"
+          className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+          disabled={loading || filteredTransactions.length === 0}
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          <span>Download Excel</span>
+        </Button>
+        <Button
           onClick={handleAddNew}
           className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2"
           disabled={loading}
@@ -755,7 +855,7 @@ export default function BankTransaction() {
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-lg text-red-600">{error}</p>
         </div>
       )}
 
@@ -766,25 +866,25 @@ export default function BankTransaction() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold  text-black text-lg text-left py-4">
                     Date
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Category
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Payment Type
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Debit
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Credit
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Balance
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-sm text-left py-4">
+                  <TableHead className="font-semibold text-black text-lg text-left py-4">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -794,33 +894,33 @@ export default function BankTransaction() {
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm text-gray-500">Loading transactions...</p>
+                      <p className="text-lg text-gray-500">Loading transactions...</p>
                     </TableCell>
                   </TableRow>
                 ) : !Array.isArray(filteredTransactions) || filteredTransactions.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8">
-                      <p className="text-sm text-gray-500 mb-1">No transactions found.</p>
-                      <p className="text-xs text-gray-400">Click "Add New" to create your first transaction.</p>
+                      <p className="text-lg text-gray-500 mb-1">No transactions found.</p>
+                      <p className="text-sm text-gray-400">Click "Add New" to create your first transaction.</p>
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredTransactions.map((transaction) => (
                     <TableRow key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <TableCell className="text-gray-700 text-sm py-4 text-left">
+                      <TableCell className="text-gray-700 text-lg py-4 text-left">
                         {transaction.date}
                       </TableCell>
-                      <TableCell className="text-gray-700 font-medium text-sm py-4 text-left">
+                      <TableCell className="text-gray-700 font-medium text-lg py-4 text-left">
                         {transaction.categoryName || 'N/A'}
                       </TableCell>
-                      <TableCell className="text-gray-600 text-sm py-4 text-left">
+                      <TableCell className="text-gray-600 text-lg py-4 text-left">
                         {transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
                           ? `#${transaction.chequeNumber}`
                           : transaction.paymentType === 'banktransfer'
                           ? 'Online'
                           : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
                       </TableCell>
-                      <TableCell className="text-sm py-4 text-left">
+                      <TableCell className="text-lg py-4 text-left">
                         {transaction.debitFormatted ? (
                           <span className="text-red-600 font-semibold">
                             {transaction.debitFormatted} AED
@@ -829,7 +929,7 @@ export default function BankTransaction() {
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm py-4 text-left">
+                      <TableCell className="text-lg py-4 text-left">
                         {transaction.creditFormatted ? (
                           <span className="text-green-600 font-semibold">
                             {transaction.creditFormatted} AED
@@ -838,10 +938,19 @@ export default function BankTransaction() {
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-gray-700 font-semibold text-sm py-4 text-left">
-                        {transaction.balance} AED
+                      <TableCell className="text-lg py-4 text-left">
+                        {(() => {
+                          const balanceStr = transaction.balance || '0';
+                          const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
+                          const isNegative = balanceValue < 0;
+                          return (
+                            <span className={isNegative ? 'text-red-600 font-bold' : 'text-gray-700 font-semibold'}>
+                              {transaction.balance} AED
+                            </span>
+                          );
+                        })()}
                       </TableCell>
-                      <TableCell className="text-sm py-4 text-left">
+                      <TableCell className="text-lg py-4 text-left">
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => handleEdit(transaction)}
@@ -894,7 +1003,7 @@ export default function BankTransaction() {
           </DialogHeader>
           {error && (
             <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-              <p className="text-sm text-red-600">{error}</p>
+              <p className="text-lg text-red-600">{error}</p>
             </div>
           )}
           <Form {...form}>
@@ -956,7 +1065,7 @@ export default function BankTransaction() {
 
                   return (
                     <FormItem>
-                      <FormLabel className="text-sm font-medium text-gray-700">
+                      <FormLabel className="text-lg font-medium text-gray-700">
                         Date
                       </FormLabel>
                       <FormControl>
@@ -1010,7 +1119,7 @@ export default function BankTransaction() {
                 name="type"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-lg font-medium text-gray-700">
                       Type
                     </FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
@@ -1035,7 +1144,7 @@ export default function BankTransaction() {
                 name="categoryId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-lg font-medium text-gray-700">
                       Category
                     </FormLabel>
                     <Select 
@@ -1050,12 +1159,12 @@ export default function BankTransaction() {
                       </FormControl>
                       <SelectContent>
                         {loadingCategories ? (
-                          <div className="p-2 text-center text-sm text-gray-500">
+                          <div className="p-2 text-center text-lg text-gray-500">
                             <Loader2 className="w-4 h-4 animate-spin mx-auto mb-1" />
                             Loading categories...
                           </div>
                         ) : getAvailableCategories().length === 0 ? (
-                          <div className="p-2 text-center text-sm text-gray-500">
+                          <div className="p-2 text-center text-lg text-gray-500">
                             {transactionType === 'Debit' 
                               ? 'No payables categories found. Please add categories in Payables List.'
                               : 'No receivables categories found. Please add categories in Receivables List.'}
@@ -1080,7 +1189,7 @@ export default function BankTransaction() {
                 name="paymentType"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-lg font-medium text-gray-700">
                       Payment Type
                     </FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
@@ -1108,7 +1217,7 @@ export default function BankTransaction() {
                   name="chequeNumber"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm font-medium text-gray-700">
+                      <FormLabel className="text-lg font-medium text-gray-700">
                         Cheque Number
                       </FormLabel>
                       <FormControl>
@@ -1129,7 +1238,7 @@ export default function BankTransaction() {
                 name="amount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium text-gray-700">
+                    <FormLabel className="text-lg font-medium text-gray-700">
                       Amount (AED)
                     </FormLabel>
                     <FormControl>
@@ -1147,7 +1256,7 @@ export default function BankTransaction() {
 
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-                  <p className="text-sm text-red-600">{error}</p>
+                  <p className="text-lg text-red-600">{error}</p>
                 </div>
               )}
 
