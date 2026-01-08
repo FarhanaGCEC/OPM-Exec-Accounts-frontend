@@ -147,10 +147,13 @@ export default function PayablesCategory() {
                         console.log('[PayablesCategory] Updated categories:', updated);
                         return updated;
                     });
+                    // Reset form with default values before closing
+                    form.reset({
+                        name: '',
+                    });
                     setEditingCategory(null);
-                    setIsModalOpen(false);
-                    form.reset();
                     setError(null); // Clear any previous errors
+                    setIsModalOpen(false);
                     // Refetch in background to ensure we have the latest data
                     fetchCategories().catch(err => console.error('Error refetching after update:', err));
                 } else {
@@ -175,9 +178,13 @@ export default function PayablesCategory() {
                         console.log('[PayablesCategory] Updated categories:', updated);
                         return updated;
                     });
-                    setIsModalOpen(false);
-                    form.reset();
+                    // Reset form with default values before closing
+                    form.reset({
+                        name: '',
+                    });
+                    setEditingCategory(null);
                     setError(null); // Clear any previous errors
+                    setIsModalOpen(false);
                     // Refetch in background to ensure we have the latest data
                     fetchCategories().catch(err => console.error('Error refetching after create:', err));
                 } else {
@@ -244,7 +251,10 @@ export default function PayablesCategory() {
     const handleModalClose = useCallback((open: boolean) => {
         setIsModalOpen(open);
         if (!open) {
-            form.reset();
+            // Reset form with default values when closing
+            form.reset({
+                name: '',
+            });
             setEditingCategory(null);
             setError(null);
         }
@@ -258,17 +268,20 @@ export default function PayablesCategory() {
 
     return (
         <Layout>
-            <div className="mb-6 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-gray-900 pl-8">Payables Category</h2>
-                <Button
-                    onClick={handleAddNew}
-                    className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
-                    disabled={loading}
-                >
-                    <Plus className="w-4 h-4 text-black" />
-                    <span className="text-black">Add New Payables Category</span>
-                </Button>
-            </div>
+            <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
+        <div className="flex items-center gap-4 ml-16">
+      
+          <h2 className="text-2xl font-bold text-gray-900">Payables Category</h2>
+       </div>
+            <Button
+            onClick={handleAddNew}
+            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+            disabled={loading}
+            >
+            <Plus className="w-4 h-4 text-black" />
+            <span>Add New</span>
+            </Button>
+        </div>
 
             {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
@@ -276,7 +289,7 @@ export default function PayablesCategory() {
                 </div>
             )}
 
-            <Card className="bg-white border border-gray-200 shadow-sm">
+            <Card className="bg-white border border-gray-200 shadow-sm m-8">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <Table>

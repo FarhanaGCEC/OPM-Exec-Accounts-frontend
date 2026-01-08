@@ -201,16 +201,16 @@ export default function Dashboard() {
   return (
     <Layout>
       {/* Welcome Section */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-1 pl-8">
+      <div className="mb-6 flex items-center justify-between shadow-md">
+       <div className="flex items-center gap-4 ml-4">
+          <h2 className="text-2xl font-bold text-gray-900 pl-12 py-4">
             Welcome Back, {userName}!
           </h2>
-        </div>
+        </div> 
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 m-8">
         {loadingSummary ? (
           <>
             {[1, 2, 3, 4].map((i) => (
@@ -310,7 +310,7 @@ export default function Dashboard() {
       </div>
 
       {/* Debit/Credit Chart */}
-      <Card className="bg-white border border-gray-200 mb-6">
+      <Card className="bg-white border border-gray-200 m-8">
         <CardContent className="p-6">
           <h3 className="text-xl font-bold text-gray-900 mb-6">Debit & Credit Overview</h3>
           {loading ? (
@@ -320,7 +320,7 @@ export default function Dashboard() {
           ) : chartData.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64">
               <p className="text-base text-gray-500">No transaction data available</p>
-              <p className="text-sm text-gray-400 mt-2">Check browser console for details</p>
+           
             </div>
           ) : (
             <div style={{ width: '100%', height: '400px' }}>

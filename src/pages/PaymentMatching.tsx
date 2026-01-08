@@ -20,13 +20,8 @@ import {
   FormLabel,
   FormMessage,
 } from '../components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
+import { SelectItem } from '../components/ui/select';
+import { SearchableSelect } from '../components/ui/searchable-select';
 import {
   Table,
   TableBody,
@@ -155,12 +150,12 @@ export default function PaymentMatching() {
           // Format amount
           let formattedAmount: string;
           if (typeof payment.amount === 'number') {
-            formattedAmount = payment.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+            formattedAmount = payment.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           } else if (typeof payment.amount === 'string') {
             const numAmount = parseFloat(payment.amount);
-            formattedAmount = isNaN(numAmount) ? payment.amount : numAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+            formattedAmount = isNaN(numAmount) ? payment.amount : numAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           } else {
-            formattedAmount = String(payment.amount);
+            formattedAmount = String(payment.amount || '0.00');
           }
           
           return {
@@ -229,10 +224,10 @@ export default function PaymentMatching() {
           id: String(response.data.id),
           date: formatDateForDisplay(response.data.paymentDate),
           amountFormatted: typeof response.data.amount === 'number'
-            ? response.data.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+            ? response.data.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
             : typeof response.data.amount === 'string'
-            ? parseFloat(response.data.amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
-            : String(response.data.amount),
+            ? parseFloat(response.data.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : String(response.data.amount || '0.00'),
         };
 
         if (editingPayment) {
@@ -245,10 +240,17 @@ export default function PaymentMatching() {
           setPayments(prevPayments => [updatedPayment, ...prevPayments]);
         }
 
-        setIsModalOpen(false);
-        form.reset();
+        // Reset form with default values before closing
+        form.reset({
+          paymentDate: '',
+          invoiceNumber: '',
+          customerName: '',
+          paymentMethod: 'Credit Card',
+          amount: '',
+        });
         setEditingPayment(null);
         setError(null);
+        setIsModalOpen(false);
         
         // Refetch to ensure consistency
         fetchPayments().catch(err => console.error('Error refetching after save:', err));
@@ -331,7 +333,14 @@ export default function PaymentMatching() {
   const handleModalClose = useCallback((open: boolean) => {
     setIsModalOpen(open);
     if (!open) {
-      form.reset();
+      // Reset form with default values when closing
+      form.reset({
+        paymentDate: '',
+        invoiceNumber: '',
+        customerName: '',
+        paymentMethod: 'Credit Card',
+        amount: '',
+      });
       setEditingPayment(null);
       setError(null);
     }
@@ -345,17 +354,20 @@ export default function PaymentMatching() {
 
   return (
     <Layout>
-      <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900 pl-8">Sales Invoice amount paid against GCEC Purchase Bills</h2>
-        <Button
-          onClick={handleAddNew}
-          className="bg-[#eab308] hover:bg-[#d4a007] text-white flex items-center space-x-2 transition-colors"
-          disabled={loading}
-        >
-          <Plus className="w-4 h-4 text-black" />
-          <span className="text-black">Add New</span>
-        </Button>
-      </div>
+     <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
+        <div className="flex items-center gap-4 ml-16">
+      
+          <h2 className="text-2xl font-bold text-gray-900">Sales Invoice amount paid against GCEC Purchase Bills</h2>
+       </div>
+            <Button
+            onClick={handleAddNew}
+            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+            disabled={loading}
+            >
+            <Plus className="w-4 h-4 text-black" />
+            <span>Add New</span>
+            </Button>
+        </div>
 
       {error && !isModalOpen && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
@@ -364,7 +376,7 @@ export default function PaymentMatching() {
       )}
 
       {/* Payments Table */}
-      <Card className="bg-white border border-gray-200 shadow-sm">
+      <Card className="bg-white border border-gray-200 shadow-sm m-8">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
@@ -418,9 +430,13 @@ export default function PaymentMatching() {
                         {payment.paymentMethod}
                       </TableCell>
                       <TableCell className="text-gray-700 font-semibold text-base py-4 text-left">
-                        {payment.amountFormatted || (typeof payment.amount === 'number' 
-                          ? payment.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
-                          : payment.amount)} AED
+                        {payment.amountFormatted 
+                          ? `AED ${payment.amountFormatted}`
+                          : typeof payment.amount === 'number' 
+                            ? `AED ${payment.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : typeof payment.amount === 'string'
+                              ? `AED ${parseFloat(payment.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : 'AED 0.00'}
                       </TableCell>
                       <TableCell className="text-base py-4 text-left">
                         <div className="flex items-center space-x-2">
@@ -622,19 +638,19 @@ export default function PaymentMatching() {
                     <FormLabel className="text-base font-medium text-gray-700">
                       Payment Method <span className="text-red-500">*</span>
                     </FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select payment method" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
+                    <FormControl>
+                      <SearchableSelect
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Select payment method"
+                        searchPlaceholder="Search payment method..."
+                      >
                         <SelectItem value="Credit Card">Credit Card</SelectItem>
                         <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
                         <SelectItem value="Cash">Cash</SelectItem>
                         <SelectItem value="Cheque">Cheque</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      </SearchableSelect>
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

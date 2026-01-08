@@ -4,6 +4,8 @@ import Dashboard from './pages/Dashboard';
 import ViewAllRecords from './pages/ViewAllRecords';
 import BankTransaction from './pages/BankTransaction';
 import PostDatedCheque from './pages/PostDatedCheque';
+import CustomerPDC from './pages/CustomerPDC';
+import GCECpdc from './pages/GCECpdc';
 import PaymentMatching from './pages/PaymentMatching';
 import PayablesCategory from './pages/PayablesCategory';
 import ReciveableCategory from './pages/ReciveableCategory';
@@ -28,6 +30,8 @@ const App = () => {
         <Route path="/records" element={<ViewAllRecords />} />
         <Route path="/bank" element={<BankTransaction />} />
         <Route path="/cheque" element={<PostDatedCheque />} />
+        <Route path="/customer-pdc" element={<CustomerPDC />} />
+        <Route path="/gcec-pdc" element={<GCECpdc />} />
         <Route path="/matching" element={<PaymentMatching />} />
         <Route path="/category" element={<PayablesCategory />} />
         <Route path="/reciveables" element={<ReciveableCategory />} />

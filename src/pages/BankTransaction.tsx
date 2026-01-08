@@ -27,15 +27,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, Download, FileSpreadsheet } from 'lucide-react';
+import { SearchableSelect } from '../components/ui/searchable-select';
+// Table components removed - using native HTML table for sticky header
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, Download, FileSpreadsheet,Filter, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
@@ -47,10 +41,13 @@ import type { ApiResponse } from '../lib/api';
 
 interface BankTransaction extends BankTransactionType {
   categoryName?: string;
+  categoryId?: string | number; // Category ID for editing
   amount?: string | number; // For display with commas (legacy)
   balance: string; // For display
   debitFormatted?: string | null; // Formatted debit amount
   creditFormatted?: string | null; // Formatted credit amount
+  remarks?: string; // Remarks for the transaction
+  
   originalDate?: string; // Store original ISO date for editing
 }
 
@@ -68,6 +65,7 @@ const transactionSchema = z.object({
     required_error: 'Please select a payment type',
   }),
   chequeNumber: z.string().optional(),
+  remarks: z.string().optional(),
   amount: z.string()
     .min(1, 'Amount is required')
     .refine((val) => {
@@ -118,6 +116,14 @@ export default function BankTransaction() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'online' | 'cheque' | 'cash'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [searchDetails, setSearchDetails] = useState<string>('');
+  const [searchAmount, setSearchAmount] = useState<string>('');
+  const [searchDescription, setSearchDescription] = useState<string>('');
+  const [searchRemarks, setSearchRemarks] = useState<string>('');
 
   const form = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
@@ -127,6 +133,7 @@ export default function BankTransaction() {
       categoryId: '',
       paymentType: 'cash',
       chequeNumber: '',
+      remarks: '',
       amount: '',
     },
   });
@@ -225,6 +232,7 @@ export default function BankTransaction() {
             date: formattedDate, // Formatted date for display
             originalDate: transaction.date, // Store original ISO date for editing
             categoryName: transaction.category || 'N/A', // Use category from API
+            categoryId: (transaction as any).categoryId || (transaction as any).category_id || undefined, // Preserve categoryId if available
             paymentType: frontendPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
             debit: transaction.debit,
             credit: transaction.credit,
@@ -268,6 +276,7 @@ export default function BankTransaction() {
         categoryId: string | number;
         paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
         chequeNumber?: string;
+        remarks?: string;
         amount: number;
       } = {
         date: data.date, // Format: dd/mm/yyyy
@@ -280,6 +289,11 @@ export default function BankTransaction() {
       // Only include chequeNumber if payment type is cheque
       if (data.paymentType === 'cheque' && data.chequeNumber) {
         payload.chequeNumber = data.chequeNumber;
+      }
+
+      // Include remarks if provided
+      if (data.remarks && data.remarks.trim()) {
+        payload.remarks = data.remarks.trim();
       }
 
       console.log('[BankTransaction] Sending payload:', payload);
@@ -341,6 +355,7 @@ export default function BankTransaction() {
           categoryId: '',
           paymentType: 'cash',
           chequeNumber: '',
+          remarks: '',
           amount: '',
         });
         setEditingTransaction(null);
@@ -392,21 +407,103 @@ export default function BankTransaction() {
       ? String(transaction.debit).replace(/,/g, '')
       : String(transaction.credit || 0).replace(/,/g, '');
     
-    // Find category ID from category name - search in the correct list based on type
-    const categoryList = transactionType === 'Debit' ? payablesCategories : receivablesCategories;
-    const category = categoryList.find(cat => cat.name === transaction.categoryName);
+    // Find category ID - first try to use categoryId if available, otherwise match by name
+    // Check both lists if categoryId is not available
+    let categoryId = '';
+    
+    console.log('[handleEdit] Transaction:', {
+      id: transaction.id,
+      type: transactionType,
+      categoryName: transaction.categoryName,
+      categoryId: transaction.categoryId,
+      payablesCount: payablesCategories.length,
+      receivablesCount: receivablesCategories.length,
+    });
+    
+    // First, try to find by categoryId if transaction has it
+    if (transaction.categoryId) {
+      // Try in payables first (for Debit)
+      let foundById = payablesCategories.find(cat => String(cat.id) === String(transaction.categoryId));
+      if (foundById) {
+        categoryId = String(foundById.id);
+        console.log('[handleEdit] Found by ID in payables:', categoryId);
+      } else {
+        // Try in receivables (for Credit)
+        foundById = receivablesCategories.find(cat => String(cat.id) === String(transaction.categoryId));
+        if (foundById) {
+          categoryId = String(foundById.id);
+          console.log('[handleEdit] Found by ID in receivables:', categoryId);
+        } else {
+          console.log('[handleEdit] Category ID not found in any list:', transaction.categoryId);
+        }
+      }
+    }
+    
+    // If not found by ID, try to find by name (case-insensitive, trimmed)
+    // Since API doesn't return categoryId, we must match by name
+    if (!categoryId && transaction.categoryName && transaction.categoryName !== 'N/A') {
+      // Try in the appropriate list based on transaction type FIRST
+      const categoryList = transactionType === 'Debit' ? payablesCategories : receivablesCategories;
+      const otherList = transactionType === 'Debit' ? receivablesCategories : payablesCategories;
+      
+      console.log('[handleEdit] Searching for category:', transaction.categoryName);
+      console.log('[handleEdit] Transaction type:', transactionType);
+      console.log('[handleEdit] Primary list categories:', categoryList.map(c => c.name));
+      console.log('[handleEdit] Other list categories:', otherList.map(c => c.name));
+      
+      // First try in the appropriate list
+      let foundByName = categoryList.find(cat => {
+        const catName = cat.name.trim().toLowerCase();
+        const transName = transaction.categoryName?.trim().toLowerCase();
+        return catName === transName;
+      });
+      
+      if (foundByName) {
+        categoryId = String(foundByName.id);
+        console.log('[handleEdit] Found in primary list:', foundByName.name, '->', categoryId);
+      } else {
+        // If not found, try the other list as fallback
+        foundByName = otherList.find(cat => {
+          const catName = cat.name.trim().toLowerCase();
+          const transName = transaction.categoryName?.trim().toLowerCase();
+          return catName === transName;
+        });
+        
+        if (foundByName) {
+          categoryId = String(foundByName.id);
+          console.log('[handleEdit] Found in other list:', foundByName.name, '->', categoryId);
+        } else {
+          console.warn('[handleEdit] Category NOT FOUND:', transaction.categoryName);
+          console.warn('[handleEdit] Available in payables:', payablesCategories.map(c => c.name));
+          console.warn('[handleEdit] Available in receivables:', receivablesCategories.map(c => c.name));
+        }
+      }
+    }
+    
+    console.log('[handleEdit] Final categoryId:', categoryId);
     
     // Ensure paymentType is 'banktransfer' not 'online' for form
     const formPaymentType = transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
     
+    // Reset form with all values
     form.reset({
       date: dateValue,
       type: transactionType as 'Debit' | 'Credit',
-      categoryId: category ? String(category.id) : '',
+      categoryId: categoryId,
       paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
-      chequeNumber: transaction.chequeNumber && transaction.chequeNumber !== '-' ? transaction.chequeNumber : '',
+      chequeNumber: transaction.chequeNumber && transaction.chequeNumber !== '-' ? transaction.chequeNumber : '' ,
+      remarks: transaction.remarks || '',
       amount: amountValue,
     });
+    
+    // Force set categoryId after a small delay to ensure form is ready
+    if (categoryId) {
+      setTimeout(() => {
+        form.setValue('categoryId', categoryId, { shouldValidate: false });
+        console.log('[handleEdit] Force set categoryId after reset:', categoryId);
+      }, 100);
+    }
+    
     setIsModalOpen(true);
   }, [form, payablesCategories, receivablesCategories]);
 
@@ -453,6 +550,7 @@ export default function BankTransaction() {
       categoryId: '',
       paymentType: 'cash',
       chequeNumber: '',
+      remarks: '',
       amount: '',
     });
     setIsModalOpen(true);
@@ -466,44 +564,33 @@ export default function BankTransaction() {
     return `${transaction.categoryName || 'Transaction'} - ${amount} AED`;
   }, [deletingTransactionId, transactions]);
 
-  // Calculate summary values
-  const totalDebit = transactions.reduce((sum, t) => sum + (t.debit || 0), 0);
-  const totalCredit = transactions.reduce((sum, t) => sum + (t.credit || 0), 0);
-  // Get the latest balance (first transaction in the list as they're sorted by date descending)
-  const currentBalance = transactions.length > 0 
-    ? (() => {
-        const balance = transactions[0].balance;
-        if (typeof balance === 'string') {
-          return parseFloat(balance.replace(/,/g, '')) || 0;
-        }
-        return (balance as number) || 0;
-      })()
-    : 0;
 
-  // Summary cards data
-  const summaryCards = [
-    {
-      title: 'Current Balance',
-      value: currentBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-      currency: 'AED',
-      textColor: currentBalance < 0 ? 'text-red-600' : 'text-gray-900',
-    },
-    {
-      title: 'Total Debits',
-      value: totalDebit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-      currency: 'AED',
-      textColor: 'text-gray-900',
-    },
-    {
-      title: 'Total Credits',
-      value: totalCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-      currency: 'AED',
-      textColor: 'text-gray-900',
-    },
-  
-  ];
 
-  // Filter transactions based on active tab
+
+
+  // Helper function to parse date from DD-MMM-YYYY format
+  const parseDateForFilter = useCallback((dateString: string): Date | null => {
+    if (!dateString) return null;
+    try {
+      const parts = dateString.split('-');
+      if (parts.length === 3) {
+        const months: { [key: string]: string } = {
+          'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+          'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+        };
+        const month = months[parts[1]] || '01';
+        return new Date(`${parts[2]}-${month}-${parts[0]}`);
+      }
+      // Try ISO format
+      const isoDate = new Date(dateString);
+      if (!isNaN(isoDate.getTime())) return isoDate;
+    } catch {
+      return null;
+    }
+    return null;
+  }, []);
+
+  // Filter transactions based on active tab, date range, and search
   const filteredTransactions = transactions.filter(transaction => {
     // Filter by payment type
     // 'online' tab shows both creditcard and banktransfer (which comes as 'online' from API)
@@ -511,116 +598,196 @@ export default function BankTransaction() {
     if (activeTab === 'cheque' && transaction.paymentType !== 'cheque') return false;
     if (activeTab === 'cash' && transaction.paymentType !== 'cash') return false;
     
+    // Filter by date range
+    if (startDate || endDate) {
+      const transactionDate = parseDateForFilter(transaction.date);
+      if (transactionDate) {
+        if (startDate) {
+          const start = parseDateForFilter(startDate);
+          if (start && transactionDate < start) return false;
+        }
+        if (endDate) {
+          const end = parseDateForFilter(endDate);
+          if (end) {
+            // Set end date to end of day
+            const endOfDay = new Date(end);
+            endOfDay.setHours(23, 59, 59, 999);
+            if (transactionDate > endOfDay) return false;
+          }
+        }
+      }
+    }
+    
+    // Filter by Details
+    if (searchDetails.trim()) {
+      const details = transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
+        ? `${transaction.chequeNumber}`
+        : transaction.paymentType === 'cash'
+        ? 'Cash'
+        : transaction.paymentType === 'creditcard'
+        ? 'Credit Card'
+        : transaction.paymentType === 'banktransfer'
+        ? 'Online'
+        : transaction.paymentType || '';
+      
+      if (!details.toLowerCase().includes(searchDetails.toLowerCase().trim())) return false;
+    }
+    
+    // Filter by Amount (Debit or Credit)
+    if (searchAmount.trim()) {
+      const debitStr = transaction.debitFormatted || '0.00';
+      const creditStr = transaction.creditFormatted || '0.00';
+      const amountStr = `${debitStr} ${creditStr}`.toLowerCase();
+      const searchAmountLower = searchAmount.toLowerCase().trim();
+      
+      if (!amountStr.includes(searchAmountLower)) return false;
+    }
+    
+    // Filter by Description (Category Name)
+    if (searchDescription.trim()) {
+      const descriptionStr = (transaction.categoryName || 'N/A').toLowerCase();
+      const searchDescriptionLower = searchDescription.toLowerCase().trim();
+      
+      if (!descriptionStr.includes(searchDescriptionLower)) return false;
+    }
+    
+    // Filter by Remarks
+    if (searchRemarks.trim()) {
+      const remarksStr = (transaction.remarks || '').toLowerCase();
+      const searchRemarksLower = searchRemarks.toLowerCase().trim();
+      
+      if (!remarksStr.includes(searchRemarksLower)) return false;
+    }
+    
     return true;
   });
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedTransactions = filteredTransactions.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, startDate, endDate, searchDetails, searchAmount, searchDescription, searchRemarks]);
+
+  // Clear all filters
+  const handleClearFilters = () => {
+    setStartDate('');
+    setEndDate('');
+    setSearchDetails('');
+    setSearchAmount('');
+    setSearchDescription('');
+    setSearchRemarks('');
+    setCurrentPage(1);
+  };
+
   // CSV Download function
   const handleDownloadCSV = useCallback(() => {
-    // Parse dates from transactions
+
+    const safe = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
+  
+    const row6 = (...cols: string[]) => {
+      const filled = [...cols];
+      while (filled.length < 6) filled.push('');
+      return filled.slice(0, 6).map(safe).join(',');
+    };
+  
     const parseDate = (t: any) => {
       if (t.originalDate) return new Date(t.originalDate);
       const parts = t.date?.split('-');
       if (parts?.length === 3) {
-        const months: any = { 
+        const months: any = {
           Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
-          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
+          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
         };
         return new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
       }
       return null;
     };
-
+  
     const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
     const startDate = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
     const endDate = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
-
+  
     const formatDate = (d: Date) => {
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
     };
-
-    // Get closing balance
+  
     const latestBalance = filteredTransactions[0]?.balance || 0;
     const closingBalanceValue = Number(String(latestBalance).replace(/,/g, '').replace('AED', '').trim()) || 0;
     const closingBalance = closingBalanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
+  
     const csvRows: string[] = [];
-
-    // ----- COMPANY HEADER (outside table) -----
-    csvRows.push('GCEC CLOUD SECURITY & SURVEILLANCE');
-    csvRows.push('');
-    csvRows.push('');
-
-    // ----- ACCOUNT INFORMATION (outside table - using quotes and empty columns to separate from table) -----
-    csvRows.push(`"Account No.","12990685920001 - AED","","","",""`);
-    csvRows.push(`"IBAN","AE720030012990685920001","","","",""`);
-    csvRows.push(`"Start Date","${formatDate(startDate)}","","","",""`);
-    csvRows.push(`"End Date","${formatDate(endDate)}","","","",""`);
-    csvRows.push(`"Closing (Available) Balance","AED ${closingBalance}","","","",""`);
-    csvRows.push('');
-    csvRows.push('');
-    csvRows.push('');
-
+  
+    // ----- HEADER -----
+    csvRows.push(row6('GCEC CLOUD SECURITY & SURVEILLANCE'));
+    csvRows.push(row6());
+    csvRows.push(row6());
+  
+    csvRows.push(row6('Account No.', '12990685920001 - AED'));
+    csvRows.push(row6('IBAN', 'AE720030012990685920001'));
+    csvRows.push(row6('Start Date', formatDate(startDate)));
+    csvRows.push(row6('End Date', formatDate(endDate)));
+    csvRows.push(row6('Closing (Available) Balance', `AED ${closingBalance}`));
+    csvRows.push(row6());
+    csvRows.push(row6());
+  
     // ----- TABLE HEADER -----
-    csvRows.push('Date,Description,Details,Debit,Credit,Balance');
-
+    csvRows.push(row6('Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance'));
+  
     // ----- TABLE ROWS -----
     filteredTransactions.forEach(t => {
-      // Format payment type for Details column
+  
       let details = '';
       if (t.paymentType === 'cheque' && t.chequeNumber && t.chequeNumber !== '-') {
-        details = t.chequeNumber.replace('#', '').trim().padStart(6, '0');
-      } else if (['banktransfer', 'creditcard'].includes(t.paymentType || '')) {
+        details = t.chequeNumber.replace('', '').trim().padStart(6, '0');
+      } else if (t.paymentType === 'banktransfer') {
         details = 'Online';
-      } else if (t.paymentType) {
-        details = t.paymentType;
+      } else if (t.paymentType === 'cash') {
+        details = 'Cash';
+      } else if (t.paymentType === 'creditcard') {
+        details = 'Credit Card';
       }
-
-      // Format amounts - show 0.00 for zero values (no AED prefix for zero credit)
+  
       const debitValue = t.debit || 0;
       const creditValue = t.credit || 0;
-      
-      const debit = debitValue > 0 
-        ? `AED ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : 'AED 0.00';
-      
-      const credit = creditValue > 0
-        ? `AED ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : '0.00';
-
-      // Format balance
-      const balanceStr = t.balance || '0';
-      const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
-      const balance = `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-      // Escape CSV values properly
-      const safe = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
-
-      csvRows.push([
-        safe(t.date || ''),
-        safe(t.categoryName || 'N/A'),
-        safe(details),
-        safe(debit),
-        safe(credit),
-        safe(balance)
-      ].join(','));
+  
+      const debit = `AED ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const credit = `AED ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  
+      const balanceValue = Number(String(t.balance || '0').replace(/,/g, '').replace('AED', '').trim()) || 0;
+      const balance = `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  
+      csvRows.push(row6(
+        t.date || '',
+        t.categoryName || 'N/A',
+        details,
+        debit,
+        credit,
+        balance
+      ));
     });
-
-    // ----- DOWNLOAD -----
+  
     const csvContent = csvRows.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-
+  
     const link = document.createElement('a');
     link.href = url;
     link.download = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.csv`;
     link.style.visibility = 'hidden';
+  
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-
+  
   }, [filteredTransactions]);
+  
 
   // Excel Download function
   const handleDownloadExcel = useCallback(() => {
@@ -680,7 +847,7 @@ export default function BankTransaction() {
       // Format payment type for Details column
       let details = '';
       if (t.paymentType === 'cheque' && t.chequeNumber && t.chequeNumber !== '-') {
-        details = t.chequeNumber.replace('#', '').trim().padStart(6, '0');
+        details = t.chequeNumber.replace('', '').trim().padStart(6, '0');
       } else if (['banktransfer', 'creditcard'].includes(t.paymentType || '')) {
         details = 'Online';
       } else if (t.paymentType) {
@@ -697,7 +864,7 @@ export default function BankTransaction() {
       
       const credit = creditValue > 0
         ? `AED ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : '0.00';
+        : 'AED 0.00';
 
       // Format balance
       const balanceStr = t.balance || '0';
@@ -740,91 +907,274 @@ export default function BankTransaction() {
 
   return (
     <Layout>
-        {/* Summary Cards */}
-        <h1 className="text-2xl text-left font-bold text-gray-900  pl-8">Account Summary</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 ">
-   
-          {summaryCards.map((card, index) => {
-            return (
-              <Card key={index} className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden mt-4">
-                <CardContent className="p-6">
-                  <div className="flex flex-col items-center justify-center text-center">
-                    {/* Title */}
-                    <p className="text-base font-medium text-gray-600 mb-3">
-                      {card.title}
-                    </p>
-                    {/* Value and Currency */}
-                    <div className="flex items-baseline space-x-2">
-                      <p className={`text-3xl font-bold ${card.textColor}`}>
-                        {card.value}
-                      </p>
-                      {card.currency && (
-                        <span className={`text-xl font-semibold ${card.textColor}`}>
-                          {card.currency}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-   {/* Search Bar and Tabs */}
-   <div className="mb-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-     <h2 className="text-2xl font-bold text-gray-900">Detail Statement</h2>
-     {/* <div className="relative flex-1 w-full sm:max-w-md">
-       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-       <input
-         type="text"
-         placeholder="Search by description, customer, or reference..."
-         value={searchQuery}
-         onChange={(e) => setSearchQuery(e.target.value)}
-         className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-gray-200 bg-white"
-       />
-     </div> */}
-     <div className="flex gap-2">
-       <button
-         onClick={() => setActiveTab('all')}
-         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'all'
-           ? 'bg-[#eab308] text-black'
-           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
-           }`}
-       >
-         All
-       </button>
-       <button
-         onClick={() => setActiveTab('online')}
-         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'online'
-           ? 'bg-[#eab308] text-black'
-           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
-           }`}
-       >
-         Online
-       </button>
-       <button
-         onClick={() => setActiveTab('cheque')}
-         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cheque'
-           ? 'bg-[#eab308] text-black'
-           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
-           }`}
-       >
-         Cheque
-       </button>
-       <button
-         onClick={() => setActiveTab('cash')}
-         className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cash'
-           ? 'bg-[#eab308] text-black'
-           : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
-           }`}
-       >
-         Cash
-       </button>
-     </div>
-   </div>
+       <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
+        <div className="flex items-center gap-4 ml-16">
       
-      <div className="mb-6 flex items-center justify-end gap-3">
+          <h2 className="text-2xl font-bold text-gray-900"> Daily Transaction</h2>
+       </div>
+            <Button
+            onClick={handleAddNew}
+            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+            disabled={loading}
+            >
+            <Plus className="w-4 h-4 text-black" />
+            <span>Add New</span>
+            </Button>
+        </div>
+ 
+ <Card className="bg-white border border-gray-200 shadow-sm rounded-lg mt-18 m-4">
+  <CardContent className="p-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
+
+      {/* Start Date */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Start Date
+        </label>
+        <div className="relative">
+          <Input
+            type="text"
+           
+            value={startDate}
+            onChange={(e) => {
+              let value = e.target.value.replace(/\D/g, '');
+              if (value.length >= 2) value = value.slice(0, 2) + '-' + value.slice(2);
+              if (value.length >= 6) value = value.slice(0, 6) + '-' + value.slice(6, 10);
+              setStartDate(value);
+            }}
+            maxLength={11}
+            className="w-full pr-10 h-10"
+          />
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <CalendarIcon className="w-5 h-5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                date={startDate ? parseDateForFilter(startDate) : null}
+                onSelect={(date) => {
+                  if (date) {
+                    const day = String(date.getDate()).padStart(2, '0');
+                    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    const month = months[date.getMonth()];
+                    const year = date.getFullYear();
+                    setStartDate(`${day}-${month}-${year}`);
+                  }
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+
+      {/* End Date */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          End Date
+        </label>
+        <div className="relative">
+          <Input
+            type="text"
+         
+            value={endDate}
+            onChange={(e) => {
+              let value = e.target.value.replace(/\D/g, '');
+              if (value.length >= 2) value = value.slice(0, 2) + '-' + value.slice(2);
+              if (value.length >= 6) value = value.slice(0, 6) + '-' + value.slice(6, 10);
+              setEndDate(value);
+            }}
+            maxLength={11}
+            className="w-full pr-10 h-10"
+          />
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <CalendarIcon className="w-5 h-5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                date={endDate ? parseDateForFilter(endDate) : null}
+                onSelect={(date) => {
+                  if (date) {
+                    const day = String(date.getDate()).padStart(2, '0');
+                    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    const month = months[date.getMonth()];
+                    const year = date.getFullYear();
+                    setEndDate(`${day}-${month}-${year}`);
+                  }
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+
+      {/* Details */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Details</label>
+        <div className="relative">
+        
+          <Input
+            type="text"
+          
+            value={searchDetails}
+            onChange={(e) => setSearchDetails(e.target.value)}
+            className="w-full pl-10 pr-10 h-10"
+          />
+          {searchDetails && (
+            <button
+              onClick={() => setSearchDetails('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Amount */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+        <div className="relative">
+         
+          <Input
+            type="text"
+           
+            value={searchAmount}
+            onChange={(e) => setSearchAmount(e.target.value)}
+            className="w-full pl-10 pr-10 h-10"
+          />
+          {searchAmount && (
+            <button
+              onClick={() => setSearchAmount('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+        <div className="relative">
+    
+          <Input
+            type="text"
+           
+            value={searchDescription}
+            onChange={(e) => setSearchDescription(e.target.value)}
+            className="w-full pl-10 pr-10 h-10"
+          />
+          {searchDescription && (
+            <button
+              onClick={() => setSearchDescription('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Remarks */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Remarks</label>
+        <div className="relative">
+
+          <Input
+            type="text"
+           
+            value={searchRemarks}
+            onChange={(e) => setSearchRemarks(e.target.value)}
+            className="w-full pl-10 pr-10 h-10"
+          />
+          {searchRemarks && (
+            <button
+              onClick={() => setSearchRemarks('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter Actions */}
+      <div className="flex items-end gap-2 w-full">
+       
+        <Button
+          onClick={() => {
+            setCurrentPage(1);
+            handleClearFilters();
+          }}
+          className="bg-[#eab308] hover:bg-[#d4a007] text-black h-10 flex-1 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
+          title="Apply Filter"
+        >
+          <Filter className="w-4 h-4" />
+          Apply Filter
+        </Button>
+      </div>
+
+    </div>
+  </CardContent>
+</Card>
+
+
+     {/* Tabs and Action Buttons */}
+     <div className="m-4 flex items-center justify-between gap-4">
+       {/* Tabs */}
+       <div className="flex gap-2">
+         <button
+           onClick={() => setActiveTab('all')}
+           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'all'
+             ? 'bg-[#eab308] text-black'
+             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
+             }`}
+         >
+           All
+         </button>
+         <button
+           onClick={() => setActiveTab('online')}
+           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'online'
+             ? 'bg-[#eab308] text-black'
+             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
+             }`}
+         >
+           Online
+         </button>
+         <button
+           onClick={() => setActiveTab('cheque')}
+           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cheque'
+             ? 'bg-[#eab308] text-black'
+             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
+             }`}
+         >
+           Cheque
+         </button>
+         <button
+           onClick={() => setActiveTab('cash')}
+           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cash'
+             ? 'bg-[#eab308] text-black'
+             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
+             }`}
+         >
+           Cash
+         </button>
+       </div>
+
+       {/* Action Buttons */}
+       <div className="flex items-center gap-3">
         <Button
           onClick={handleDownloadCSV}
           variant="outline"
@@ -843,15 +1193,9 @@ export default function BankTransaction() {
           <FileSpreadsheet className="w-4 h-4" />
           <span>Download Excel</span>
         </Button>
-        <Button
-          onClick={handleAddNew}
-          className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2"
-          disabled={loading}
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New</span>
-        </Button>
-      </div>
+     
+       </div>
+     </div>
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
@@ -860,97 +1204,109 @@ export default function BankTransaction() {
       )}
 
       {/* Transactions Table */}
-      <Card className="bg-white border border-gray-200">
+
+      <Card className="bg-white border border-gray-200 m-4">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold  text-black text-lg text-left py-4">
-                    Date
-                  </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
-                    Category
-                  </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
-                    Payment Type
-                  </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
-                    Debit
-                  </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
-                    Credit
-                  </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
-                    Balance
-                  </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
-                    Actions
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <div className="max-h-[600px] overflow-y-auto relative">
+              <table className="w-full caption-bottom text-base border rounded-lg">
+                <thead className="sticky top-0 z-20 bg-[#eab308] shadow-sm">
+                  <tr className="bg-[#eab308] border-0">
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Date
+                    </th>
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Description
+                    </th>
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Details
+                    </th>
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Debit
+                    </th>
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Credit
+                    </th>
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Balance
+                    </th>
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Remarks
+                    </th>
+                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="[&_tr:last-child]:border-0">
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                  <tr>
+                    <td colSpan={8} className="text-center py-8 p-2 align-middle">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                       <p className="text-lg text-gray-500">Loading transactions...</p>
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 ) : !Array.isArray(filteredTransactions) || filteredTransactions.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                  <tr>
+                    <td colSpan={8} className="text-center py-8 p-2 align-middle">
                       <p className="text-lg text-gray-500 mb-1">No transactions found.</p>
                       <p className="text-sm text-gray-400">Click "Add New" to create your first transaction.</p>
-                    </TableCell>
-                  </TableRow>
+                    </td>
+                  </tr>
                 ) : (
-                  filteredTransactions.map((transaction) => (
-                    <TableRow key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <TableCell className="text-gray-700 text-lg py-4 text-left">
+                  paginatedTransactions.map((transaction) => (
+                    <tr key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                      <td className="text-gray-700 text-lg py-4 text-left p-2 align-middle">
                         {transaction.date}
-                      </TableCell>
-                      <TableCell className="text-gray-700 font-medium text-lg py-4 text-left">
+                      </td>
+                      <td className="text-gray-700 font-medium text-lg py-4 text-left p-2 align-middle">
                         {transaction.categoryName || 'N/A'}
-                      </TableCell>
-                      <TableCell className="text-gray-600 text-lg py-4 text-left">
+                      </td>
+                      <td className="text-gray-600 text-lg py-4 text-left p-2 align-middle">
                         {transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
-                          ? `#${transaction.chequeNumber}`
+                          ? `${transaction.chequeNumber}`
+                          : transaction.paymentType === 'cash'
+                          ? 'Cash'
+                          : transaction.paymentType === 'creditcard'
+                          ? 'Credit Card'
                           : transaction.paymentType === 'banktransfer'
                           ? 'Online'
                           : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
-                      </TableCell>
-                      <TableCell className="text-lg py-4 text-left">
+                      </td>
+                      <td className="text-lg py-4 text-left p-2 align-middle">
                         {transaction.debitFormatted ? (
                           <span className="text-red-600 font-semibold">
-                            {transaction.debitFormatted} AED
+                            AED {transaction.debitFormatted} 
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-400">AED 0.00</span>
                         )}
-                      </TableCell>
-                      <TableCell className="text-lg py-4 text-left">
+                      </td>
+                      <td className="text-lg py-4 text-left p-2 align-middle">
                         {transaction.creditFormatted ? (
                           <span className="text-green-600 font-semibold">
-                            {transaction.creditFormatted} AED
+                            AED {transaction.creditFormatted} 
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-400">AED 0.00</span>
                         )}
-                      </TableCell>
-                      <TableCell className="text-lg py-4 text-left">
+                      </td>
+                      <td className="text-lg py-4 text-left p-2 align-middle">
                         {(() => {
                           const balanceStr = transaction.balance || '0';
                           const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
                           const isNegative = balanceValue < 0;
                           return (
                             <span className={isNegative ? 'text-red-600 font-bold' : 'text-gray-700 font-semibold'}>
-                              {transaction.balance} AED
+                              AED {transaction.balance} 
                             </span>
                           );
                         })()}
-                      </TableCell>
-                      <TableCell className="text-lg py-4 text-left">
+                      </td>
+                      <td className="text-lg py-4 text-left p-2 align-middle">
+                        {transaction.remarks || ''}
+                      </td>
+                      <td className="text-lg py-4 text-left p-2 align-middle">
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => handleEdit(transaction)}
@@ -969,15 +1325,75 @@ export default function BankTransaction() {
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
-                      </TableCell>
-                    </TableRow>
+                      </td>
+                    </tr>
                   ))
                 )}
-              </TableBody>
-            </Table>
+                </tbody>
+              </table>
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {filteredTransactions.length > itemsPerPage && (
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Showing {startIndex + 1} to {Math.min(endIndex, filteredTransactions.length)} of {filteredTransactions.length} transactions
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              variant="outline"
+              className="border-gray-300 hover:bg-gray-50 text-black"
+            >
+              Previous
+            </Button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                // Show first page, last page, current page, and pages around current
+                if (
+                  page === 1 ||
+                  page === totalPages ||
+                  (page >= currentPage - 1 && page <= currentPage + 1)
+                ) {
+                  return (
+                    <Button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      variant={currentPage === page ? "default" : "outline"}
+                      className={
+                        currentPage === page
+                          ? "bg-[#eab308] hover:bg-[#d4a007] text-black"
+                          : "border-gray-300 hover:bg-gray-50 text-black"
+                      }
+                      size="sm"
+                    >
+                      {page}
+                    </Button>
+                  );
+                } else if (
+                  page === currentPage - 2 ||
+                  page === currentPage + 2
+                ) {
+                  return <span key={page} className="px-2">...</span>;
+                }
+                return null;
+              })}
+            </div>
+            <Button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              variant="outline"
+              className="border-gray-300 hover:bg-gray-50 text-black"
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit Bank Transaction Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
@@ -989,6 +1405,7 @@ export default function BankTransaction() {
             categoryId: '',
             paymentType: 'cash',
             chequeNumber: '',
+            remarks: '',
             amount: '',
           });
           setEditingTransaction(null);
@@ -1142,45 +1559,62 @@ export default function BankTransaction() {
               <FormField
                 control={form.control}
                 name="categoryId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-lg font-medium text-gray-700">
-                      Category
-                    </FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      value={field.value}
-                      disabled={loadingCategories}
-                    >
+                render={({ field }) => {
+                  // Ensure the field value is properly set when editing
+                  useEffect(() => {
+                    if (editingTransaction && field.value) {
+                      // Force update if value exists but not showing
+                      const currentValue = field.value;
+                      const availableCategories = getAvailableCategories();
+                      const categoryExists = availableCategories.some(cat => String(cat.id) === String(currentValue));
+                      if (!categoryExists && availableCategories.length > 0) {
+                        console.log('[Category Field] Value not found in available categories, clearing:', currentValue);
+                        field.onChange('');
+                      }
+                    }
+                    // eslint-disable-next-line react-hooks/exhaustive-deps
+                  }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
+                  
+                  return (
+                    <FormItem>
+                      <FormLabel className="text-lg font-medium text-gray-700">
+                        Category
+                      </FormLabel>
                       <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder={loadingCategories ? "Loading categories..." : "Select category"} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
                         {loadingCategories ? (
-                          <div className="p-2 text-center text-lg text-gray-500">
-                            <Loader2 className="w-4 h-4 animate-spin mx-auto mb-1" />
-                            Loading categories...
+                          <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-base">
+                            <span className="text-muted-foreground">Loading categories...</span>
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           </div>
                         ) : getAvailableCategories().length === 0 ? (
-                          <div className="p-2 text-center text-lg text-gray-500">
+                          <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
                             {transactionType === 'Debit' 
                               ? 'No payables categories found. Please add categories in Payables List.'
                               : 'No receivables categories found. Please add categories in Receivables List.'}
                           </div>
                         ) : (
-                          getAvailableCategories().map((category) => (
-                            <SelectItem key={String(category.id)} value={String(category.id)}>
-                              {category.name}
-                            </SelectItem>
-                          ))
+                          <SearchableSelect
+                            value={field.value || ''}
+                            onValueChange={(value) => {
+                              console.log('[Category Field] Value changed:', value);
+                              field.onChange(value);
+                            }}
+                            placeholder={loadingCategories ? "Loading categories..." : "Select category"}
+                            disabled={loadingCategories}
+                            searchPlaceholder="Search category..."
+                          >
+                            {getAvailableCategories().map((category) => (
+                              <SelectItem key={String(category.id)} value={String(category.id)}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SearchableSelect>
                         )}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
               {/* Payment Type Field */}
@@ -1231,6 +1665,26 @@ export default function BankTransaction() {
                   )}
                 />
               )}
+
+              {/* Remarks Field */}
+              <FormField
+                control={form.control}
+                name="remarks"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-lg font-medium text-gray-700">
+                      Remarks (Optional)
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter remarks"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               {/* Amount Field */}
               <FormField

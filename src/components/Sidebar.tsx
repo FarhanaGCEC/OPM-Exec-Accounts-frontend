@@ -22,7 +22,7 @@ const menuItems: MenuItem[] = [
   { id: 'cheque', label: 'Post-Dated Cheque', icon: FileText, path: '/cheque' },
   {
     id: 'matching',
-    label: 'Customer Credit Cards Payments',
+    label: 'Customer Credit Card Payments',
     icon: CreditCard,
     path: '/matching',
   },
@@ -66,7 +66,7 @@ export default function Sidebar() {
   const username = userName.toUpperCase();
 
   return (
-    <aside className="w-80 bg-gray-900 flex-shrink-0 flex flex-col h-screen">
+    <aside className="w-64 bg-gray-900 flex-shrink-0 flex flex-col h-screen">
       {/* Logo */}
       <div className="p-6 border-b border-gray-800">
         <img
