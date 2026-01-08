@@ -39,12 +39,19 @@ export function SearchableSelect({
     if (!searchQuery.trim()) return children;
 
     return React.Children.toArray(children).filter((child) => {
-      if (React.isValidElement(child)) {
-        const childText = typeof child.props.children === 'string'
-          ? child.props.children
-          : React.Children.toArray(child.props.children)
-              .filter((c) => typeof c === 'string')
-              .join(' ');
+      if (React.isValidElement(child) && child.props) {
+        const props = child.props as { children?: React.ReactNode };
+        const childChildren = props.children;
+        
+        let childText = '';
+        if (typeof childChildren === 'string') {
+          childText = childChildren;
+        } else if (childChildren != null) {
+          childText = React.Children.toArray(childChildren)
+            .filter((c) => typeof c === 'string')
+            .join(' ');
+        }
+        
         return childText.toLowerCase().includes(searchQuery.toLowerCase());
       }
       return true;
@@ -92,7 +99,7 @@ export function SearchableSelect({
           </div>
         </div>
         <div className="max-h-[300px] overflow-y-auto">
-          {filteredChildren.length > 0 ? (
+          {Array.isArray(filteredChildren) && filteredChildren.length > 0 ? (
             filteredChildren
           ) : (
             <div className="px-2 py-6 text-center text-sm text-muted-foreground">
