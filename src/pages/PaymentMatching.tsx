@@ -382,19 +382,19 @@ export default function PaymentMatching() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Payment Date
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Customer Name
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Payment Method
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Amount (AED)
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -404,13 +404,13 @@ export default function PaymentMatching() {
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
-                      <p className="text-base text-gray-500">Loading payments...</p>
+                      <p className="text-sm text-gray-500">Loading payments...</p>
                     </TableCell>
                   </TableRow>
                 ) : !Array.isArray(payments) || payments.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-8">
-                      <p className="text-base text-gray-500 mb-1">No payments found.</p>
+                      <p className="text-sm text-gray-500 mb-1">No payments found.</p>
                       <p className="text-sm text-gray-400">Click "Add New" to create your first payment.</p>
                     </TableCell>
                   </TableRow>
@@ -420,16 +420,16 @@ export default function PaymentMatching() {
                       key={payment.id}
                       className="border-b border-gray-100 hover:bg-gray-50"
                     >
-                      <TableCell className="text-base py-4 text-left text-gray-700">
+                      <TableCell className="text-sm py-2 text-left text-gray-700">
                         {payment.date || formatDateForDisplay(payment.paymentDate)}
                       </TableCell>
-                      <TableCell className="text-base py-4 text-left text-gray-700">
+                      <TableCell className="text-sm py-2 text-left text-gray-700">
                         {payment.customerName}
                       </TableCell>
-                      <TableCell className="text-gray-600 text-base py-4 text-left">
+                      <TableCell className="text-gray-600 text-sm py-2 text-left">
                         {payment.paymentMethod}
                       </TableCell>
-                      <TableCell className="text-gray-700 font-semibold text-base py-4 text-left">
+                      <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
                         {payment.amountFormatted 
                           ? `AED ${payment.amountFormatted}`
                           : typeof payment.amount === 'number' 
@@ -438,7 +438,7 @@ export default function PaymentMatching() {
                               ? `AED ${parseFloat(payment.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                               : 'AED 0.00'}
                       </TableCell>
-                      <TableCell className="text-base py-4 text-left">
+                      <TableCell className="text-sm py-2 text-left">
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => handleEdit(payment)}

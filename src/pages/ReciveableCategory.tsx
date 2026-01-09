@@ -250,7 +250,7 @@ export default function ReciveableCategory() {
             <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
         <div className="flex items-center gap-4 ml-16">
       
-          <h2 className="text-2xl font-bold text-gray-900">Reciveables Category</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Creditors List</h2>
        </div>
             <Button
             onClick={handleAddNew}
@@ -274,10 +274,10 @@ export default function ReciveableCategory() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                                    <TableHead className="font-semibold text-black text-md text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-md text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Actions
                                     </TableHead>
                                 </TableRow>
@@ -287,14 +287,14 @@ export default function ReciveableCategory() {
                                     <TableRow>
                                         <TableCell colSpan={2} className="text-center py-8">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
-                                            <p className="text-md text-gray-500">Loading categories...</p>
+                                            <p className="text-md text-gray-500">Loading Creditors list...</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : !Array.isArray(categories) || categories.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={2} className="text-center py-8">
-                                            <p className="text-md text-gray-500 mb-1">No categories found.</p>
-                                            <p className="text-md text-gray-400">Click "Add New Category" to create your first category.</p>
+                                            <p className="text-md text-gray-500 mb-1">No Creditors List found.</p>
+                                            <p className="text-md text-gray-400">Click "Add New Creditors List" to create your first Creditors.</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -303,10 +303,10 @@ export default function ReciveableCategory() {
                                             key={category.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
-                                            <TableCell className="text-gray-700 font-medium text-md py-4 text-left">
+                                            <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
                                                 {category.name}
                                             </TableCell>
-                                            <TableCell className="text-md py-4 text-left">
+                                            <TableCell className="text-sm py-2 text-left">
                                                 <div className="flex items-center space-x-2">
                                                     <button
                                                         onClick={() => handleEdit(category)}
@@ -319,7 +319,7 @@ export default function ReciveableCategory() {
                                                     <button
                                                         onClick={() => handleDeleteClick(String(category.id))}
                                                         className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
-                                                        title="Delete category"
+                                                        title="Delete Creditors"
                                                         aria-label={`Delete ${category.name}`}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -339,7 +339,7 @@ export default function ReciveableCategory() {
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-bold text-gray-900">
-                            {editingCategory ? 'Edit Receivables Category' : 'Add Receivables Category'}
+                            {editingCategory ? 'Edit Creditors List' : 'Add Creditors List'}
                         </DialogTitle>
                     </DialogHeader>
                     {error && (
@@ -355,11 +355,11 @@ export default function ReciveableCategory() {
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="text-base font-medium text-gray-700">
-                                            Category Name
+                                            Creditors Name
                                         </FormLabel>
                                         <FormControl>
                                             <Input
-                                                placeholder="Enter category name"
+                                                placeholder="Enter Creditors Name"
                                                 {...field}
                                                 disabled={isSubmitting}
                                                 autoFocus

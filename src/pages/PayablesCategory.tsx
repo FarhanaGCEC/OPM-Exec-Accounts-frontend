@@ -271,7 +271,7 @@ export default function PayablesCategory() {
             <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
         <div className="flex items-center gap-4 ml-16">
       
-          <h2 className="text-2xl font-bold text-gray-900">Payables Category</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Debtors List</h2>
        </div>
             <Button
             onClick={handleAddNew}
@@ -295,10 +295,10 @@ export default function PayablesCategory() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                                    <TableHead className="font-semibold text-black text-md text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-md text-left py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Actions
                                     </TableHead>
                                 </TableRow>
@@ -324,10 +324,10 @@ export default function PayablesCategory() {
                                             key={category.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
-                                            <TableCell className="text-gray-700 font-medium text-md py-4 text-left">
+                                            <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
                                                 {category.name}
                                             </TableCell>
-                                            <TableCell className="text-md py-4 text-left">
+                                            <TableCell className="text-sm py-2 text-left">
                                                 <div className="flex items-center space-x-2">
                                                     <button
                                                         onClick={() => handleEdit(category)}
@@ -360,7 +360,7 @@ export default function PayablesCategory() {
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-bold text-gray-900">
-                            {editingCategory ? 'Edit Payables Category' : 'Add Payables Category'}
+                            {editingCategory ? 'Edit Debtors List' : 'Add Debtors List'}
                         </DialogTitle>
                     </DialogHeader>
                     {error && (
@@ -376,11 +376,11 @@ export default function PayablesCategory() {
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="text-base font-medium text-gray-700">
-                                            Category Name
+                                            Debtors Name
                                         </FormLabel>
                                         <FormControl>
                                             <Input
-                                                placeholder="Enter category name"
+                                                placeholder="Enter Debtors name"
                                                 {...field}
                                                 disabled={isSubmitting}
                                                 autoFocus
@@ -412,7 +412,7 @@ export default function PayablesCategory() {
                                             Saving...
                                         </>
                                     ) : (
-                                        editingCategory ? 'Update Payables Category' : 'Add Payables Category'
+                                        editingCategory ? 'Update Debtors List' : 'Add Debtors List'
                                     )}
                                 </Button>
                             </div>

@@ -717,8 +717,72 @@ export default function BankTransaction() {
       return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
     };
   
-    const latestBalance = filteredTransactions[0]?.balance || 0;
-    const closingBalanceValue = Number(String(latestBalance).replace(/,/g, '').replace('AED', '').trim()) || 0;
+    // Get closing balance from the LAST transaction in the filtered list
+    // Sort by date first, then by ID/index to ensure we get the actual latest transaction
+    const sortedByDate = [...filteredTransactions].sort((a, b) => {
+      const parseDateForSort = (t: any) => {
+        // Prefer originalDate (ISO format with timestamp) for accurate sorting
+        if (t.originalDate) {
+          const origDate = new Date(t.originalDate);
+          if (!isNaN(origDate.getTime())) {
+            return origDate;
+          }
+        }
+        // Fallback to formatted date
+        const parts = t.date?.split('-');
+        if (parts?.length === 3) {
+          const months: any = { 
+            Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+            Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
+          };
+          const date = new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+          return isNaN(date.getTime()) ? null : date;
+        }
+        return null;
+      };
+      const dateA = parseDateForSort(a);
+      const dateB = parseDateForSort(b);
+      
+      // If dates are equal, sort by ID (assuming higher ID = newer transaction)
+      if (dateA && dateB && dateA.getTime() === dateB.getTime()) {
+        const idA = parseInt(String(a.id || '0'), 10);
+        const idB = parseInt(String(b.id || '0'), 10);
+        return idB - idA; // Higher ID = newer (descending)
+      }
+      
+      if (!dateA && !dateB) {
+        // If both have no date, sort by ID
+        const idA = parseInt(String(a.id || '0'), 10);
+        const idB = parseInt(String(b.id || '0'), 10);
+        return idB - idA;
+      }
+      if (!dateA) return 1; // Put transactions without date at the end
+      if (!dateB) return -1;
+      return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
+    });
+    
+    // Get the latest transaction (first in sorted array, which should be the most recent)
+    const latestTransaction = sortedByDate.length > 0 ? sortedByDate[0] : null;
+    
+    // Extract balance value properly
+    let closingBalanceValue = 0;
+    if (latestTransaction) {
+      const balanceStr = latestTransaction.balance || '0';
+      // Handle balance as number or string
+      if (typeof balanceStr === 'number') {
+        closingBalanceValue = balanceStr;
+      } else {
+        // Remove commas, "AED", and any whitespace
+        const cleanedBalance = String(balanceStr)
+          .replace(/,/g, '')
+          .replace(/AED/gi, '')
+          .replace(/\s+/g, '')
+          .trim();
+        closingBalanceValue = parseFloat(cleanedBalance) || 0;
+      }
+    }
+    
+    // Format for display
     const closingBalance = closingBalanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   
     const csvRows: string[] = [];
@@ -732,7 +796,7 @@ export default function BankTransaction() {
     csvRows.push(row6('IBAN', 'AE720030012990685920001'));
     csvRows.push(row6('Start Date', formatDate(startDate)));
     csvRows.push(row6('End Date', formatDate(endDate)));
-    csvRows.push(row6('Closing (Available) Balance', `AED ${closingBalance}`));
+    csvRows.push(row6('Closing (Current)', `AED ${closingBalance}`));
     csvRows.push(row6());
     csvRows.push(row6());
   
@@ -792,20 +856,24 @@ export default function BankTransaction() {
   // Excel Download function
   const handleDownloadExcel = useCallback(() => {
     // Parse dates from transactions
-    const parseDate = (t: any) => {
-      if (t.originalDate) return new Date(t.originalDate);
+    const parseDateForRange = (t: any) => {
+      if (t.originalDate) {
+        const origDate = new Date(t.originalDate);
+        return isNaN(origDate.getTime()) ? null : origDate;
+      }
       const parts = t.date?.split('-');
       if (parts?.length === 3) {
         const months: any = { 
           Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
           Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
         };
-        return new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+        const date = new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+        return isNaN(date.getTime()) ? null : date;
       }
       return null;
     };
 
-    const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
+    const dates = filteredTransactions.map(parseDateForRange).filter(Boolean) as Date[];
     const startDate = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
     const endDate = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
 
@@ -814,10 +882,70 @@ export default function BankTransaction() {
       return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
     };
 
-    // Get closing balance
-    const latestBalance = filteredTransactions[0]?.balance || 0;
-    const closingBalanceValue = Number(String(latestBalance).replace(/,/g, '').replace('AED', '').trim()) || 0;
-    const closingBalance = closingBalanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Get closing balance from the LAST transaction in the filtered list
+    // Sort by date first, then by ID/index to ensure we get the actual latest transaction
+    const sortedByDate = [...filteredTransactions].sort((a, b) => {
+      const parseDateForSort = (t: any) => {
+        // Prefer originalDate (ISO format with timestamp) for accurate sorting
+        if (t.originalDate) {
+          const origDate = new Date(t.originalDate);
+          if (!isNaN(origDate.getTime())) {
+            return origDate;
+          }
+        }
+        // Fallback to formatted date
+        const parts = t.date?.split('-');
+        if (parts?.length === 3) {
+          const months: any = { 
+            Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+            Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
+          };
+          const date = new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+          return isNaN(date.getTime()) ? null : date;
+        }
+        return null;
+      };
+      const dateA = parseDateForSort(a);
+      const dateB = parseDateForSort(b);
+      
+      // If dates are equal, sort by ID (assuming higher ID = newer transaction)
+      if (dateA && dateB && dateA.getTime() === dateB.getTime()) {
+        const idA = parseInt(String(a.id || '0'), 10);
+        const idB = parseInt(String(b.id || '0'), 10);
+        return idB - idA; // Higher ID = newer (descending)
+      }
+      
+      if (!dateA && !dateB) {
+        // If both have no date, sort by ID
+        const idA = parseInt(String(a.id || '0'), 10);
+        const idB = parseInt(String(b.id || '0'), 10);
+        return idB - idA;
+      }
+      if (!dateA) return 1; // Put transactions without date at the end
+      if (!dateB) return -1;
+      return dateB.getTime() - dateA.getTime(); // Descending order (newest first)
+    });
+    
+    // Get the latest transaction (first in sorted array, which should be the most recent)
+    const latestTransaction = sortedByDate.length > 0 ? sortedByDate[0] : null;
+    
+    // Extract balance value properly
+    let closingBalanceValue = 0;
+    if (latestTransaction) {
+      const balanceStr = latestTransaction.balance || '0';
+      // Handle balance as number or string
+      if (typeof balanceStr === 'number') {
+        closingBalanceValue = balanceStr;
+      } else {
+        // Remove commas, "AED", and any whitespace
+        const cleanedBalance = String(balanceStr)
+          .replace(/,/g, '')
+          .replace(/AED/gi, '')
+          .replace(/\s+/g, '')
+          .trim();
+        closingBalanceValue = parseFloat(cleanedBalance) || 0;
+      }
+    }
 
     // Create workbook
     const workbook = XLSX.utils.book_new();
@@ -835,49 +963,66 @@ export default function BankTransaction() {
     excelData.push(['IBAN:', 'AE720030012990685920001']);
     excelData.push(['Start Date:', formatDate(startDate)]);
     excelData.push(['End Date:', formatDate(endDate)]);
-    excelData.push(['Closing (Available) Balance:', `AED ${closingBalance}`]);
+    excelData.push(['Closing (Current):', closingBalanceValue]); // Store as number
     excelData.push([]);
     excelData.push([]);
 
     // Add table headers
     excelData.push(['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance']);
 
+    // Sort transactions by date (oldest first) for better readability in Excel
+    const sortedTransactionsForExcel = [...filteredTransactions].sort((a, b) => {
+      const parseDate = (t: any) => {
+        if (t.originalDate) return new Date(t.originalDate);
+        const parts = t.date?.split('-');
+        if (parts?.length === 3) {
+          const months: any = { 
+            Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+            Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
+          };
+          return new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+        }
+        return null;
+      };
+      const dateA = parseDate(a);
+      const dateB = parseDate(b);
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return dateA.getTime() - dateB.getTime(); // Ascending order (oldest first)
+    });
+
     // Add transaction rows
-    filteredTransactions.forEach(t => {
+    sortedTransactionsForExcel.forEach(t => {
       // Format payment type for Details column
       let details = '';
       if (t.paymentType === 'cheque' && t.chequeNumber && t.chequeNumber !== '-') {
-        details = t.chequeNumber.replace('', '').trim().padStart(6, '0');
+        // Remove any existing padding and ensure proper formatting
+        const chequeNum = String(t.chequeNumber).replace(/,/g, '').trim();
+        details = chequeNum.padStart(6, '0');
       } else if (['banktransfer', 'creditcard'].includes(t.paymentType || '')) {
         details = 'Online';
+      } else if (t.paymentType === 'cash') {
+        details = 'Cash';
       } else if (t.paymentType) {
         details = t.paymentType;
       }
 
-      // Format amounts
-      const debitValue = t.debit || 0;
-      const creditValue = t.credit || 0;
+      // Extract numeric values for Excel (store as numbers, not text)
+      const debitValue = typeof t.debit === 'number' ? t.debit : (Number(String(t.debit || 0).replace(/,/g, '').replace('AED', '').trim()) || 0);
+      const creditValue = typeof t.credit === 'number' ? t.credit : (Number(String(t.credit || 0).replace(/,/g, '').replace('AED', '').trim()) || 0);
       
-      const debit = debitValue > 0 
-        ? `AED ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : 'AED 0.00';
-      
-      const credit = creditValue > 0
-        ? `AED ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : 'AED 0.00';
-
-      // Format balance
+      // Format balance as number
       const balanceStr = t.balance || '0';
       const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
-      const balance = `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
       excelData.push([
         t.date || '',
         t.categoryName || 'N/A',
         details,
-        debit,
-        credit,
-        balance
+        debitValue,  // Store as number
+        creditValue, // Store as number
+        balanceValue // Store as number
       ]);
     });
 
@@ -893,6 +1038,65 @@ export default function BankTransaction() {
       { wch: 18 }, // Credit
       { wch: 18 }, // Balance
     ];
+
+    // Find the range of data
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    
+    // Format Closing Balance cell (row 7, column 1) - "Closing (Current):" is in column 0, value in column 1
+    const closingBalanceCellRef = XLSX.utils.encode_cell({ r: 7, c: 1 });
+    if (worksheet[closingBalanceCellRef]) {
+      if (typeof worksheet[closingBalanceCellRef].v === 'number') {
+        worksheet[closingBalanceCellRef].t = 'n'; // Ensure type is number
+        worksheet[closingBalanceCellRef].z = '#,##0.00'; // Number format with 2 decimals and thousand separators
+      }
+    }
+    
+    // Apply number formatting to Debit, Credit, and Balance columns (columns D=3, E=4, F=5)
+    // Header row is at index 10 (after company header, account info, and empty rows)
+    // Data rows start at index 11
+    const dataStartRow = 11;
+    
+    for (let row = dataStartRow; row <= range.e.r; row++) {
+      // Column D (Debit) - index 3
+      const debitCellRef = XLSX.utils.encode_cell({ r: row, c: 3 });
+      if (worksheet[debitCellRef]) {
+        if (typeof worksheet[debitCellRef].v === 'number') {
+          worksheet[debitCellRef].t = 'n'; // Number type
+          worksheet[debitCellRef].z = '#,##0.00'; // Number format with 2 decimals and thousand separators
+        }
+      }
+      
+      // Column E (Credit) - index 4
+      const creditCellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
+      if (worksheet[creditCellRef]) {
+        if (typeof worksheet[creditCellRef].v === 'number') {
+          worksheet[creditCellRef].t = 'n'; // Number type
+          worksheet[creditCellRef].z = '#,##0.00'; // Number format with 2 decimals and thousand separators
+        }
+      }
+      
+      // Column F (Balance) - index 5
+      const balanceCellRef = XLSX.utils.encode_cell({ r: row, c: 5 });
+      if (worksheet[balanceCellRef]) {
+        if (typeof worksheet[balanceCellRef].v === 'number') {
+          worksheet[balanceCellRef].t = 'n'; // Number type
+          worksheet[balanceCellRef].z = '#,##0.00'; // Number format with 2 decimals and thousand separators
+        }
+      }
+    }
+    
+    // Format header row (row 10) - make headers bold
+    const headerRow = 10;
+    for (let col = 0; col <= 5; col++) {
+      const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
+      if (worksheet[headerCellRef]) {
+        if (!worksheet[headerCellRef].s) {
+          worksheet[headerCellRef].s = {};
+        }
+        worksheet[headerCellRef].s.font = { bold: true };
+        worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
+      }
+    }
 
     // Add worksheet to workbook
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Account Statement');
@@ -1212,28 +1416,28 @@ export default function BankTransaction() {
               <table className="w-full caption-bottom text-base border rounded-lg">
                 <thead className="sticky top-0 z-20 bg-[#eab308] shadow-sm">
                   <tr className="bg-[#eab308] border-0">
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Date
                     </th>
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Description
                     </th>
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Details
                     </th>
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Debit
                     </th>
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Credit
                     </th>
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Balance
                     </th>
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Remarks
                     </th>
-                    <th className="font-semibold text-black text-lg text-left py-4 px-2 h-10 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Actions
                     </th>
                   </tr>
@@ -1243,26 +1447,26 @@ export default function BankTransaction() {
                   <tr>
                     <td colSpan={8} className="text-center py-8 p-2 align-middle">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
-                      <p className="text-lg text-gray-500">Loading transactions...</p>
+                      <p className="text-sm text-gray-500">Loading transactions...</p>
                     </td>
                   </tr>
                 ) : !Array.isArray(filteredTransactions) || filteredTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-center py-8 p-2 align-middle">
-                      <p className="text-lg text-gray-500 mb-1">No transactions found.</p>
+                      <p className="text-sm text-gray-500 mb-1">No transactions found.</p>
                       <p className="text-sm text-gray-400">Click "Add New" to create your first transaction.</p>
                     </td>
                   </tr>
                 ) : (
                   paginatedTransactions.map((transaction) => (
                     <tr key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                      <td className="text-gray-700 text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-gray-700 text-sm py-2 text-left p-2 align-middle">
                         {transaction.date}
                       </td>
-                      <td className="text-gray-700 font-medium text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-gray-700 font-medium text-sm py-2 text-left p-2 align-middle">
                         {transaction.categoryName || 'N/A'}
                       </td>
-                      <td className="text-gray-600 text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-gray-600 text-sm py-2 text-left p-2 align-middle">
                         {transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
                           ? `${transaction.chequeNumber}`
                           : transaction.paymentType === 'cash'
@@ -1273,7 +1477,7 @@ export default function BankTransaction() {
                           ? 'Online'
                           : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
                       </td>
-                      <td className="text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-sm py-2 text-left p-2 align-middle">
                         {transaction.debitFormatted ? (
                           <span className="text-red-600 font-semibold">
                             AED {transaction.debitFormatted} 
@@ -1282,7 +1486,7 @@ export default function BankTransaction() {
                           <span className="text-gray-400">AED 0.00</span>
                         )}
                       </td>
-                      <td className="text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-sm py-2 text-left p-2 align-middle">
                         {transaction.creditFormatted ? (
                           <span className="text-green-600 font-semibold">
                             AED {transaction.creditFormatted} 
@@ -1291,7 +1495,7 @@ export default function BankTransaction() {
                           <span className="text-gray-400">AED 0.00</span>
                         )}
                       </td>
-                      <td className="text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-sm py-2 text-left p-2 align-middle">
                         {(() => {
                           const balanceStr = transaction.balance || '0';
                           const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
@@ -1303,10 +1507,10 @@ export default function BankTransaction() {
                           );
                         })()}
                       </td>
-                      <td className="text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-sm py-2 text-left p-2 align-middle">
                         {transaction.remarks || ''}
                       </td>
-                      <td className="text-lg py-4 text-left p-2 align-middle">
+                      <td className="text-sm py-2 text-left p-2 align-middle">
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => handleEdit(transaction)}

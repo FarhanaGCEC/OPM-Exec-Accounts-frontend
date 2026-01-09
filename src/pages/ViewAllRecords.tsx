@@ -278,22 +278,22 @@ export default function ViewAllRecords() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0">
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Date
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Description
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Details
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Debit
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Credit
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-lg text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Balance
                   </TableHead>
                 </TableRow>
@@ -301,16 +301,16 @@ export default function ViewAllRecords() {
               <TableBody>
                 {filteredTransactions.map((transaction, index) => (
                   <TableRow key={index} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <TableCell className="text-gray-700 text-lg py-4 text-left">
+                    <TableCell className="text-gray-700 text-sm py-2 text-left">
                       {transaction.date}
                     </TableCell>
-                    <TableCell className="text-gray-700 font-medium text-lg py-4 text-left">
+                    <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
                       {transaction.description}
                     </TableCell>
-                    <TableCell className="text-gray-600 text-lg py-4 text-left">
+                    <TableCell className="text-gray-600 text-sm py-2 text-left">
                       {transaction.details}
                     </TableCell>
-                    <TableCell className="text-lg py-4 text-left">
+                    <TableCell className="text-sm py-2 text-left">
                       {transaction.debit ? (
                         <span className="text-red-600 font-semibold">
                           {transaction.debit} AED
@@ -319,7 +319,7 @@ export default function ViewAllRecords() {
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-lg py-4 text-left">
+                    <TableCell className="text-sm py-2 text-left">
                       {transaction.credit ? (
                         <span className="text-green-600 font-semibold">
                           {transaction.credit} AED
@@ -328,7 +328,7 @@ export default function ViewAllRecords() {
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-gray-700 font-semibold text-lg py-4 text-left">
+                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
                       {transaction.balance} AED
                     </TableCell>
                   </TableRow>

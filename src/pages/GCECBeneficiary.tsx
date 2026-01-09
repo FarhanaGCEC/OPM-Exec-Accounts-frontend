@@ -92,10 +92,10 @@ export default function GCECBeneficiary() {
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-[#eab308] border-0">
-                                    <TableHead className="font-semibold text-black text-base text-center py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-center py-2">
                                         Beneficiary Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-base text-center py-4">
+                                    <TableHead className="font-semibold text-black text-sm text-center py-2">
                                         Bank Name
                                     </TableHead>
                                 </TableRow>
@@ -103,10 +103,10 @@ export default function GCECBeneficiary() {
                             <TableBody>
                                 {beneficiaries.map((ben) => (
                                     <TableRow key={ben.id} className="border-b border-gray-100 hover:bg-gray-50">
-                                        <TableCell className="text-gray-700 font-medium text-base py-4 text-center">
+                                        <TableCell className="text-gray-700 font-medium text-sm py-2 text-center">
                                             {ben.name}
                                         </TableCell>
-                                        <TableCell className="text-gray-600 text-base py-4 text-center">
+                                        <TableCell className="text-gray-600 text-sm py-2 text-center">
                                             {ben.bankName}
                                         </TableCell>
                                     </TableRow>

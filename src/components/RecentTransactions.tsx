@@ -77,22 +77,22 @@ const TransactionRowMobile = ({ transaction }: { transaction: Transaction }) => 
 const TransactionTableRow = ({ transaction }: { transaction: Transaction }) => {
   return (
     <TableRow className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-      <TableCell className="text-gray-700 text-sm py-4">
+      <TableCell className="text-gray-700 text-xs py-2">
         <span className="block sm:inline">{transaction.date}</span>
       </TableCell>
-      <TableCell className="text-gray-700 font-medium text-sm py-4">
+      <TableCell className="text-gray-700 font-medium text-xs py-2">
         {transaction.description}
       </TableCell>
-      <TableCell className="py-4">
+      <TableCell className="py-2">
         <TransactionTypeBadge type={transaction.type} />
       </TableCell>
       <TableCell
-        className={`font-semibold text-sm py-4 ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
+        className={`font-semibold text-xs py-2 ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
           }`}
       >
         {transaction.amount} AED
       </TableCell>
-      <TableCell className="py-4">
+      <TableCell className="py-2">
         <StatusBadge status={transaction.status} />
       </TableCell>
     </TableRow>
@@ -134,19 +134,19 @@ export default function RecentTransactions({
           <Table>
             <TableHeader >
               <TableRow className="bg-[#eab308] border-b border-gray-200">
-                <TableHead className="font-semibold text-white text-sm text-center">
+                <TableHead className="font-semibold text-white text-xs text-center py-2">
                   DATE
                 </TableHead>
-                <TableHead className="font-semibold text-white text-sm text-center">
+                <TableHead className="font-semibold text-white text-xs text-center py-2">
                   DESCRIPTION
                 </TableHead>
-                <TableHead className="font-semibold text-white text-sm text-center">
+                <TableHead className="font-semibold text-white text-xs text-center py-2">
                   TYPE
                 </TableHead>
-                <TableHead className="font-semibold text-white text-sm text-center">
+                <TableHead className="font-semibold text-white text-xs text-center py-2">
                   AMOUNT
                 </TableHead>
-                <TableHead className="font-semibold text-white text-sm text-center">
+                <TableHead className="font-semibold text-white text-xs text-center py-2">
                   STATUS
                 </TableHead>
               </TableRow>

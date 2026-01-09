@@ -228,29 +228,13 @@ export default function Dashboard() {
           </>
         ) : accountSummary ? (
           <>
-            <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-base font-medium text-gray-600 mb-3">
-                    Current Balance
-                  </p>
-                  <div className="flex items-baseline space-x-2">
-                    <p className={`text-3xl font-bold ${accountSummary.totalBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      {accountSummary.totalBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                    </p>
-                    <span className={`text-xl font-semibold ${accountSummary.totalBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      AED
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+         
             
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
               <CardContent className="p-6">
                 <div className="flex flex-col items-center justify-center text-center">
                   <p className="text-base font-medium text-gray-600 mb-3">
-                    Total Debits
+                    Total Debit
                   </p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-3xl font-bold text-gray-900">
@@ -268,7 +252,7 @@ export default function Dashboard() {
               <CardContent className="p-6">
                 <div className="flex flex-col items-center justify-center text-center">
                   <p className="text-base font-medium text-gray-600 mb-3">
-                    Total Credits
+                    Total Credit
                   </p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-3xl font-bold text-gray-900">
@@ -281,7 +265,23 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
-            
+            <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
+              <CardContent className="p-6">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <p className="text-base font-medium text-gray-600 mb-3">
+                    Current Balance
+                  </p>
+                  <div className="flex items-baseline space-x-2">
+                    <p className={`text-3xl font-bold ${accountSummary.totalBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                      {accountSummary.totalBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                    </p>
+                    <span className={`text-xl font-semibold ${accountSummary.totalBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                      AED
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
               <CardContent className="p-6">
                 <div className="flex flex-col items-center justify-center text-center">

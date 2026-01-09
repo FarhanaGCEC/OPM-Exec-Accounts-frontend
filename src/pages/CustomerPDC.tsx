@@ -444,22 +444,22 @@ export default function CustomerPDC() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Date
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                  Customer Name
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Cheque No
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Amount
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Type 
                   </TableHead>
-                  <TableHead className="font-semibold text-black text-base text-left py-4">
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -469,20 +469,20 @@ export default function CustomerPDC() {
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
-                      <p className="text-base text-gray-500">Loading cheques...</p>
+                      <p className="text-sm text-gray-500">Loading cheques...</p>
                     </TableCell>
                   </TableRow>
                 ) : !Array.isArray(cheques) || cheques.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8">
-                      <p className="text-base text-gray-500 mb-1">No cheques found.</p>
+                      <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                       <p className="text-sm text-gray-400">Click "Add New" to create your first cheque.</p>
                     </TableCell>
                   </TableRow>
                 ) : filteredCheques.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8">
-                      <p className="text-base text-gray-500 mb-1">No cheques found.</p>
+                      <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -496,16 +496,16 @@ export default function CustomerPDC() {
                           : 'border-gray-100 hover:bg-gray-50'
                           }`}
                       >
-                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
+                        <TableCell className={`text-sm py-2 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
                           {cheque.date || formatDateForDisplay(cheque.chequeDate)}
                         </TableCell>
-                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
+                        <TableCell className={`text-sm py-2 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
                           {cheque.customerName || '-'}
                         </TableCell>
-                        <TableCell className={`font-medium text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
+                        <TableCell className={`font-medium text-sm py-2 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
                           {cheque.chequeNumber}
                         </TableCell>
-                        <TableCell className={`font-semibold text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
+                        <TableCell className={`font-semibold text-sm py-2 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-700'}`}>
                           {cheque.amountFormatted 
                             ? `AED ${cheque.amountFormatted}`
                             : typeof cheque.amount === 'number' 
@@ -514,7 +514,7 @@ export default function CustomerPDC() {
                                 ? `AED ${parseFloat(cheque.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : 'AED 0.00'}
                         </TableCell>
-                        <TableCell className={`text-base py-4 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'}`}>
+                        <TableCell className={`text-sm py-2 text-left ${isSecurityCheque ? 'text-white' : 'text-gray-600'}`}>
                           {isSecurityCheque ? (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white">
                               Security Cheque
@@ -523,7 +523,7 @@ export default function CustomerPDC() {
                        ''
                           )}
                         </TableCell>
-                        <TableCell className="text-base py-4 text-left">
+                        <TableCell className="text-sm py-2 text-left">
                           <div className="flex items-center space-x-2">
                             <button
                               onClick={() => handleEdit(cheque)}

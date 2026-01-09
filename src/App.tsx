@@ -10,6 +10,9 @@ import PaymentMatching from './pages/PaymentMatching';
 import PayablesCategory from './pages/PayablesCategory';
 import ReciveableCategory from './pages/ReciveableCategory';
 import GCECBeneficiary from './pages/GCECBeneficiary';
+import CreditCardStatements from './pages/CreditCardStatments';
+import CreditCardDetails from './pages/CreditCardDetails';
+import CreditCardPaymentsPage from './pages/CreditCardPaymentsPage';
 import './App.css';
 
 console.log('[App] App component loading...');
@@ -36,6 +39,9 @@ const App = () => {
         <Route path="/category" element={<PayablesCategory />} />
         <Route path="/reciveables" element={<ReciveableCategory />} />
         <Route path="/beneficiary" element={<GCECBeneficiary />} />
+        <Route path="/credit-card-statements" element={<CreditCardStatements />} />
+        <Route path="/credit-card-statements/details" element={<CreditCardDetails />} />
+        <Route path="/credit-card-statements/payments" element={<CreditCardPaymentsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

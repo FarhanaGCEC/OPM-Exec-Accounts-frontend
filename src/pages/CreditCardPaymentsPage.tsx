@@ -1,0 +1,753 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import Layout from '../components/Layout';
+import { Card, CardContent } from '../components/ui/card';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '../components/ui/table';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from '../components/ui/dialog';
+import {
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
+} from '../components/ui/form';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { SearchableSelect } from '../components/ui/searchable-select';
+import { SelectItem } from '../components/ui/select';
+import Calendar from '../components/ui/calendar-tailwind';
+import { Loader2, Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { creditCardService, type CreditCardDetail } from '../services/creditCardService';
+
+export interface CreditCardPayment {
+    id: string;
+    paymentDate: string;
+    cardHolder: string;
+    cardNo: string;
+    amount: number;
+    remarks: string;
+}
+
+// Zod validation schema
+const paymentSchema = z.object({
+    paymentDate: z.string()
+        .min(1, 'Payment date is required'),
+    cardNo: z.string().optional(),
+    cardHolder: z.string().optional(),
+    creditCardId: z.string().optional(),
+    amount: z.number()
+        .min(0.01, 'Amount must be greater than 0')
+        .or(z.string().transform((val) => {
+            const num = parseFloat(val);
+            if (isNaN(num) || num <= 0) throw new Error('Amount must be greater than 0');
+            return num;
+        })),
+    remarks: z.string().optional(),
+});
+
+type PaymentFormData = z.infer<typeof paymentSchema>;
+
+export default function CreditCardPaymentsPage() {
+    const [creditCards, setCreditCards] = useState<CreditCardPayment[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [availableCreditCards, setAvailableCreditCards] = useState<CreditCardDetail[]>([]);
+    const [loadingCreditCards, setLoadingCreditCards] = useState(false);
+    const [editingPayment, setEditingPayment] = useState<CreditCardPayment | null>(null);
+    
+    // Period selection state
+    const currentDate = new Date();
+
+    const form = useForm<PaymentFormData>({
+        resolver: zodResolver(paymentSchema),
+        defaultValues: {
+            paymentDate: '',
+            cardNo: '',
+            cardHolder: '',
+            creditCardId: '',
+            amount: 0,
+            remarks: '',
+        },
+    });
+
+ 
+    const fetchCreditCards = useCallback(async (year: number, months: number[]) => {
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await creditCardService.getCreditCardPayments({
+                year: year,
+                months: months // Array of month indices (0-11)
+            });
+            
+            if (response.success && response.data) {
+                setCreditCards(response.data);
+            } else {
+                setError('Failed to fetch credit card payments');
+                setCreditCards([]);
+            }
+        } catch (err: any) {
+            const errorMessage = err?.message || 'Failed to fetch credit card payments';
+            console.error('Error fetching credit card payments:', err);
+            setError(errorMessage);
+            setCreditCards([]);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    // Fetch available credit cards for dropdown
+    const fetchAvailableCreditCards = useCallback(async () => {
+        try {
+            setLoadingCreditCards(true);
+            const response = await creditCardService.getCreditCards();
+            if (response.success && response.data) {
+                const mappedCards = response.data.map((card) => ({
+                    id: String(card.id),
+                    issuingBank: card.issuing_bank,
+                    cardHolder: card.card_holder,
+                    cardNo: card.card_number,
+                    expiry_date: card.expiry || card.expiry_date || '',
+                    cvv: card.cvv || '',
+                    amountLimit: card.amount_limit || 0,
+                }));
+                setAvailableCreditCards(mappedCards);
+            }
+        } catch (err) {
+            console.error('Error fetching credit cards:', err);
+        } finally {
+            setLoadingCreditCards(false);
+        }
+    }, []);
+
+ 
+
+    useEffect(() => {
+        // Initial load with default period (current month/year)
+        const year = currentDate.getFullYear();
+        const months = [currentDate.getMonth()];
+        fetchCreditCards(year, months);
+        fetchAvailableCreditCards();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleAddNew = () => {
+        setEditingPayment(null);
+        form.reset({
+            paymentDate: '',
+            cardNo: '',
+            cardHolder: '',
+            creditCardId: '',
+            amount: 0,
+            remarks: '',
+        });
+        setIsModalOpen(true);
+    };
+
+    const handleEditClick = (payment: CreditCardPayment) => {
+        setEditingPayment(payment);
+        setError(null);
+        
+        // Parse payment date - convert from API format to dd/mm/yyyy
+        let formattedDate = payment.paymentDate;
+        
+        // Handle ISO 8601 format: "2026-01-08T20:00:00.000Z" or "2026-01-08T20:00:00Z"
+        if (payment.paymentDate.includes('T')) {
+            const datePart = payment.paymentDate.split('T')[0];
+            const parts = datePart.split('-');
+            if (parts.length === 3 && parts[0].length === 4) {
+                formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+        } else if (payment.paymentDate.includes('-') && payment.paymentDate.length === 10) {
+            // Format: yyyy-mm-dd -> dd/mm/yyyy
+            const parts = payment.paymentDate.split('-');
+            if (parts.length === 3 && parts[0].length === 4) {
+                formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+            }
+        } else if (payment.paymentDate.includes('/')) {
+            // Already in dd/mm/yyyy format, keep as is
+            formattedDate = payment.paymentDate;
+        } else {
+            // Try to parse as Date object and format
+            try {
+                const date = new Date(payment.paymentDate);
+                if (!isNaN(date.getTime())) {
+                    const day = String(date.getDate()).padStart(2, '0');
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const year = date.getFullYear();
+                    formattedDate = `${day}/${month}/${year}`;
+                }
+            } catch (e) {
+                // If parsing fails, use original value
+                formattedDate = payment.paymentDate;
+            }
+        }
+        
+        // Find matching credit card ID if available
+        let creditCardId = '';
+        if (payment.cardNo) {
+            const matchingCard = availableCreditCards.find(
+                card => card.cardNo === payment.cardNo || card.cardNo.replace(/\s+/g, '') === payment.cardNo.replace(/\s+/g, '')
+            );
+            if (matchingCard) {
+                creditCardId = matchingCard.id;
+            }
+        }
+        
+        form.reset({
+            paymentDate: formattedDate,
+            cardNo: payment.cardNo || '',
+            cardHolder: payment.cardHolder || '',
+            creditCardId: creditCardId,
+            amount: payment.amount || 0,
+            remarks: payment.remarks || '',
+        });
+        setIsModalOpen(true);
+    };
+
+    const handleModalClose = (open: boolean) => {
+        setIsModalOpen(open);
+        if (!open) {
+            setEditingPayment(null);
+            form.reset();
+            setError(null);
+        }
+    };
+
+    const onSubmit = async (data: PaymentFormData) => {
+        try {
+            setIsSubmitting(true);
+            setError(null);
+
+            // Format payment date - API accepts "2026-01-15", "15/01/2026", or "15-Jan-2026"
+            let formattedDate = data.paymentDate;
+            
+            // If date is in dd/mm/yyyy format, convert to yyyy-mm-dd
+            if (data.paymentDate.includes('/')) {
+                const parts = data.paymentDate.split('/');
+                if (parts.length === 3) {
+                    formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                }
+            }
+
+            const payload: any = {
+                paymentDate: formattedDate,
+                amount: typeof data.amount === 'string' ? parseFloat(data.amount) : data.amount,
+            };
+
+            if (data.cardNo) {
+                payload.cardNo = data.cardNo;
+            }
+
+            if (data.cardHolder) {
+                payload.cardHolder = data.cardHolder;
+            }
+
+            if (data.creditCardId) {
+                payload.creditCardId = data.creditCardId;
+            }
+
+            if (data.remarks) {
+                payload.remarks = data.remarks;
+            }
+
+            let response;
+            if (editingPayment) {
+                // Update existing payment
+                response = await creditCardService.updateCreditCardPayment(editingPayment.id, payload);
+            } else {
+                // Create new payment
+                response = await creditCardService.createCreditCardPayment(payload);
+            }
+
+            if (response.success) {
+                setIsModalOpen(false);
+                setEditingPayment(null);
+                form.reset();
+                // Refresh the list
+                const year = currentDate.getFullYear();
+                const months = [currentDate.getMonth()];
+                await fetchCreditCards(year, months);
+            } else {
+                setError(response.error || (editingPayment ? 'Failed to update payment' : 'Failed to create payment'));
+            }
+        } catch (err: any) {
+            const errorMessage = err?.message || (editingPayment ? 'Failed to update credit card payment' : 'Failed to create credit card payment');
+            console.error(`Error ${editingPayment ? 'updating' : 'creating'} payment:`, err);
+            setError(errorMessage);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+  
+
+
+
+    const formatDate = (dateString: string): string => {
+        if (!dateString) return '';
+        
+        let date: Date | null = null;
+        
+        // Handle ISO 8601 format first: "2026-01-08T20:00:00.000Z" or "2026-01-08T20:00:00Z"
+        if (dateString.includes('T')) {
+            date = new Date(dateString);
+            if (!isNaN(date.getTime())) {
+                // Valid ISO date, continue to formatting
+            } else {
+                date = null;
+            }
+        }
+        
+        // Try parsing different date formats
+        // Format: yyyy-mm-dd (simple date format)
+        if (!date || isNaN(date.getTime())) {
+            if (dateString.includes('-') && dateString.length === 10 && !dateString.includes('T')) {
+                const parts = dateString.split('-');
+                if (parts.length === 3 && parts[0].length === 4) {
+                    date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                }
+            }
+        }
+        
+        // Format: dd/mm/yyyy
+        if (!date || isNaN(date.getTime())) {
+            if (dateString.includes('/')) {
+                const parts = dateString.split('/');
+                if (parts.length === 3) {
+                    date = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                }
+            }
+        }
+        
+        // Try standard Date parsing as last resort
+        if (!date || isNaN(date.getTime())) {
+            date = new Date(dateString);
+        }
+        
+        if (!date || isNaN(date.getTime())) {
+            return dateString; // Return original if parsing fails
+        }
+        
+        // Format as dd-mmm-yyyy (e.g., 02-jan-2026)
+        const day = String(date.getDate()).padStart(2, '0');
+        const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+        const month = monthNames[date.getMonth()];
+        const year = date.getFullYear();
+        
+        return `${day}-${month}-${year}`;
+    };
+
+    return (
+        <Layout>
+              <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
+        <div className="flex items-center gap-4 ml-16">
+      
+          <h2 className="text-2xl font-bold text-gray-900"> Credit Card Payments</h2>
+       </div>
+            <Button
+            onClick={handleAddNew}
+            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+            disabled={loading}
+            >
+            <Plus className="w-4 h-4 text-black" />
+            <span>Add New</span>
+            </Button>
+        </div>
+         
+        
+
+            {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
+                    <p className="text-sm text-red-600">{error}</p>
+                </div>
+            )}
+
+            <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto rounded-lg">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Payment Date
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Card Holder
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Card No
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Amount
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Remarks
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Actions
+                                    </TableHead>
+                                    
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {loading ? (
+                                    <TableRow>
+                                        <TableCell colSpan={10} className="text-center py-8">
+                                            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
+                                            <p className="text-sm text-gray-500">Loading credit card payments...</p>
+                                        </TableCell>
+                                    </TableRow>
+                                ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={10} className="text-center py-8">
+                                            <p className="text-sm text-gray-500 mb-1">No credit card payments</p>
+
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    creditCards.map((card) => (
+                                        <TableRow
+                                            key={card.id}
+                                            className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                                        >
+                                            <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
+                                                {formatDate(card.paymentDate)}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                {card.cardNo}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                {new Intl.NumberFormat('en-AE', { 
+                                                    style: 'currency', 
+                                                    currency: 'AED',
+                                                    minimumFractionDigits: 2 
+                                                }).format(card.amount)}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">    {card.remarks}</TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left"> 
+                                                   <Button 
+                                                       variant="outline" 
+                                                       className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                                       onClick={() => handleEditClick(card)}
+                                                   >
+                                                       Edit
+                                                   </Button>
+                                                   </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Add Payment Dialog */}
+            <Dialog open={isModalOpen} onOpenChange={handleModalClose}>
+                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-gray-900">
+                            {editingPayment ? 'Edit Credit Card Payment' : 'Add Credit Card Payment'}
+                        </DialogTitle>
+                    </DialogHeader>
+                    {error && (
+                        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
+                            <p className="text-base text-red-600">{error}</p>
+                        </div>
+                    )}
+                    <Form {...form}>
+                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
+                            {/* Payment Date Field */}
+                            <FormField
+                                control={form.control}
+                                name="paymentDate"
+                                render={({ field }) => {
+                                    const parseDate = (dateString: string): Date | null => {
+                                        if (!dateString || dateString.length < 10) return null;
+                                        // Try dd/mm/yyyy format
+                                        if (dateString.includes('/')) {
+                                            const parts = dateString.split('/');
+                                            if (parts.length === 3) {
+                                                const day = parseInt(parts[0], 10);
+                                                const month = parseInt(parts[1], 10);
+                                                const year = parseInt(parts[2], 10);
+                                                if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+                                                    return new Date(year, month - 1, day);
+                                                }
+                                            }
+                                        }
+                                        // Try yyyy-mm-dd format
+                                        const date = new Date(dateString);
+                                        return isNaN(date.getTime()) ? null : date;
+                                    };
+
+                                    const formatDate = (date: Date | null): string => {
+                                        if (!date || isNaN(date.getTime())) return '';
+                                        const day = String(date.getDate()).padStart(2, '0');
+                                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                                        const year = date.getFullYear();
+                                        return `${day}/${month}/${year}`;
+                                    };
+
+                                    const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
+                                        parseDate(field.value)
+                                    );
+                                    const [isPopoverOpen, setIsPopoverOpen] = useState(false);
+
+                                    useEffect(() => {
+                                        const parsed = parseDate(field.value);
+                                        if (parsed) {
+                                            setSelectedDate(parsed);
+                                        } else if (field.value === '' && selectedDate !== null) {
+                                            setSelectedDate(null);
+                                        }
+                                        // eslint-disable-next-line react-hooks/exhaustive-deps
+                                    }, [field.value]);
+
+                                    const handleDateSelect = (date: Date | null) => {
+                                        if (date && !isNaN(date.getTime())) {
+                                            setSelectedDate(date);
+                                            const formatted = formatDate(date);
+                                            field.onChange(formatted);
+                                            setIsPopoverOpen(false);
+                                        }
+                                    };
+
+                                    return (
+                                        <FormItem>
+                                            <FormLabel className="text-base font-medium text-gray-700">
+                                                Payment Date <span className="text-red-500">*</span>
+                                            </FormLabel>
+                                            <FormControl>
+                                                <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+                                                    <div className="relative">
+                                                        <Input
+                                                            placeholder="dd/mm/yyyy"
+                                                            value={field.value}
+                                                            onChange={(e) => {
+                                                                let value = e.target.value.replace(/\D/g, '');
+                                                                if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
+                                                                if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
+                                                                field.onChange(value);
+                                                                if (value.length === 10) {
+                                                                    const date = parseDate(value);
+                                                                    if (date) {
+                                                                        setSelectedDate(date);
+                                                                    }
+                                                                }
+                                                            }}
+                                                            maxLength={10}
+                                                            className="w-full pr-10"
+                                                            disabled={isSubmitting}
+                                                        />
+                                                        <PopoverTrigger asChild>
+                                                            <button
+                                                                type="button"
+                                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer z-10"
+                                                            >
+                                                                <CalendarIcon className="w-5 h-5 text-black" />
+                                                            </button>
+                                                        </PopoverTrigger>
+                                                    </div>
+                                                    <PopoverContent className="w-auto p-0" align="end">
+                                                        <Calendar
+                                                            date={selectedDate}
+                                                            onSelect={handleDateSelect}
+                                                        />
+                                                    </PopoverContent>
+                                                </Popover>
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    );
+                                }}
+                            />
+
+                            {/* Credit Card Selection (Optional) */}
+                            <FormField
+                                control={form.control}
+                                name="creditCardId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-base font-medium text-gray-700">
+                                            Credit Card <span className="text-red-500">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            <SearchableSelect
+                                                value={field.value || ''}
+                                                onValueChange={(value) => {
+                                                    field.onChange(value);
+                                                    // Auto-fill MST and card number if credit card is selected
+                                                    if (value) {
+                                                        const selectedCard = availableCreditCards.find(card => card.id === value);
+                                                        if (selectedCard) {
+                                                            form.setValue('cardHolder', selectedCard.cardHolder);
+                                                            form.setValue('cardNo', selectedCard.cardNo);
+                                                        }
+                                                    }
+                                                }}
+                                                placeholder="Select credit card"
+                                                searchPlaceholder="Search credit card..."
+                                                disabled={isSubmitting || loadingCreditCards}
+                                            >
+                                                {availableCreditCards.map((card) => (
+                                                    <SelectItem key={card.id} value={card.id}>
+                                                        {card.cardHolder} - {card.cardNo.slice(-4)} ({card.issuingBank})
+                                                    </SelectItem>
+                                                ))}
+                                            </SearchableSelect>
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Card Number Field */}
+                            <FormField
+                                control={form.control}
+                                name="cardNo"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-base font-medium text-gray-700">
+                                            Card Number <span className="text-red-500">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="Enter card number"
+                                                {...field}
+                                                disabled={isSubmitting}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* MST Field */}
+                            <FormField
+                                control={form.control}
+                                name="cardHolder"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-base font-medium text-gray-700">
+                                            Card Holder <span className="text-red-500">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="Enter MST name"
+                                                {...field}
+                                                disabled={isSubmitting}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Amount Field */}
+                            <FormField
+                                control={form.control}
+                                name="amount"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-base font-medium text-gray-700">
+                                            Amount (AED) <span className="text-red-500">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="0.00"
+                                                {...field}
+                                                onChange={(e) => {
+                                                    const value = e.target.value;
+                                                    if (value === '') {
+                                                        field.onChange(0);
+                                                    } else {
+                                                        field.onChange(parseFloat(value));
+                                                    }
+                                                }}
+                                                disabled={isSubmitting}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Remarks Field */}
+                            <FormField
+                                control={form.control}
+                                name="remarks"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-base font-medium text-gray-700">
+                                            Remarks (Optional)
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="Enter remarks"
+                                                {...field}
+                                                disabled={isSubmitting}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Submit Button */}
+                            <DialogFooter className="pt-4">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => handleModalClose(false)}
+                                    disabled={isSubmitting}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                    disabled={isSubmitting}
+                                >
+                                    {isSubmitting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            {editingPayment ? 'Updating...' : 'Creating...'}
+                                        </>
+                                    ) : (
+                                        editingPayment ? 'Update Payment' : 'Create Payment'
+                                    )}
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </Form>
+                </DialogContent>
+            </Dialog>
+        </Layout>
+    );
+}
