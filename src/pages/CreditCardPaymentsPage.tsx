@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -33,8 +33,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { SearchableSelect } from '../components/ui/searchable-select';
 import { SelectItem } from '../components/ui/select';
 import Calendar from '../components/ui/calendar-tailwind';
-import { Loader2, Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { Loader2, Plus, Calendar as CalendarIcon, Download } from 'lucide-react';
 import { creditCardService, type CreditCardDetail } from '../services/creditCardService';
+import * as XLSX from 'xlsx';
 
 export interface CreditCardPayment {
     id: string;
@@ -357,6 +358,232 @@ export default function CreditCardPaymentsPage() {
         return `${day}-${month}-${year}`;
     };
 
+    // Helper function to parse date for sorting
+    const parseDateForSort = useCallback((paymentDate: string): Date | null => {
+        if (!paymentDate) return null;
+        
+        // Handle ISO 8601 format: "2026-01-08T20:00:00.000Z"
+        if (paymentDate.includes('T')) {
+            const date = new Date(paymentDate);
+            return !isNaN(date.getTime()) ? date : null;
+        }
+        
+        // Format: yyyy-mm-dd
+        if (paymentDate.includes('-') && paymentDate.length === 10) {
+            const parts = paymentDate.split('-');
+            if (parts.length === 3 && parts[0].length === 4) {
+                const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                return !isNaN(date.getTime()) ? date : null;
+            }
+        }
+        
+        // Format: dd/mm/yyyy
+        if (paymentDate.includes('/')) {
+            const parts = paymentDate.split('/');
+            if (parts.length === 3) {
+                const date = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                return !isNaN(date.getTime()) ? date : null;
+            }
+        }
+        
+        // Try standard Date parsing
+        const date = new Date(paymentDate);
+        return !isNaN(date.getTime()) ? date : null;
+    }, []);
+
+    // Sort credit cards by date in descending order (newest first - Dec first, Jan last)
+    const sortedCreditCards = useMemo(() => {
+        if (!creditCards || creditCards.length === 0) return [];
+        
+        return [...creditCards].sort((a, b) => {
+            const dateA = parseDateForSort(a.paymentDate);
+            const dateB = parseDateForSort(b.paymentDate);
+            
+            // If both have valid dates, sort descending (newest first)
+            if (dateA && dateB) {
+                return dateB.getTime() - dateA.getTime(); // Descending order
+            }
+            
+            // If only one has a valid date, prioritize it
+            if (dateA && !dateB) return -1;
+            if (!dateA && dateB) return 1;
+            
+            // If neither has a valid date, maintain original order
+            return 0;
+        });
+    }, [creditCards, parseDateForSort]);
+
+    // Excel Download function
+    const handleDownloadExcel = useCallback(() => {
+        if (!creditCards || creditCards.length === 0) {
+            setError('No data to export');
+            return;
+        }
+
+        // Parse dates to get date range
+        const parseDateForRange = (payment: CreditCardPayment) => {
+            if (payment.paymentDate.includes('T')) {
+                return new Date(payment.paymentDate);
+            }
+            if (payment.paymentDate.includes('-') && payment.paymentDate.length === 10) {
+                const parts = payment.paymentDate.split('-');
+                if (parts.length === 3 && parts[0].length === 4) {
+                    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                }
+            }
+            if (payment.paymentDate.includes('/')) {
+                const parts = payment.paymentDate.split('/');
+                if (parts.length === 3) {
+                    return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                }
+            }
+            return null;
+        };
+
+        const dates = creditCards.map(parseDateForRange).filter(Boolean) as Date[];
+        const startDate = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
+        const endDate = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
+
+        const formatDateForFileName = (d: Date) => {
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+        };
+
+        // Create workbook
+        const workbook = XLSX.utils.book_new();
+
+        // Prepare data for Excel
+        const excelData: any[] = [];
+
+        // Add company header
+        excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE']);
+        excelData.push([]);
+        excelData.push(['Credit Card Payments Report']);
+        excelData.push([]);
+
+        // Add date range information
+        excelData.push(['Start Date:', formatDateForFileName(startDate)]);
+        excelData.push(['End Date:', formatDateForFileName(endDate)]);
+        excelData.push(['Total Records:', creditCards.length]);
+        excelData.push([]);
+
+        // Add table headers
+        excelData.push(['Payment Date', 'Card Holder', 'Card Number', 'Amount (AED)', 'Remarks']);
+
+        // Sort payments by date (oldest first) for better readability in Excel
+        const sortedPayments = [...creditCards].sort((a, b) => {
+            const dateA = parseDateForRange(a);
+            const dateB = parseDateForRange(b);
+            if (!dateA && !dateB) return 0;
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+            return dateA.getTime() - dateB.getTime(); // Ascending order (oldest first)
+        });
+
+        // Calculate total amount
+        let totalAmount = 0;
+
+        // Add payment rows
+        sortedPayments.forEach(payment => {
+            // Format date for display
+            let displayDate = payment.paymentDate;
+            if (payment.paymentDate.includes('T')) {
+                const date = new Date(payment.paymentDate);
+                if (!isNaN(date.getTime())) {
+                    const day = String(date.getDate()).padStart(2, '0');
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const year = date.getFullYear();
+                    displayDate = `${day}/${month}/${year}`;
+                }
+            } else if (payment.paymentDate.includes('-') && payment.paymentDate.length === 10) {
+                // Format: yyyy-mm-dd -> dd/mm/yyyy
+                const parts = payment.paymentDate.split('-');
+                if (parts.length === 3 && parts[0].length === 4) {
+                    displayDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                }
+            }
+
+            // Format card holder (show MST if Suleman)
+            const cardHolder = payment.cardHolder === 'Suleman' ? 'MST' : payment.cardHolder;
+
+            // Add to total
+            totalAmount += payment.amount || 0;
+
+            excelData.push([
+                displayDate,
+                cardHolder,
+                payment.cardNo || '',
+                payment.amount || 0, // Store as number
+                payment.remarks || '',
+            ]);
+        });
+
+        // Add total row
+        excelData.push([]);
+        excelData.push(['Total Amount (AED):', '', '', totalAmount, '']);
+
+        // Create worksheet from data
+        const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+
+        // Set column widths
+        worksheet['!cols'] = [
+            { wch: 18 }, // Payment Date
+            { wch: 20 }, // Card Holder
+            { wch: 20 }, // Card Number
+            { wch: 18 }, // Amount
+            { wch: 30 }, // Remarks
+        ];
+
+        // Find the range of data
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+
+        // Format header row (row 8, after company header and info)
+        const headerRow = 8;
+        for (let col = 0; col <= 4; col++) {
+            const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
+            if (worksheet[headerCellRef]) {
+                if (!worksheet[headerCellRef].s) {
+                    worksheet[headerCellRef].s = {};
+                }
+                worksheet[headerCellRef].s.font = { bold: true };
+                worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
+            }
+        }
+
+        // Format Amount column (column D, index 3) - apply number formatting
+        for (let row = headerRow + 1; row <= range.e.r; row++) {
+            const amountCellRef = XLSX.utils.encode_cell({ r: row, c: 3 });
+            if (worksheet[amountCellRef]) {
+                if (typeof worksheet[amountCellRef].v === 'number') {
+                    worksheet[amountCellRef].t = 'n'; // Number type
+                    worksheet[amountCellRef].z = '#,##0.00'; // Number format with 2 decimals and thousand separators
+                }
+            }
+        }
+
+        // Format Total Amount cell
+        const totalRow = range.e.r;
+        const totalAmountCellRef = XLSX.utils.encode_cell({ r: totalRow, c: 3 });
+        if (worksheet[totalAmountCellRef]) {
+            if (typeof worksheet[totalAmountCellRef].v === 'number') {
+                worksheet[totalAmountCellRef].t = 'n';
+                worksheet[totalAmountCellRef].z = '#,##0.00';
+                if (!worksheet[totalAmountCellRef].s) {
+                    worksheet[totalAmountCellRef].s = {};
+                }
+                worksheet[totalAmountCellRef].s.font = { bold: true };
+            }
+        }
+
+        // Add worksheet to workbook
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Credit Card Payments');
+
+        // Generate Excel file and download
+        const fileName = `Credit-Card-Payments-${formatDateForFileName(startDate)}-to-${formatDateForFileName(endDate)}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+
+    }, [creditCards]);
+
     return (
         <Layout>
               <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
@@ -364,14 +591,25 @@ export default function CreditCardPaymentsPage() {
       
           <h2 className="text-2xl font-bold text-gray-900"> Credit Card Payments</h2>
        </div>
+       <div className="flex items-center gap-2 mr-4">
+            <Button
+            onClick={handleDownloadExcel}
+            variant="outline"
+            className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 flex items-center space-x-2 transition-colors rounded-lg"
+            disabled={loading || !creditCards || creditCards.length === 0}
+            >
+            <Download className="w-4 h-4" />
+            <span>Download Excel</span>
+            </Button>
             <Button
             onClick={handleAddNew}
-            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
             disabled={loading}
             >
             <Plus className="w-4 h-4 text-black" />
             <span>Add New</span>
             </Button>
+        </div>
         </div>
          
         
@@ -417,7 +655,7 @@ export default function CreditCardPaymentsPage() {
                                             <p className="text-sm text-gray-500">Loading credit card payments...</p>
                                         </TableCell>
                                     </TableRow>
-                                ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
+                                ) : !Array.isArray(sortedCreditCards) || sortedCreditCards.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={10} className="text-center py-8">
                                             <p className="text-sm text-gray-500 mb-1">No credit card payments</p>
@@ -425,7 +663,7 @@ export default function CreditCardPaymentsPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    creditCards.map((card) => (
+                                    sortedCreditCards.map((card) => (
                                         <TableRow
                                             key={card.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"

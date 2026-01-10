@@ -52,14 +52,17 @@ export interface PostDatedCheque {
   createdAt?: string;
 }
 
-// API Response interface (snake_case from backend)
+// API Response interface (snake_case from backend) - Purchase Bills API
 export interface PaymentMatchingApiResponse {
   id: number;
-  payment_date: string;
+  bill_date: string;
   invoice_number?: string | null;
-  customer_name: string;
+  vendor_name: string;
   payment_method: string;
   amount: string | number;
+  bill_number?: string | null;
+  description?: string | null;
+  payment_status?: string;
   created_by?: number;
   created_by_username?: string;
   created_at?: string;
@@ -69,11 +72,14 @@ export interface PaymentMatchingApiResponse {
 // Internal interface (camelCase for frontend)
 export interface PaymentMatching {
   id?: string | number;
-  paymentDate: string;
+  paymentDate: string; // Maps to bill_date from API
   invoiceNumber?: string;
-  customerName: string;
+  customerName: string; // Maps to vendor_name from API
   paymentMethod: string;
   amount: string | number;
+  billNumber?: string;
+  description?: string;
+  paymentStatus?: string;
   createdBy?: number;
   createdByUsername?: string;
   createdAt?: string;
@@ -252,18 +258,21 @@ export const transactionService = {
     return api.delete<void>(`/pdc/${id}`);
   },
 
-  // Payment Matching (Credit Card Payments)
+  // Payment Matching (Purchase Bills) - GET /purchase-bills
   getPaymentMatchings: async (): Promise<ApiResponse<PaymentMatching[]>> => {
-    const response = await api.get<PaymentMatchingApiResponse[]>('/credit-card-payments');
+    const response = await api.get<PaymentMatchingApiResponse[]>('/purchase-bills');
     if (response.success && response.data) {
       // Map snake_case API response to camelCase
       const mappedData: PaymentMatching[] = response.data.map((item) => ({
         id: String(item.id),
-        paymentDate: item.payment_date,
+        paymentDate: item.bill_date, // bill_date -> paymentDate
         invoiceNumber: item.invoice_number || undefined,
-        customerName: item.customer_name,
+        customerName: item.vendor_name, // vendor_name -> customerName (for display)
         paymentMethod: item.payment_method,
         amount: item.amount,
+        billNumber: item.bill_number || undefined,
+        description: item.description || undefined,
+        paymentStatus: item.payment_status,
         createdBy: item.created_by,
         createdByUsername: item.created_by_username,
         createdAt: item.created_at,
@@ -276,31 +285,39 @@ export const transactionService = {
     return response as unknown as ApiResponse<PaymentMatching[]>;
   },
 
-  createPaymentMatching: async (data: Omit<PaymentMatching, 'id' | 'createdBy' | 'createdByUsername' | 'createdAt'>): Promise<ApiResponse<PaymentMatching>> => {
-    // Send payload in camelCase format as API expects
+  // Payment Matching (Purchase Bills) - POST /purchase-bills
+  createPaymentMatching: async (data: Omit<PaymentMatching, 'id' | 'createdBy' | 'createdByUsername' | 'createdAt' | 'billNumber' | 'paymentStatus'>): Promise<ApiResponse<PaymentMatching>> => {
+    // Convert to API format (snake_case) - API expects bill_date, vendor_name
     const apiData: any = {
-      paymentDate: data.paymentDate, // Keep as dd/mm/yyyy format
-      customerName: data.customerName,
-      paymentMethod: data.paymentMethod,
+      bill_date: data.paymentDate, // paymentDate -> bill_date (accepts dd/mm/yyyy, yyyy-mm-dd, or dd-mmm-yyyy)
+      vendor_name: data.customerName, // customerName -> vendor_name
+      payment_method: data.paymentMethod,
       amount: typeof data.amount === 'string' ? parseFloat(data.amount.replace(/,/g, '')) : data.amount,
     };
     
     if (data.invoiceNumber) {
-      apiData.invoiceNumber = data.invoiceNumber;
+      apiData.invoice_number = data.invoiceNumber;
+    }
+    
+    if (data.description) {
+      apiData.description = data.description;
     }
     
     console.log('[transactionService] createPaymentMatching - API payload:', JSON.stringify(apiData, null, 2));
     
-    const response = await api.post<PaymentMatchingApiResponse>('/credit-card-payments', apiData);
+    const response = await api.post<PaymentMatchingApiResponse>('/purchase-bills', apiData);
     if (response.success && response.data) {
       // Map response back to camelCase
       const mappedData: PaymentMatching = {
         id: String(response.data.id),
-        paymentDate: response.data.payment_date,
+        paymentDate: response.data.bill_date,
         invoiceNumber: response.data.invoice_number || undefined,
-        customerName: response.data.customer_name,
+        customerName: response.data.vendor_name,
         paymentMethod: response.data.payment_method,
         amount: response.data.amount,
+        billNumber: response.data.bill_number || undefined,
+        description: response.data.description || undefined,
+        paymentStatus: response.data.payment_status,
         createdBy: response.data.created_by,
         createdByUsername: response.data.created_by_username,
         createdAt: response.data.created_at,
@@ -313,28 +330,33 @@ export const transactionService = {
     return response as unknown as ApiResponse<PaymentMatching>;
   },
 
-  updatePaymentMatching: async (id: string, data: Partial<Omit<PaymentMatching, 'id' | 'createdBy' | 'createdByUsername' | 'createdAt'>>): Promise<ApiResponse<PaymentMatching>> => {
-    // Send payload in camelCase format as API expects
+  // Payment Matching (Purchase Bills) - PATCH /purchase-bills/:id
+  updatePaymentMatching: async (id: string, data: Partial<Omit<PaymentMatching, 'id' | 'createdBy' | 'createdByUsername' | 'createdAt' | 'billNumber' | 'paymentStatus'>>): Promise<ApiResponse<PaymentMatching>> => {
+    // Convert to API format (snake_case)
     const apiData: any = {};
     
-    if (data.paymentDate) apiData.paymentDate = data.paymentDate;
-    if (data.customerName !== undefined) apiData.customerName = data.customerName;
-    if (data.paymentMethod) apiData.paymentMethod = data.paymentMethod;
+    if (data.paymentDate !== undefined) apiData.bill_date = data.paymentDate;
+    if (data.customerName !== undefined) apiData.vendor_name = data.customerName;
+    if (data.paymentMethod !== undefined) apiData.payment_method = data.paymentMethod;
     if (data.amount !== undefined) {
       apiData.amount = typeof data.amount === 'string' ? parseFloat(data.amount.replace(/,/g, '')) : data.amount;
     }
-    if (data.invoiceNumber !== undefined) apiData.invoiceNumber = data.invoiceNumber;
+    if (data.invoiceNumber !== undefined) apiData.invoice_number = data.invoiceNumber;
+    if (data.description !== undefined) apiData.description = data.description;
     
-    const response = await api.put<PaymentMatchingApiResponse>(`/credit-card-payments/${id}`, apiData);
+    const response = await api.patch<PaymentMatchingApiResponse>(`/purchase-bills/${id}`, apiData);
     if (response.success && response.data) {
       // Map response back to camelCase
       const mappedData: PaymentMatching = {
         id: String(response.data.id),
-        paymentDate: response.data.payment_date,
+        paymentDate: response.data.bill_date,
         invoiceNumber: response.data.invoice_number || undefined,
-        customerName: response.data.customer_name,
+        customerName: response.data.vendor_name,
         paymentMethod: response.data.payment_method,
         amount: response.data.amount,
+        billNumber: response.data.bill_number || undefined,
+        description: response.data.description || undefined,
+        paymentStatus: response.data.payment_status,
         createdBy: response.data.created_by,
         createdByUsername: response.data.created_by_username,
         createdAt: response.data.created_at,
@@ -347,8 +369,9 @@ export const transactionService = {
     return response as unknown as ApiResponse<PaymentMatching>;
   },
 
+  // Payment Matching (Purchase Bills) - DELETE /purchase-bills/:id
   deletePaymentMatching: async (id: string): Promise<ApiResponse<void>> => {
-    return api.delete<void>(`/credit-card-payments/${id}`);
+    return api.delete<void>(`/purchase-bills/${id}`);
   },
 
   // Analytics
