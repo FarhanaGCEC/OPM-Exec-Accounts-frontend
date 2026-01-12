@@ -116,15 +116,33 @@ export const creditCardService = {
   // - No params: Returns current month/year statements
   // - month & year: Returns statements for specific month (format: /statements/YYYY-MM)
   // - year only: Returns all months for that year
+  // - months array: Returns statements for multiple months (format: /statements/YYYY-MM?months=YYYY-MM,YYYY-MM,...)
   getCreditCardStatements: async (options?: {
     month?: number; // 0-11 (0 = January)
     year?: number;
+    months?: number[]; // Array of month indices (0-11) for multiple month selection
   }): Promise<ApiResponse<CreditCardStatement[]>> => {
     let url = '/statements';
     
-    // If both month and year are provided, use path format: /statements/YYYY-MM
-    if (options?.year !== undefined && options?.month !== undefined) {
-      // Format month as 2-digit string (1-12)
+    // If months array is provided, use the months query parameter format
+    if (options?.months && options.months.length > 0 && options?.year !== undefined) {
+      // Format: /statements/YYYY-MM?months=YYYY-MM,YYYY-MM,...
+      const yearStr = String(options.year);
+      const firstMonth = options.months[0];
+      const monthStr = String(firstMonth + 1).padStart(2, '0');
+      const baseUrl = `/statements/${yearStr}-${monthStr}`;
+      
+      // Build months query parameter: convert month indices (0-11) to YYYY-MM format
+      const monthParams = options.months
+        .sort((a, b) => a - b)
+        .map(m => {
+          const mStr = String(m + 1).padStart(2, '0');
+          return `${yearStr}-${mStr}`;
+        });
+      
+      url = `${baseUrl}?months=${monthParams.join(',')}`;
+    } else if (options?.year !== undefined && options?.month !== undefined) {
+      // If both month and year are provided, use path format: /statements/YYYY-MM
       const monthStr = String(options.month + 1).padStart(2, '0');
       const yearStr = String(options.year);
       url = `/statements/${yearStr}-${monthStr}`;

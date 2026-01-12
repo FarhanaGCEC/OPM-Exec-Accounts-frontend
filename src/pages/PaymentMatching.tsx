@@ -30,7 +30,8 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2 } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
 import { transactionService, type PaymentMatching as PaymentMatchingType } from '../services/transactionService';
@@ -330,6 +331,169 @@ export default function PaymentMatching() {
     }
   }, [deletingPaymentId]);
 
+  const handleDownloadExcel = useCallback(() => {
+    if (payments.length === 0) return;
+
+    // Create a new workbook
+    const workbook = XLSX.utils.book_new();
+
+    // Prepare data for Excel
+    const excelData: any[] = [];
+
+    // Add company header
+    excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE']);
+    excelData.push([]);
+    excelData.push(['Sales Invoice amount paid against GCEC Purchase Bills']);
+    excelData.push([]);
+    excelData.push([]);
+
+    // Add table headers
+    excelData.push(['Payment Date', 'Invoice Number', 'Customer Name', 'Payment Method', 'Amount (AED)']);
+
+    // Sort payments by date (oldest first) for better readability in Excel
+    const sortedPayments = [...payments].sort((a, b) => {
+      const parseDate = (payment: PaymentMatching): Date | null => {
+        if (payment.date) {
+          const parts = payment.date.split('-');
+          if (parts.length === 3) {
+            const months: any = { 
+              Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+              Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' 
+            };
+            const date = new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
+            return isNaN(date.getTime()) ? null : date;
+          }
+        }
+        // Fallback to paymentDate field
+        if (payment.paymentDate) {
+          const date = new Date(payment.paymentDate);
+          return isNaN(date.getTime()) ? null : date;
+        }
+        return null;
+      };
+
+      const dateA = parseDate(a);
+      const dateB = parseDate(b);
+      
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return dateA.getTime() - dateB.getTime(); // Ascending order
+    });
+
+    // Add payment data rows
+    sortedPayments.forEach((payment) => {
+      const date = payment.date || formatDateForDisplay(payment.paymentDate);
+      const invoiceNumber = payment.invoiceNumber || '';
+      const customerName = payment.customerName || '';
+      const paymentMethod = payment.paymentMethod || '';
+      
+      // Extract amount as number
+      let amount: number = 0;
+      if (typeof payment.amount === 'number') {
+        amount = payment.amount;
+      } else if (typeof payment.amount === 'string') {
+        const cleanedAmount = payment.amount.replace(/,/g, '').replace(/AED/gi, '').replace(/\s+/g, '').trim();
+        amount = parseFloat(cleanedAmount) || 0;
+      } else if (payment.amountFormatted) {
+        const cleanedAmount = payment.amountFormatted.replace(/,/g, '').replace(/AED/gi, '').replace(/\s+/g, '').trim();
+        amount = parseFloat(cleanedAmount) || 0;
+      }
+
+      excelData.push([date, invoiceNumber, customerName, paymentMethod, amount]);
+    });
+
+    // Calculate total amount
+    const totalAmount = sortedPayments.reduce((sum, payment) => {
+      let amount: number = 0;
+      if (typeof payment.amount === 'number') {
+        amount = payment.amount;
+      } else if (typeof payment.amount === 'string') {
+        const cleanedAmount = payment.amount.replace(/,/g, '').replace(/AED/gi, '').replace(/\s+/g, '').trim();
+        amount = parseFloat(cleanedAmount) || 0;
+      } else if (payment.amountFormatted) {
+        const cleanedAmount = payment.amountFormatted.replace(/,/g, '').replace(/AED/gi, '').replace(/\s+/g, '').trim();
+        amount = parseFloat(cleanedAmount) || 0;
+      }
+      return sum + amount;
+    }, 0);
+
+    // Add total row
+    excelData.push([]);
+    excelData.push(['Total', '', '', '', totalAmount]);
+
+    // Create worksheet from data
+    const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+
+    // Set column widths
+    worksheet['!cols'] = [
+      { wch: 15 }, // Payment Date
+      { wch: 20 }, // Invoice Number
+      { wch: 30 }, // Customer Name
+      { wch: 18 }, // Payment Method
+      { wch: 18 }, // Amount (AED)
+    ];
+
+    // Find the range of data
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    
+    // Format header row (row 5, 0-indexed - after company header and empty rows)
+    const headerRow = 5;
+    for (let col = 0; col <= 4; col++) {
+      const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
+      if (worksheet[headerCellRef]) {
+        if (!worksheet[headerCellRef].s) {
+          worksheet[headerCellRef].s = {};
+        }
+        worksheet[headerCellRef].s.font = { bold: true };
+        worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
+      }
+    }
+
+    // Apply number formatting to Amount column (column E, index 4)
+    // Data rows start at index 6 (after header row at index 5)
+    const dataStartRow = 6;
+    // Exclude the empty row and total row from formatting
+    for (let row = dataStartRow; row < range.e.r - 1; row++) {
+      const amountCellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
+      if (worksheet[amountCellRef]) {
+        if (typeof worksheet[amountCellRef].v === 'number') {
+          worksheet[amountCellRef].t = 'n'; // Number type
+          worksheet[amountCellRef].z = '#,##0.00'; // Number format with 2 decimals and thousand separators
+        }
+      }
+    }
+
+    // Format total row (last row, excluding empty row before it)
+    const totalRow = range.e.r;
+    for (let col = 0; col <= 4; col++) {
+      const totalCellRef = XLSX.utils.encode_cell({ r: totalRow, c: col });
+      if (worksheet[totalCellRef]) {
+        if (!worksheet[totalCellRef].s) {
+          worksheet[totalCellRef].s = {};
+        }
+        if (col === 0 || col === 4) { // First and last column
+          worksheet[totalCellRef].s.font = { bold: true };
+        }
+        if (col === 4 && typeof worksheet[totalCellRef].v === 'number') {
+          worksheet[totalCellRef].t = 'n';
+          worksheet[totalCellRef].z = '#,##0.00';
+        }
+      }
+    }
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Payment Matching');
+
+    // Generate filename with current date
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const fileName = `payment_matching_${dateStr}.xlsx`;
+
+    // Generate Excel file and download
+    XLSX.writeFile(workbook, fileName);
+  }, [payments]);
+
   const handleModalClose = useCallback((open: boolean) => {
     setIsModalOpen(open);
     if (!open) {
@@ -359,14 +523,25 @@ export default function PaymentMatching() {
       
           <h2 className="text-2xl font-bold text-gray-900">Sales Invoice amount paid against GCEC Purchase Bills</h2>
        </div>
+       <div className="flex items-center gap-3 mr-4">
+            <Button
+              onClick={handleDownloadExcel}
+              variant="outline"
+              className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+              disabled={loading || payments.length === 0}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Download Excel</span>
+            </Button>
             <Button
             onClick={handleAddNew}
-            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
             disabled={loading}
             >
             <Plus className="w-4 h-4 text-black" />
             <span>Add New</span>
             </Button>
+        </div>
         </div>
 
       {error && !isModalOpen && (

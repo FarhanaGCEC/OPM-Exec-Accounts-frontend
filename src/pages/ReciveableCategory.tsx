@@ -28,10 +28,11 @@ import {
     TableHeader,
     TableRow,
 } from '../components/ui/table';
-import { Plus, Edit, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, Download } from 'lucide-react';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
 import type { ApiResponse } from '../lib/api';
+import * as XLSX from 'xlsx';
 
 const categorySchema = z.object({
     name: z
@@ -245,6 +246,57 @@ export default function ReciveableCategory() {
         return category?.name || '';
     }, [deletingCategoryId, categories]);
 
+    const handleDownloadExcel = useCallback(() => {
+        if (categories.length === 0) {
+            setError('No data to export');
+            return;
+        }
+
+        // Create workbook
+        const workbook = XLSX.utils.book_new();
+
+        // Prepare data for Excel
+        const excelData: any[] = [];
+
+        // Add header
+        excelData.push(['Creditors List']);
+        excelData.push([]);
+
+        // Add table headers
+        excelData.push(['Name']);
+
+        // Add category rows
+        categories.forEach((category) => {
+            excelData.push([category.name || '']);
+        });
+
+        // Create worksheet
+        const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+
+        // Set column widths
+        worksheet['!cols'] = [
+            { wch: 30 }, // Name
+        ];
+
+        // Format header row (row 2, 0-indexed)
+        const headerRow = 2;
+        const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: 0 });
+        if (worksheet[headerCellRef]) {
+            if (!worksheet[headerCellRef].s) {
+                worksheet[headerCellRef].s = {};
+            }
+            worksheet[headerCellRef].s.font = { bold: true };
+            worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
+        }
+
+        // Add worksheet to workbook
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Creditors List');
+
+        // Generate Excel file and download
+        const fileName = `Creditors-List-${new Date().toISOString().split('T')[0]}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+    }, [categories]);
+
     return (
         <Layout>
             <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
@@ -252,14 +304,25 @@ export default function ReciveableCategory() {
       
           <h2 className="text-2xl font-bold text-gray-900">Creditors List</h2>
        </div>
-            <Button
-            onClick={handleAddNew}
-            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
-            disabled={loading}
-            >
-            <Plus className="w-4 h-4 text-black" />
-            <span>Add New</span>
-            </Button>
+            <div className="flex items-center gap-2 mr-4">
+                <Button
+                    variant="outline"
+                    onClick={handleDownloadExcel}
+                    disabled={loading || categories.length === 0}
+                    className="bg-white hover:bg-[#eab308] text-black border-0 flex items-center gap-2"
+                >
+                    <Download className="w-4 h-4" />
+                    <span>Download Excel</span>
+                </Button>
+                <Button
+                onClick={handleAddNew}
+                className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                disabled={loading}
+                >
+                <Plus className="w-4 h-4 text-black" />
+                <span>Add New</span>
+                </Button>
+            </div>
         </div>
 
             {error && (

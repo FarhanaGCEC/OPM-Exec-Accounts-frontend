@@ -13,6 +13,7 @@ import GCECBeneficiary from './pages/GCECBeneficiary';
 import CreditCardStatements from './pages/CreditCardStatments';
 import CreditCardDetails from './pages/CreditCardDetails';
 import CreditCardPaymentsPage from './pages/CreditCardPaymentsPage';
+import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
 
 console.log('[App] App component loading...');
@@ -29,19 +30,110 @@ const App = () => {
     >
       <Routes>
         <Route path="/" element={<Auth />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/records" element={<ViewAllRecords />} />
-        <Route path="/bank" element={<BankTransaction />} />
-        <Route path="/cheque" element={<PostDatedCheque />} />
-        <Route path="/customer-pdc" element={<CustomerPDC />} />
-        <Route path="/gcec-pdc" element={<GCECpdc />} />
-        <Route path="/matching" element={<PaymentMatching />} />
-        <Route path="/category" element={<PayablesCategory />} />
-        <Route path="/reciveables" element={<ReciveableCategory />} />
-        <Route path="/beneficiary" element={<GCECBeneficiary />} />
-        <Route path="/credit-card-statements" element={<CreditCardStatements />} />
-        <Route path="/credit-card-statements/details" element={<CreditCardDetails />} />
-        <Route path="/credit-card-statements/payments" element={<CreditCardPaymentsPage />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/records"
+          element={
+            <ProtectedRoute>
+              <ViewAllRecords />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/bank"
+          element={
+            <ProtectedRoute>
+              <BankTransaction />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/cheque"
+          element={
+            <ProtectedRoute>
+              <PostDatedCheque />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customer-pdc"
+          element={
+            <ProtectedRoute>
+              <CustomerPDC />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/gcec-pdc"
+          element={
+            <ProtectedRoute>
+              <GCECpdc />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/matching"
+          element={
+            <ProtectedRoute>
+              <PaymentMatching />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/category"
+          element={
+            <ProtectedRoute>
+              <PayablesCategory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reciveables"
+          element={
+            <ProtectedRoute>
+              <ReciveableCategory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/beneficiary"
+          element={
+            <ProtectedRoute>
+              <GCECBeneficiary />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/credit-card-statements"
+          element={
+            <ProtectedRoute>
+              <CreditCardStatements />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/credit-card-statements/details"
+          element={
+            <ProtectedRoute>
+              <CreditCardDetails />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/credit-card-statements/payments"
+          element={
+            <ProtectedRoute>
+              <CreditCardPaymentsPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

@@ -30,12 +30,13 @@
     TableHeader,
     TableRow,
     } from '../components/ui/table';
-    import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, ChevronLeft, Search } from 'lucide-react';
+    import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, ChevronLeft, Search, Download } from 'lucide-react';
     import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
     import Calendar from '../components/ui/calendar-tailwind';
     import { transactionService, type PostDatedCheque as PostDatedChequeType } from '../services/transactionService';
     import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
     import type { ApiResponse } from '../lib/api';
+    import * as XLSX from 'xlsx';
 
     interface PostDatedCheque extends PostDatedChequeType {
     date?: string; // Formatted date for display
@@ -400,6 +401,83 @@
         return true;
     });
 
+    const handleDownloadExcel = useCallback(() => {
+        if (filteredCheques.length === 0) {
+            setError('No data to export');
+            return;
+        }
+
+        // Create workbook
+        const workbook = XLSX.utils.book_new();
+
+        // Prepare data for Excel
+        const excelData: any[] = [];
+
+        // Add header
+        excelData.push(['GCEC PDC']);
+        excelData.push([]);
+
+        // Add table headers
+        excelData.push(['Date', 'Payee', 'Cheque No', 'Amount']);
+
+        // Add cheque rows
+        filteredCheques.forEach((cheque) => {
+            const amountValue = typeof cheque.amount === 'number' 
+                ? cheque.amount 
+                : typeof cheque.amount === 'string'
+                    ? parseFloat(cheque.amount.replace(/,/g, '')) || 0
+                    : 0;
+            
+            excelData.push([
+                cheque.date || formatDateForDisplay(cheque.chequeDate),
+                cheque.customerName || '-',
+                cheque.chequeNumber || '',
+                amountValue
+            ]);
+        });
+
+        // Create worksheet
+        const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+
+        // Set column widths
+        worksheet['!cols'] = [
+            { wch: 15 }, // Date
+            { wch: 25 }, // Payee
+            { wch: 15 }, // Cheque No
+            { wch: 18 }, // Amount
+        ];
+
+        // Format header row (row 2, 0-indexed)
+        const headerRow = 2;
+        for (let col = 0; col <= 3; col++) {
+            const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
+            if (worksheet[headerCellRef]) {
+                if (!worksheet[headerCellRef].s) {
+                    worksheet[headerCellRef].s = {};
+                }
+                worksheet[headerCellRef].s.font = { bold: true };
+                worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
+            }
+        }
+
+        // Format amount column (column D, index 3)
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+        for (let row = 3; row <= range.e.r; row++) {
+            const amountCellRef = XLSX.utils.encode_cell({ r: row, c: 3 });
+            if (worksheet[amountCellRef] && typeof worksheet[amountCellRef].v === 'number') {
+                worksheet[amountCellRef].t = 'n';
+                worksheet[amountCellRef].z = '#,##0.00';
+            }
+        }
+
+        // Add worksheet to workbook
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'GCEC PDC');
+
+        // Generate Excel file and download
+        const fileName = `GCEC-PDC-${new Date().toISOString().split('T')[0]}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+    }, [filteredCheques]);
+
     return (
         <Layout>
         <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
@@ -412,14 +490,25 @@
           </button>
           <h2 className="text-2xl font-bold text-gray-900">GCEC PDC</h2>
        </div>
-            <Button
-            onClick={handleAddNew}
-            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
-            disabled={loading}
-            >
-            <Plus className="w-4 h-4 text-black" />
-            <span>Add New</span>
-            </Button>
+            <div className="flex items-center gap-2 mr-4">
+                <Button
+                    variant="outline"
+                    onClick={handleDownloadExcel}
+                    disabled={loading || filteredCheques.length === 0}
+                    className="bg-white hover:bg-[#eab308] text-black border-0 flex items-center gap-2"
+                >
+                    <Download className="w-4 h-4" />
+                    <span>Download Excel</span>
+                </Button>
+                <Button
+                onClick={handleAddNew}
+                className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                disabled={loading}
+                >
+                <Plus className="w-4 h-4 text-black" />
+                <span>Add New</span>
+                </Button>
+            </div>
         </div>
 
         {error && !isModalOpen && (

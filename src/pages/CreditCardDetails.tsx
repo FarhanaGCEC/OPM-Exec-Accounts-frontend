@@ -28,7 +28,7 @@ import {
     TableHeader,
     TableRow,
 } from '../components/ui/table';
-import { Plus, Loader2, Calendar as CalendarIcon } from 'lucide-react';
+import { Plus, Loader2, Calendar as CalendarIcon, Download } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { 
@@ -127,7 +127,47 @@ export default function CreditCardDetails() {
         return cardNo;
     };
 
- 
+    const handleDownloadCSV = useCallback(() => {
+        if (creditCards.length === 0) return;
+
+        // Helper function to safely escape CSV values
+        const safe = (v: string | null | undefined) => {
+            const value = v === null || v === undefined ? '' : String(v);
+            return `"${value.replace(/"/g, '""')}"`;
+        };
+
+        // CSV headers
+        const headers = ['Issuing Bank', 'Card Holder', 'Card Number', 'Expiry'];
+        const csvRows = [headers.map(safe).join(',')];
+
+        // Add data rows
+        creditCards.forEach((card) => {
+            const cardHolderDisplay = card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder;
+            const expiry = card.expiry_date && card.expiry_date.trim() ? card.expiry_date : '-';
+            const row = [
+                card.issuingBank,
+                cardHolderDisplay,
+                formatCardNumber(card.cardNo),
+                expiry,
+            ];
+            csvRows.push(row.map(safe).join(','));
+        });
+
+        // Create CSV content
+        const csvContent = csvRows.join('\n');
+
+        // Create blob and trigger download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `credit_card_details_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, [creditCards]);
 
     // Helper functions for expiry date
     const parseExpiryDate = (expiryDate: string): { month: number | null; year: number | null } => {
@@ -295,14 +335,25 @@ export default function CreditCardDetails() {
                 <div className="flex items-center gap-4 ml-16">
                     <h2 className="text-2xl font-bold text-gray-900">Credit Card Details</h2>
                 </div>
-                <Button
-                    onClick={handleAddClick}
-                    className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
-                    disabled={loading}
-                >
-                    <Plus className="w-4 h-4 text-black" />
-                    <span>Add New</span>
-                </Button>
+                <div className="flex items-center gap-3 mr-4">
+                    <Button
+                        onClick={handleDownloadCSV}
+                        variant="outline"
+                        className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+                        disabled={loading || creditCards.length === 0}
+                    >
+                        <Download className="w-4 h-4" />
+                        <span>Download CSV</span>
+                    </Button>
+                    <Button
+                        onClick={handleAddClick}
+                        className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                        disabled={loading}
+                    >
+                        <Plus className="w-4 h-4 text-black" />
+                        <span>Add New</span>
+                    </Button>
+                </div>
             </div>
 
             {error && (

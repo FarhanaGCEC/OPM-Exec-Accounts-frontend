@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import {
@@ -30,6 +30,14 @@ export default function Auth() {
     password: '',
   });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginFormData, string>>>({});
+
+  // Redirect to dashboard if user already has a token
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   const validateForm = (): boolean => {
     const newErrors: Partial<Record<keyof LoginFormData, string>> = {};

@@ -124,6 +124,47 @@ export interface AccountSummary {
   pendingChecks: PendingChecks;
 }
 
+// Reminder API Response interface (snake_case from backend)
+export interface ReminderApiResponse {
+  id: number;
+  cheque_date: string;
+  cheque_number: string;
+  customer_name: string;
+  amount: string;
+  cheque_type: string;
+  pdc_type: string;
+  description?: string | null;
+  created_by?: number;
+  created_by_username?: string;
+  created_at?: string;
+  updated_at?: string;
+  days_remaining: number;
+}
+
+// Internal Reminder interface (camelCase for frontend)
+export interface Reminder {
+  id: string | number;
+  chequeDate: string;
+  chequeNumber: string;
+  customerName: string;
+  amount: string | number;
+  chequeType: string;
+  pdcType: string;
+  description?: string;
+  daysRemaining: number;
+  createdBy?: number;
+  createdByUsername?: string;
+  createdAt?: string;
+}
+
+// Reminders API Response
+export interface RemindersResponse {
+  success: boolean;
+  data: ReminderApiResponse[];
+  count: number;
+  days_lookahead: number;
+}
+
 export const transactionService = {
   // Bank Transactions
   getBankTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
@@ -382,6 +423,37 @@ export const transactionService = {
   // Account Summary
   getAccountSummary: async (): Promise<ApiResponse<AccountSummary>> => {
     return api.get<AccountSummary>('/account-summary');
+  },
+
+  // PDC Reminders
+  getReminders: async (days: number = 7): Promise<ApiResponse<Reminder[]>> => {
+    const response = await api.get<RemindersResponse>(`/pdc/reminders?days=${days}`);
+    if (response.success && response.data) {
+      // Handle the response structure - it could be nested or direct
+      const remindersData = (response.data as any).data || response.data;
+      const remindersArray = Array.isArray(remindersData) ? remindersData : [];
+      
+      // Map snake_case API response to camelCase
+      const mappedData: Reminder[] = remindersArray.map((item: ReminderApiResponse) => ({
+        id: String(item.id),
+        chequeDate: item.cheque_date,
+        chequeNumber: item.cheque_number,
+        customerName: item.customer_name,
+        amount: item.amount,
+        chequeType: item.cheque_type,
+        pdcType: item.pdc_type,
+        description: item.description || undefined,
+        daysRemaining: item.days_remaining,
+        createdBy: item.created_by,
+        createdByUsername: item.created_by_username,
+        createdAt: item.created_at,
+      }));
+      return {
+        ...response,
+        data: mappedData,
+      };
+    }
+    return response as unknown as ApiResponse<Reminder[]>;
   },
 };
 
