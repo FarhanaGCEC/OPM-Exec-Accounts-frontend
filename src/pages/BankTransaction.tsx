@@ -323,13 +323,19 @@ export default function BankTransaction() {
         });
 
         if (editingTransaction) {
+          // Format balance with commas
+          const balanceValue = typeof response.data.balance === 'number' 
+            ? response.data.balance 
+            : parseFloat(String(response.data.balance || editingTransaction.balance).replace(/,/g, '')) || 0;
+          const formattedBalance = balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          
           // Update existing transaction in state
           const updatedTransaction: BankTransaction = {
             ...response.data,
             id: String(response.data.id || editingTransaction.id),
             categoryName: selectedCategory?.name,
             amount: formattedAmount,
-            balance: String(response.data.balance || editingTransaction.balance),
+            balance: formattedBalance,
           };
           setTransactions(prevTransactions =>
             prevTransactions.map(t => 
@@ -337,13 +343,19 @@ export default function BankTransaction() {
             )
           );
         } else {
+          // Format balance with commas
+          const balanceValue = typeof response.data.balance === 'number' 
+            ? response.data.balance 
+            : parseFloat(String(response.data.balance || '0').replace(/,/g, '')) || 0;
+          const formattedBalance = balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          
           // Add new transaction to local state
           const newTransaction: BankTransaction = {
             ...response.data,
             id: String(response.data.id || Date.now()),
             categoryName: selectedCategory?.name,
             amount: formattedAmount,
-            balance: String(response.data.balance || '0'),
+            balance: formattedBalance,
           };
           setTransactions(prevTransactions => [newTransaction, ...prevTransactions]);
         }
@@ -446,10 +458,8 @@ export default function BankTransaction() {
       const categoryList = transactionType === 'Debit' ? payablesCategories : receivablesCategories;
       const otherList = transactionType === 'Debit' ? receivablesCategories : payablesCategories;
       
-      console.log('[handleEdit] Searching for category:', transaction.categoryName);
-      console.log('[handleEdit] Transaction type:', transactionType);
-      console.log('[handleEdit] Primary list categories:', categoryList.map(c => c.name));
-      console.log('[handleEdit] Other list categories:', otherList.map(c => c.name));
+
+    
       
       // First try in the appropriate list
       let foundByName = categoryList.find(cat => {
@@ -469,14 +479,7 @@ export default function BankTransaction() {
           return catName === transName;
         });
         
-        if (foundByName) {
-          categoryId = String(foundByName.id);
-          console.log('[handleEdit] Found in other list:', foundByName.name, '->', categoryId);
-        } else {
-          console.warn('[handleEdit] Category NOT FOUND:', transaction.categoryName);
-          console.warn('[handleEdit] Available in payables:', payablesCategories.map(c => c.name));
-          console.warn('[handleEdit] Available in receivables:', receivablesCategories.map(c => c.name));
-        }
+     
       }
     }
     
@@ -1458,8 +1461,25 @@ export default function BankTransaction() {
                     </td>
                   </tr>
                 ) : (
-                  paginatedTransactions.map((transaction) => (
-                    <tr key={transaction.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  paginatedTransactions.map((transaction) => {
+                    const remarksLower = transaction.remarks?.toLowerCase().trim() || '';
+                    const isBouncedCheque = remarksLower === 'bounced cheque' || 
+                                           remarksLower === 'bouncedcheque' || 
+                                           remarksLower === 'bouncedchecq' ||
+                                           remarksLower === 'returned cheque' || 
+                                           remarksLower === 'returnedcheque' ||  
+                                           (remarksLower.includes('bounced') && remarksLower.includes('cheque')) ||
+                                           (remarksLower.includes('returned') && remarksLower.includes('cheque'));
+                    return (
+                    <tr 
+                      key={transaction.id} 
+                      className={`border-b border-gray-100 transition-colors ${
+                        isBouncedCheque 
+                          ? 'bg-[#95dcf7] hover:bg-[#7dd3f0]' 
+                          : 'hover:bg-gray-50'
+                      }`}
+                      style={isBouncedCheque ? { backgroundColor: '#95dcf7' } : {}}
+                    >
                       <td className="text-gray-700 text-sm py-2 text-left p-2 align-middle">
                         {transaction.date}
                       </td>
@@ -1500,9 +1520,10 @@ export default function BankTransaction() {
                           const balanceStr = transaction.balance || '0';
                           const balanceValue = Number(String(balanceStr).replace(/,/g, '').replace('AED', '').trim()) || 0;
                           const isNegative = balanceValue < 0;
+                          const formattedBalance = balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                           return (
                             <span className={isNegative ? 'text-red-600 font-bold' : 'text-gray-700 font-semibold'}>
-                              AED {transaction.balance} 
+                              AED {formattedBalance} 
                             </span>
                           );
                         })()}
@@ -1531,7 +1552,8 @@ export default function BankTransaction() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
                 </tbody>
               </table>

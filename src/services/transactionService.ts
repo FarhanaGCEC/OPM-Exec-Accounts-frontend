@@ -455,5 +455,24 @@ export const transactionService = {
     }
     return response as unknown as ApiResponse<Reminder[]>;
   },
+
+  // Get All Transactions
+  getAllTransactions: async (params?: { startDate?: string; endDate?: string }): Promise<ApiResponse<any>> => {
+    let url = '/transactions/all';
+    const queryParams = new URLSearchParams();
+    
+    if (params?.startDate) {
+      queryParams.append('startDate', params.startDate);
+    }
+    if (params?.endDate) {
+      queryParams.append('endDate', params.endDate);
+    }
+    
+    if (queryParams.toString()) {
+      url += `?${queryParams.toString()}`;
+    }
+    
+    return api.get<any>(url);
+  },
 };
 

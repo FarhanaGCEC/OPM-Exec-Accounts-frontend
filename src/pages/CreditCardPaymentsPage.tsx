@@ -34,7 +34,11 @@ import { SearchableSelect } from '../components/ui/searchable-select';
 import { SelectItem } from '../components/ui/select';
 import Calendar from '../components/ui/calendar-tailwind';
 import { Loader2, Plus, Calendar as CalendarIcon, Download } from 'lucide-react';
-import { creditCardService, type CreditCardDetail } from '../services/creditCardService';
+import { 
+    creditCardService, 
+    mapApiResponseToCreditCardDetail,
+    type CreditCardDetail 
+} from '../services/creditCardService';
 import * as XLSX from 'xlsx';
 
 export interface CreditCardPayment {
@@ -122,15 +126,8 @@ export default function CreditCardPaymentsPage() {
             setLoadingCreditCards(true);
             const response = await creditCardService.getCreditCards();
             if (response.success && response.data) {
-                const mappedCards = response.data.map((card) => ({
-                    id: String(card.id),
-                    issuingBank: card.issuing_bank,
-                    cardHolder: card.card_holder,
-                    cardNo: card.card_number,
-                    expiry_date: card.expiry || card.expiry_date || '',
-                    cvv: card.cvv || '',
-                    amountLimit: card.amount_limit || 0,
-                }));
+                // Map API response (snake_case) to component interface (camelCase)
+                const mappedCards = response.data.map(mapApiResponseToCreditCardDetail);
                 setAvailableCreditCards(mappedCards);
             }
         } catch (err) {

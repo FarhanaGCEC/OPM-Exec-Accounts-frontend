@@ -14,6 +14,13 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import Reminder from './Reminder';
+import ViewAllTranstion from './ViewAllTranstion';
+// Helper function to format amounts with commas (handles both string and number)
+const formatAmount = (value: number | string | undefined): string => {
+  const numValue = typeof value === 'number' ? value : parseFloat(String(value || 0));
+  return numValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
 export default function Dashboard() {
   const userName = localStorage.getItem('userName') || 'Admin';
   const [loading, setLoading] = useState(true);
@@ -37,9 +44,7 @@ export default function Dashboard() {
         // Extract labels and datasets
         const labels = analyticsData?.labels || [];
         const datasets = analyticsData?.datasets || [];
-        
-        console.log('[Dashboard] labels:', labels);
-        console.log('[Dashboard] datasets:', datasets);
+     
         
         if (!labels.length || !datasets.length) {
           console.warn('[Dashboard] No data available. labels:', labels.length, 'datasets:', datasets.length);
@@ -158,7 +163,7 @@ export default function Dashboard() {
                   </p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-3xl font-bold text-gray-900">
-                      {accountSummary.totalDebit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      {formatAmount(accountSummary.totalDebit)}
                     </p>
                     <span className="text-xl font-semibold text-gray-900">
                       AED
@@ -176,7 +181,7 @@ export default function Dashboard() {
                   </p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-3xl font-bold text-gray-900">
-                      {accountSummary.totalCredit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      {formatAmount(accountSummary.totalCredit)}
                     </p>
                     <span className="text-xl font-semibold text-gray-900">
                       AED
@@ -192,12 +197,22 @@ export default function Dashboard() {
                     Current Balance
                   </p>
                   <div className="flex items-baseline space-x-2">
-                    <p className={`text-3xl font-bold ${accountSummary.totalBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      {accountSummary.totalBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                    </p>
-                    <span className={`text-xl font-semibold ${accountSummary.totalBalance < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      AED
-                    </span>
+                    {(() => {
+                      const balanceValue = typeof accountSummary.totalBalance === 'number' 
+                        ? accountSummary.totalBalance 
+                        : parseFloat(String(accountSummary.totalBalance || 0));
+                      const isNegative = balanceValue < 0;
+                      return (
+                        <>
+                          <p className={`text-3xl font-bold ${isNegative ? 'text-red-600' : 'text-gray-900'}`}>
+                            {formatAmount(accountSummary.totalBalance)}
+                          </p>
+                          <span className={`text-xl font-semibold ${isNegative ? 'text-red-600' : 'text-gray-900'}`}>
+                            AED
+                          </span>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </CardContent>
@@ -215,7 +230,7 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <p className="text-sm text-gray-500">
-                      {accountSummary.pendingChecks.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} AED
+                      {formatAmount(accountSummary.pendingChecks.totalAmount)} AED
                     </p>
                   </div>
                 </div>
@@ -305,6 +320,7 @@ export default function Dashboard() {
         </Card>
         
       </div>
+      <ViewAllTranstion />
     </Layout>
   );
 }

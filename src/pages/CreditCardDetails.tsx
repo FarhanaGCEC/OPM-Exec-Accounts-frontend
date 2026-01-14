@@ -28,8 +28,15 @@ import {
     TableHeader,
     TableRow,
 } from '../components/ui/table';
-import { Plus, Loader2, Calendar as CalendarIcon, Download } from 'lucide-react';
+import { Plus, Loader2, Calendar as CalendarIcon, Power, Filter, CircleMinus } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '../components/ui/select';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { 
     creditCardService, 
@@ -65,9 +72,13 @@ export default function CreditCardDetails() {
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isActivateModalOpen, setIsActivateModalOpen] = useState(false);
+    const [activatingCardId, setActivatingCardId] = useState<string | null>(null);
+    const [isActivating, setIsActivating] = useState(false);
     const [isExpiryPopoverOpen, setIsExpiryPopoverOpen] = useState(false);
     const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
     const [selectedYear, setSelectedYear] = useState<number | null>(null);
+    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'deactive'>('all');
 
     const form = useForm<CreditCardFormData>({
         resolver: zodResolver(creditCardSchema),
@@ -127,47 +138,7 @@ export default function CreditCardDetails() {
         return cardNo;
     };
 
-    const handleDownloadCSV = useCallback(() => {
-        if (creditCards.length === 0) return;
-
-        // Helper function to safely escape CSV values
-        const safe = (v: string | null | undefined) => {
-            const value = v === null || v === undefined ? '' : String(v);
-            return `"${value.replace(/"/g, '""')}"`;
-        };
-
-        // CSV headers
-        const headers = ['Issuing Bank', 'Card Holder', 'Card Number', 'Expiry'];
-        const csvRows = [headers.map(safe).join(',')];
-
-        // Add data rows
-        creditCards.forEach((card) => {
-            const cardHolderDisplay = card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder;
-            const expiry = card.expiry_date && card.expiry_date.trim() ? card.expiry_date : '-';
-            const row = [
-                card.issuingBank,
-                cardHolderDisplay,
-                formatCardNumber(card.cardNo),
-                expiry,
-            ];
-            csvRows.push(row.map(safe).join(','));
-        });
-
-        // Create CSV content
-        const csvContent = csvRows.join('\n');
-
-        // Create blob and trigger download
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', `credit_card_details_${new Date().toISOString().split('T')[0]}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    }, [creditCards]);
+ 
 
     // Helper functions for expiry date
     const parseExpiryDate = (expiryDate: string): { month: number | null; year: number | null } => {
@@ -231,31 +202,92 @@ export default function CreditCardDetails() {
         try {
             setIsDeleting(true);
             setError(null);
+            
+            // Log the ID being sent for debugging
+            console.log('[CreditCardDetails] Deactivating card with ID:', deletingCardId);
+            console.log('[CreditCardDetails] ID type:', typeof deletingCardId);
+            
             const response = await creditCardService.deleteCreditCard(deletingCardId);
             
             if (response.success) {
+                // Update the card's isActive status instead of removing it
                 setCreditCards(prevCards =>
-                    prevCards.filter(card => card.id !== deletingCardId)
+                    prevCards.map(card => 
+                        card.id === deletingCardId 
+                            ? { ...card, isActive: false }
+                            : card
+                    )
                 );
                 setDeletingCardId(null);
                 setIsDeleteModalOpen(false);
             } else {
-                setError('Failed to delete credit card');
+                setError(response.message || 'Failed to deactivate credit card');
             }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to delete credit card';
+        } catch (err: any) {
+            const errorMessage = err?.message || err?.error || 'Failed to deactivate credit card';
             setError(errorMessage);
-            console.error('Error deleting credit card:', err);
+            console.error('[CreditCardDetails] Error deactivating credit card:', err);
+            console.error('[CreditCardDetails] Error details:', {
+                message: err?.message,
+                status: err?.status,
+                response: err?.response
+            });
         } finally {
             setIsDeleting(false);
         }
     }, [deletingCardId]);
 
-    const getCardName = useCallback(() => {
-        if (!deletingCardId) return '';
-        const card = creditCards.find(c => c.id === deletingCardId);
-        return card ? `${card.issuingBank} - ${formatCardNumber(card.cardNo)}` : '';
-    }, [deletingCardId, creditCards]);
+    const handleActivate = useCallback((cardId: string) => {
+        setActivatingCardId(cardId);
+        setIsActivateModalOpen(true);
+    }, []);
+
+    const handleActivateConfirm = useCallback(async () => {
+        if (!activatingCardId) return;
+
+        try {
+            setIsActivating(true);
+            setError(null);
+            const response = await creditCardService.activateCreditCard(activatingCardId);
+            
+            if (response.success) {
+                // Update the card's isActive status
+                setCreditCards(prevCards =>
+                    prevCards.map(card => 
+                        card.id === activatingCardId 
+                            ? { ...card, isActive: true }
+                            : card
+                    )
+                );
+                setActivatingCardId(null);
+                setIsActivateModalOpen(false);
+            } else {
+                setError(response.message || 'Failed to activate credit card');
+            }
+        } catch (err: any) {
+            const errorMessage = err?.message || err?.error || 'Failed to activate credit card';
+            setError(errorMessage);
+            console.error('[CreditCardDetails] Error activating credit card:', err);
+        } finally {
+            setIsActivating(false);
+        }
+    }, [activatingCardId]);
+
+    // Get the card name for the delete confirmation dialog
+    const deletingCardName = deletingCardId 
+        ? (() => {
+            const card = creditCards.find(c => c.id === deletingCardId);
+            return card ? `${card.issuingBank} - ${formatCardNumber(card.cardNo)}` : '';
+        })()
+        : '';
+
+    // Get the card name for the activate confirmation dialog
+    const activatingCardName = activatingCardId 
+        ? (() => {
+            const card = creditCards.find(c => c.id === activatingCardId);
+            return card ? `${card.issuingBank} - ${formatCardNumber(card.cardNo)}` : '';
+        })()
+        : '';
 
     const handleModalClose = useCallback(() => {
         setIsModalOpen(false);
@@ -335,25 +367,14 @@ export default function CreditCardDetails() {
                 <div className="flex items-center gap-4 ml-16">
                     <h2 className="text-2xl font-bold text-gray-900">Credit Card Details</h2>
                 </div>
-                <div className="flex items-center gap-3 mr-4">
-                    <Button
-                        onClick={handleDownloadCSV}
-                        variant="outline"
-                        className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
-                        disabled={loading || creditCards.length === 0}
-                    >
-                        <Download className="w-4 h-4" />
-                        <span>Download CSV</span>
-                    </Button>
-                    <Button
-                        onClick={handleAddClick}
-                        className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
-                        disabled={loading}
-                    >
-                        <Plus className="w-4 h-4 text-black" />
-                        <span>Add New</span>
-                    </Button>
-                </div>
+                <Button
+                    onClick={handleAddClick}
+                    className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+                    disabled={loading}
+                >
+                    <Plus className="w-4 h-4 text-black" />
+                    <span>Add New</span>
+                </Button>
             </div>
 
             {error && (
@@ -361,6 +382,34 @@ export default function CreditCardDetails() {
                     <p className="text-sm text-red-600">{error}</p>
                 </div>
             )}
+
+            {/* Filter Section */}
+            <div className="mb-4 mx-8 flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                    <Filter className="w-5 h-5 text-gray-600" />
+                    <span className="text-sm font-medium text-gray-700">Filter by Status:</span>
+                </div>
+                <Select value={statusFilter} onValueChange={(value: 'all' | 'active' | 'deactive') => setStatusFilter(value)}>
+                    <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Cards</SelectItem>
+                        <SelectItem value="active">Active Only</SelectItem>
+                        <SelectItem value="deactive">Deactive Only</SelectItem>
+                    </SelectContent>
+                </Select>
+                <span className="text-sm text-gray-500">
+                    {(() => {
+                        const filtered = creditCards.filter(card => {
+                            if (statusFilter === 'all') return true;
+                            if (statusFilter === 'active') return card.isActive;
+                            return !card.isActive;
+                        });
+                        return `Showing ${filtered.length} of ${creditCards.length} cards`;
+                    })()}
+                </span>
+            </div>
 
             <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
                 <CardContent className="p-0">
@@ -380,30 +429,54 @@ export default function CreditCardDetails() {
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Expiry
                                     </TableHead>
-                                    
-                                    {/* <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                        amount limit
-                                    </TableHead> */}
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Status
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Actions
+                                    </TableHead>
                                   
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="text-center py-8">
+                                        <TableCell colSpan={6} className="text-center py-8">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                             <p className="text-sm text-gray-500">Loading credit card details...</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="text-center py-8">
+                                        <TableCell colSpan={6} className="text-center py-8">
                                             <p className="text-sm text-gray-500 mb-1">No credit card details found.</p>
                                             <p className="text-sm text-gray-400">Click "Add New" to add your first credit card.</p>
                                         </TableCell>
                                     </TableRow>
-                                ) : (
-                                    creditCards.map((card) => (
+                                ) : (() => {
+                                    // Filter cards based on status
+                                    const filteredCards = creditCards.filter(card => {
+                                        if (statusFilter === 'all') return true;
+                                        if (statusFilter === 'active') return card.isActive;
+                                        return !card.isActive;
+                                    });
+
+                                    if (filteredCards.length === 0) {
+                                        return (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="text-center py-8">
+                                                    <p className="text-sm text-gray-500 mb-1">
+                                                        No {statusFilter === 'active' ? 'active' : 'deactive'} credit cards found.
+                                                    </p>
+                                                    {statusFilter !== 'all' && (
+                                                        <p className="text-sm text-gray-400">Try selecting a different filter.</p>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    }
+
+                                    return filteredCards.map((card) => (
                                         <TableRow
                                             key={card.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
@@ -420,14 +493,48 @@ export default function CreditCardDetails() {
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                 {card.expiry_date && card.expiry_date.trim() ? card.expiry_date : '-'}
                                             </TableCell>
-                                           
-                                            {/* <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                {formatCurrency(card.amountLimit)}
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                    card.isActive 
+                                                        ? 'bg-green-100 text-green-800' 
+                                                        : 'bg-gray-100 text-gray-800'
+                                                }`}>
+                                                    {card.isActive ? 'Active' : 'Deactive'}
+                                                </span>
                                             </TableCell>
-                                            */}
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                <div className="flex items-center gap-2">
+                                                    {card.isActive ? (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                setDeletingCardId(card.id);
+                                                                setIsDeleteModalOpen(true);
+                                                            }}
+                                                            className="text-red-600 hover:text-red-700 "
+                                                            disabled={isDeleting}
+                                                        >
+                                                            <CircleMinus className="w-4 h-4 mr-1" />
+                                                          
+                                                        </Button>
+                                                    ) : (
+                                                        <Button
+                                                            variant="outline" 
+                                                            size="sm"
+                                                            onClick={() => handleActivate(card.id)}
+                                                            className="text-green-600 hover:text-green-700 "
+                                                            disabled={isActivating}
+                                                        >
+                                                            <Power className="w-4 h-4 mr-1" />
+                                                           
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </TableCell>
                                         </TableRow>
-                                    ))
-                                )}
+                                    ));
+                                })()}
                             </TableBody>
                         </Table>
                     </div>
@@ -683,8 +790,29 @@ export default function CreditCardDetails() {
                 open={isDeleteModalOpen}
                 onOpenChange={setIsDeleteModalOpen}
                 onConfirm={handleDeleteConfirm}
-                itemName={getCardName()}
+                title="Deactivate Credit Card"
+                description={deletingCardName 
+                    ? `Are you sure you want to deactivate the credit card "${deletingCardName}"? This card will be marked as deactive, but you can activate it again later if needed.`
+                    : 'Are you sure you want to deactivate this credit card? This card will be marked as deactive, but you can activate it again later if needed.'}
+                itemName={deletingCardName}
                 isLoading={isDeleting}
+                confirmButtonText="Deactivate"
+                loadingButtonText="Deactivating..."
+            />
+
+            <DeleteConfirmationDialog
+                open={isActivateModalOpen}
+                onOpenChange={setIsActivateModalOpen}
+                onConfirm={handleActivateConfirm}
+                title="Activate Credit Card"
+                description={activatingCardName 
+                    ? `Are you sure you want to activate the credit card "${activatingCardName}"? This card will be marked as active and will be available for use.`
+                    : 'Are you sure you want to activate this credit card? This card will be marked as active and will be available for use.'}
+                itemName={activatingCardName}
+                isLoading={isActivating}
+                confirmButtonText="Activate"
+                loadingButtonText="Activating..."
+                variant="activate"
             />
         </Layout>
     );

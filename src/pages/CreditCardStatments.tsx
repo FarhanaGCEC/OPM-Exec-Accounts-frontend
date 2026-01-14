@@ -127,7 +127,7 @@ export default function CreditCardStatements() {
                 // Multiple months selected: use months query parameter
                 const response = await creditCardService.getCreditCardStatements({
                     year: year,
-                    months: months, // Array of month indices (0-11)
+                    month: months[0], // Array of month indices (0-11)
                 });
                 if (response.success && response.data) {
                     allStatements = response.data;

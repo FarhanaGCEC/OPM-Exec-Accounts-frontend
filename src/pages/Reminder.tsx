@@ -21,11 +21,20 @@ export default function Reminder() {
   const [error, setError] = useState<string | null>(null);
   const [upcomingCheques, setUpcomingCheques] = useState<DisplayCheque[]>([]);
 
-  // Format date from ISO string to YYYY-MM-DD
+  // Format date from ISO string to DD-MMM-YYYY (e.g., 13-jan-2026)
   const formatDate = (dateString: string): string => {
     try {
       const date = new Date(dateString);
-      return date.toISOString().split('T')[0];
+      if (isNaN(date.getTime())) {
+        return dateString;
+      }
+      
+      const day = date.getDate();
+      const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+      const month = monthNames[date.getMonth()];
+      const year = date.getFullYear();
+      
+      return `${day}-${month}-${year}`;
     } catch {
       return dateString;
     }
@@ -124,7 +133,7 @@ export default function Reminder() {
                       ⚠️ Urgent: {urgentCount} {urgentCount === 1 ? 'Cheque' : 'Cheques'} Due This Week
                     </h3>
                     <p className="text-sm text-red-800 leading-relaxed">
-                      You have cheques totaling <span className="font-semibold">{totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} AED</span> due within the next 7 days. Review them below to avoid missed payments.
+                      You have cheques totaling <span className="font-semibold">AED {totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} </span> due within the next 7 days. Review them below to avoid missed payments.
                     </p>
                   </div>
                 </div>
@@ -215,7 +224,13 @@ export default function Reminder() {
                             <p className={`font-bold text-base ${
                               cheque.daysLeft <= 3 ? 'text-red-600' : 'text-yellow-600'
                             }`}>
-                              {cheque.daysLeft} {cheque.daysLeft === 1 ? 'day' : 'days'}
+                         
+                         {cheque.daysLeft === 0
+  ? 'Today'
+  : cheque.daysLeft > 0
+  ? `${cheque.daysLeft} days`
+  : 'Overdue'}
+
                             </p>
                           </div>
                           
@@ -225,7 +240,7 @@ export default function Reminder() {
                               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Amount</p>
                             </div>
                             <p className="font-bold text-base text-gray-900">
-                              {cheque.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs text-gray-600">AED</span>
+                            <span className="text-xs text-gray-600">AED</span>    {cheque.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 
                             </p>
                           </div>
                         </div>

@@ -30,9 +30,30 @@ apiClient.interceptors.request.use(
   }
 );
 
+// Helper function to check for token error and redirect
+const handleTokenError = () => {
+  localStorage.removeItem('authToken');
+  localStorage.removeItem('userName');
+  window.location.href = '/';
+};
+
 // Response interceptor - Handle errors globally
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
+      // Check response body for token error message (even if status is 200)
+      const responseData = response.data;
+      if (responseData && typeof responseData === 'object') {
+        const errorMessage = responseData.error || responseData.message;
+        if (errorMessage && typeof errorMessage === 'string') {
+          const lowerError = errorMessage.toLowerCase();
+          if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
+              (lowerError.includes('expired') && lowerError.includes('token'))) {
+            console.warn('[API] Token error detected in response:', errorMessage);
+            handleTokenError();
+            return Promise.reject(new Error(errorMessage));
+          }
+        }
+      }
     return response;
   },
   (error: AxiosError) => {
@@ -40,12 +61,26 @@ apiClient.interceptors.response.use(
     if (error.response) {
       // Server responded with error status
       const status = error.response.status;
+      const responseData = error.response.data as any;
+      
+      // Check for token error in error response body
+      if (responseData && typeof responseData === 'object') {
+        const errorMessage = responseData.error || responseData.message;
+        if (errorMessage && typeof errorMessage === 'string') {
+          const lowerError = errorMessage.toLowerCase();
+          if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
+              (lowerError.includes('expired') && lowerError.includes('token'))) {
+            console.warn('[API] Token error detected:', errorMessage);
+            handleTokenError();
+            return Promise.reject(error);
+          }
+        }
+      }
       
       switch (status) {
         case 401:
           // Unauthorized - clear token and redirect to login
-          localStorage.removeItem('authToken');
-          window.location.href = '/';
+          handleTokenError();
           break;
         case 403:
           // Forbidden
@@ -101,9 +136,25 @@ export const api = {
       const response = await apiClient.get<T>(url, config);
       console.log(`[API] GET ${url} - Response:`, response.data);
       
+      // Check for token error in response body
+      const responseData = response.data as any;
+      if (responseData && typeof responseData === 'object') {
+        const errorMessage = responseData.error || responseData.message;
+        if (errorMessage && typeof errorMessage === 'string') {
+          const lowerError = errorMessage.toLowerCase();
+          if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
+              (lowerError.includes('expired') && lowerError.includes('token'))) {
+            console.warn('[API] Token error detected in GET response:', errorMessage);
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userName');
+            window.location.href = '/';
+            throw new Error(errorMessage);
+          }
+        }
+      }
+      
       // Handle different response structures
       // If response.data already has success/data structure, use it
-      const responseData = response.data as any;
       if (responseData && typeof responseData === 'object' && 'success' in responseData && 'data' in responseData) {
         return responseData as ApiResponse<T>;
       }
@@ -132,6 +183,24 @@ export const api = {
   ): Promise<ApiResponse<T>> => {
     try {
       const response = await apiClient.post<T>(url, data, config);
+      
+      // Check for token error in response body
+      const responseData = response.data as any;
+      if (responseData && typeof responseData === 'object') {
+        const errorMessage = responseData.error || responseData.message;
+        if (errorMessage && typeof errorMessage === 'string') {
+          const lowerError = errorMessage.toLowerCase();
+          if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
+              (lowerError.includes('expired') && lowerError.includes('token'))) {
+            console.warn('[API] Token error detected in POST response:', errorMessage);
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userName');
+            window.location.href = '/';
+            throw new Error(errorMessage);
+          }
+        }
+      }
+      
       return {
         data: response.data,
         success: true,
@@ -150,6 +219,24 @@ export const api = {
   ): Promise<ApiResponse<T>> => {
     try {
       const response = await apiClient.put<T>(url, data, config);
+      
+      // Check for token error in response body
+      const responseData = response.data as any;
+      if (responseData && typeof responseData === 'object') {
+        const errorMessage = responseData.error || responseData.message;
+        if (errorMessage && typeof errorMessage === 'string') {
+          const lowerError = errorMessage.toLowerCase();
+          if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
+              (lowerError.includes('expired') && lowerError.includes('token'))) {
+            console.warn('[API] Token error detected in PUT response:', errorMessage);
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userName');
+            window.location.href = '/';
+            throw new Error(errorMessage);
+          }
+        }
+      }
+      
       return {
         data: response.data,
         success: true,
@@ -168,6 +255,24 @@ export const api = {
   ): Promise<ApiResponse<T>> => {
     try {
       const response = await apiClient.patch<T>(url, data, config);
+      
+      // Check for token error in response body
+      const responseData = response.data as any;
+      if (responseData && typeof responseData === 'object') {
+        const errorMessage = responseData.error || responseData.message;
+        if (errorMessage && typeof errorMessage === 'string') {
+          const lowerError = errorMessage.toLowerCase();
+          if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
+              (lowerError.includes('expired') && lowerError.includes('token'))) {
+            console.warn('[API] Token error detected in PATCH response:', errorMessage);
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userName');
+            window.location.href = '/';
+            throw new Error(errorMessage);
+          }
+        }
+      }
+      
       return {
         data: response.data,
         success: true,
@@ -185,6 +290,24 @@ export const api = {
   ): Promise<ApiResponse<T>> => {
     try {
       const response = await apiClient.delete<T>(url, config);
+      
+      // Check for token error in response body
+      const responseData = response.data as any;
+      if (responseData && typeof responseData === 'object') {
+        const errorMessage = responseData.error || responseData.message;
+        if (errorMessage && typeof errorMessage === 'string') {
+          const lowerError = errorMessage.toLowerCase();
+          if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
+              (lowerError.includes('expired') && lowerError.includes('token'))) {
+            console.warn('[API] Token error detected in DELETE response:', errorMessage);
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userName');
+            window.location.href = '/';
+            throw new Error(errorMessage);
+          }
+        }
+      }
+      
       return {
         data: response.data,
         success: true,

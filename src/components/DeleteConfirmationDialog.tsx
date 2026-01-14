@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 interface DeleteConfirmationDialogProps {
   open: boolean;
@@ -17,6 +17,9 @@ interface DeleteConfirmationDialogProps {
   description?: string;
   itemName?: string;
   isLoading?: boolean;
+  confirmButtonText?: string;
+  loadingButtonText?: string;
+  variant?: 'delete' | 'activate';
 }
 
 export default function DeleteConfirmationDialog({
@@ -27,6 +30,9 @@ export default function DeleteConfirmationDialog({
   description,
   itemName,
   isLoading = false,
+  confirmButtonText = 'Delete',
+  loadingButtonText = 'Deleting...',
+  variant = 'delete',
 }: DeleteConfirmationDialogProps) {
   const handleConfirm = () => {
     onConfirm();
@@ -41,9 +47,15 @@ export default function DeleteConfirmationDialog({
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <div className="flex items-center space-x-3 mb-2">
-            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-            </div>
+            {variant === 'activate' ? (
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                <CheckCircle2 className="w-5 h-5 text-green-600" />
+              </div>
+            ) : (
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+            )}
             <DialogTitle className="text-xl font-bold text-gray-900">
               {title}
             </DialogTitle>
@@ -66,9 +78,12 @@ export default function DeleteConfirmationDialog({
             type="button"
             onClick={handleConfirm}
             disabled={isLoading}
-            className="bg-red-600 hover:bg-red-700 text-white px-6"
+            className={variant === 'activate' 
+              ? "bg-green-600 hover:bg-green-700 text-white px-6"
+              : "bg-red-600 hover:bg-red-700 text-white px-6"
+            }
           >
-            {isLoading ? 'Deleting...' : 'Delete'}
+            {isLoading ? loadingButtonText : confirmButtonText}
           </Button>
         </DialogFooter>
       </DialogContent>

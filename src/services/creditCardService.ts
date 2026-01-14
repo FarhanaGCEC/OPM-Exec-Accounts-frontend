@@ -3,7 +3,7 @@ import type { ApiResponse } from '../lib/api';
 
 // API Response interface for Credit Card Details (snake_case from backend)
 export interface CreditCardDetailApiResponse {
-  id: number;
+  id: string | number;
   issuing_bank: string;
   card_holder: string;
   card_number: string;
@@ -13,6 +13,7 @@ export interface CreditCardDetailApiResponse {
   amount_limit: number | null;
   is_system?: boolean;
   is_default?: boolean;
+  is_active?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -26,6 +27,7 @@ export interface CreditCardDetail {
   expiry_date: string;
   cvv: string;
   amountLimit: number;
+  isActive: boolean;
 }
 
 // Helper function to map API response to component interface
@@ -40,6 +42,7 @@ export const mapApiResponseToCreditCardDetail = (
     expiry_date: apiCard.expiry || apiCard.expiry_date || '',
     cvv: apiCard.cvv || '',
     amountLimit: apiCard.amount_limit || 0,
+    isActive: apiCard.is_active !== undefined ? apiCard.is_active : true,
   };
 };
 
@@ -76,7 +79,7 @@ export interface CreditCardStatement {
 export const creditCardService = {
   // Get all credit cards
   getCreditCards: async (): Promise<ApiResponse<CreditCardDetailApiResponse[]>> => {
-    return api.get<CreditCardDetailApiResponse[]>('/credit-cards');
+    return api.get<CreditCardDetailApiResponse[]>('/cards');
   },
 
   // Create new credit card (camelCase payload)
@@ -88,7 +91,7 @@ export const creditCardService = {
     cvv?: string | null;
     amountLimit?: number | null;
   }): Promise<ApiResponse<CreditCardDetailApiResponse>> => {
-    return api.post<CreditCardDetailApiResponse>('/credit-cards', data);
+    return api.post<CreditCardDetailApiResponse>('/cards', data);
   },
 
   // Update credit card (camelCase payload)
@@ -103,12 +106,19 @@ export const creditCardService = {
       amountLimit?: number | null;
     }
   ): Promise<ApiResponse<CreditCardDetailApiResponse>> => {
-    return api.put<CreditCardDetailApiResponse>(`/credit-cards/${id}`, data);
+    return api.put<CreditCardDetailApiResponse>(`/cards/${id}`, data);
   },
 
   // Delete/Deactivate credit card
   deleteCreditCard: async (id: string | number): Promise<ApiResponse<void>> => {
-    return api.delete<void>(`/credit-cards/${id}`);
+    console.log('[creditCardService] Deleting/deactivating card with ID:', id);
+    return api.delete<void>(`/cards/${id}`);
+  },
+
+  // Activate credit card
+  activateCreditCard: async (id: string | number): Promise<ApiResponse<CreditCardDetailApiResponse>> => {
+    console.log('[creditCardService] Activating card with ID:', id);
+    return api.patch<CreditCardDetailApiResponse>(`/cards/${id}/activate`, {});
   },
 
   // Get credit card statements
@@ -116,33 +126,15 @@ export const creditCardService = {
   // - No params: Returns current month/year statements
   // - month & year: Returns statements for specific month (format: /statements/YYYY-MM)
   // - year only: Returns all months for that year
-  // - months array: Returns statements for multiple months (format: /statements/YYYY-MM?months=YYYY-MM,YYYY-MM,...)
   getCreditCardStatements: async (options?: {
     month?: number; // 0-11 (0 = January)
     year?: number;
-    months?: number[]; // Array of month indices (0-11) for multiple month selection
   }): Promise<ApiResponse<CreditCardStatement[]>> => {
     let url = '/statements';
     
-    // If months array is provided, use the months query parameter format
-    if (options?.months && options.months.length > 0 && options?.year !== undefined) {
-      // Format: /statements/YYYY-MM?months=YYYY-MM,YYYY-MM,...
-      const yearStr = String(options.year);
-      const firstMonth = options.months[0];
-      const monthStr = String(firstMonth + 1).padStart(2, '0');
-      const baseUrl = `/statements/${yearStr}-${monthStr}`;
-      
-      // Build months query parameter: convert month indices (0-11) to YYYY-MM format
-      const monthParams = options.months
-        .sort((a, b) => a - b)
-        .map(m => {
-          const mStr = String(m + 1).padStart(2, '0');
-          return `${yearStr}-${mStr}`;
-        });
-      
-      url = `${baseUrl}?months=${monthParams.join(',')}`;
-    } else if (options?.year !== undefined && options?.month !== undefined) {
-      // If both month and year are provided, use path format: /statements/YYYY-MM
+    // If both month and year are provided, use path format: /statements/YYYY-MM
+    if (options?.year !== undefined && options?.month !== undefined) {
+      // Format month as 2-digit string (1-12)
       const monthStr = String(options.month + 1).padStart(2, '0');
       const yearStr = String(options.year);
       url = `/statements/${yearStr}-${monthStr}`;
