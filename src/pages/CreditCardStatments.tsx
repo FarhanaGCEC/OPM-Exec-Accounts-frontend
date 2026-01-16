@@ -124,10 +124,10 @@ export default function CreditCardStatements() {
                     allStatements = response.data;
                 }
             } else {
-                // Multiple months selected: use months query parameter
+                // Multiple months selected: use months query parameter (pass all selected months)
                 const response = await creditCardService.getCreditCardStatements({
                     year: year,
-                    month: months[0], // Array of month indices (0-11)
+                    months: months, // Array of month indices (0-11) - pass all selected months
                 });
                 if (response.success && response.data) {
                     allStatements = response.data;
@@ -374,15 +374,33 @@ export default function CreditCardStatements() {
         const workbook = XLSX.utils.book_new();
 
         // If multiple months selected, create separate sheets for each month
-        if (selectedMonths.length > 1 && Object.keys(groupedStatements).length > 0) {
+        // If groupedStatements is empty, manually group creditCards by month
+        let statementsToUse = groupedStatements;
+        if (selectedMonths.length > 1 && Object.keys(groupedStatements).length === 0) {
+            // Manually group creditCards by month
+            const manuallyGrouped: GroupedStatements = {};
+            creditCards.forEach((statement) => {
+                const statementMonth = getStatementMonth(statement);
+                if (statementMonth !== null && selectedMonths.includes(statementMonth)) {
+                    const monthKey = `${selectedYear}-${String(statementMonth + 1).padStart(2, '0')}`;
+                    if (!manuallyGrouped[monthKey]) {
+                        manuallyGrouped[monthKey] = [];
+                    }
+                    manuallyGrouped[monthKey].push(statement);
+                }
+            });
+            statementsToUse = manuallyGrouped;
+        }
+
+        if (selectedMonths.length > 1 && Object.keys(statementsToUse).length > 0) {
             // Multiple months: create separate sheets
-            Object.keys(groupedStatements)
+            Object.keys(statementsToUse)
                 .sort()
                 .forEach((monthKey) => {
                     const [year, monthNum] = monthKey.split('-');
                     const monthIndex = parseInt(monthNum, 10) - 1;
                     const monthName = fullMonthNames[monthIndex];
-                    const statements = groupedStatements[monthKey];
+                    const statements = statementsToUse[monthKey];
 
                     // Prepare data for Excel
                     const excelData: any[] = [];

@@ -394,7 +394,7 @@ export default function PayablesCategory() {
                                                 <div className="flex items-center space-x-2">
                                                     <button
                                                         onClick={() => handleEdit(category)}
-                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                                                        className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
                                                         title="Edit category"
                                                         aria-label={`Edit ${category.name}`}
                                                     >
@@ -402,7 +402,7 @@ export default function PayablesCategory() {
                                                     </button>
                                                     <button
                                                         onClick={() => handleDeleteClick(String(category.id))}
-                                                        className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+                                                        className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
                                                         title="Delete category"
                                                         aria-label={`Delete ${category.name}`}
                                                     >

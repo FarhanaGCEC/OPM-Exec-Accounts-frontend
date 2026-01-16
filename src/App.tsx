@@ -15,6 +15,9 @@ import CreditCardDetails from './pages/CreditCardDetails';
 import CreditCardPaymentsPage from './pages/CreditCardPaymentsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
+import GbpTranstion from './pages/GbpTranstion';
+import UsdTranstion from './pages/UsdTranstion';
+import FkEmrits from './pages/FkEmrits';
 
 console.log('[App] App component loading...');
 
@@ -131,6 +134,30 @@ const App = () => {
           element={
             <ProtectedRoute>
               <CreditCardPaymentsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/gbp-transactions"
+          element={
+            <ProtectedRoute>
+              <GbpTranstion />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/usd-transactions"
+          element={
+            <ProtectedRoute>
+              <UsdTranstion />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/fks-transactions"
+          element={
+            <ProtectedRoute>
+              <FkEmrits />
             </ProtectedRoute>
           }
         />

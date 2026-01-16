@@ -488,7 +488,7 @@ export default function PaymentMatching() {
     // Generate filename with current date
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
-    const fileName = `payment_matching_${dateStr}.xlsx`;
+    const fileName = `Customer_Credit_Card_Payments_${dateStr}.xlsx`;
 
     // Generate Excel file and download
     XLSX.writeFile(workbook, fileName);
@@ -617,7 +617,7 @@ export default function PaymentMatching() {
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => handleEdit(payment)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                            className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
                             title="Edit payment"
                             aria-label={`Edit ${payment.customerName}`}
                           >
@@ -625,7 +625,7 @@ export default function PaymentMatching() {
                           </button>
                           <button
                             onClick={() => handleDeleteClick(String(payment.id))}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+                            className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
                             title="Delete payment"
                             aria-label={`Delete ${payment.customerName}`}
                           >

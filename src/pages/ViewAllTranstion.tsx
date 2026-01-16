@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { transactionService } from '../services/transactionService';
 import type { ApiResponse } from '../lib/api';
+
 import {
   Table,
   TableBody,
@@ -11,7 +12,9 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { Calendar, ChevronDown, Download, X } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+
+
 
 // Transaction type definitions
 interface DailyTransaction {
@@ -320,268 +323,221 @@ export default function ViewAllTranstion() {
   };
 
   // Excel Download function - exports only filtered transactions (based on startDate/endDate)
-  const handleDownloadExcel = useCallback(() => {
+  const handleDownloadExcel = useCallback(async () => {
     // transactions array is already filtered by API based on startDate/endDate filters
     if (transactions.length === 0) {
       return;
     }
 
-    // Create workbook
-    const workbook = XLSX.utils.book_new();
-    const excelData: any[] = [];
+    // Create workbook using ExcelJS
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('All Transactions');
+    let currentRow = 1;
 
-    // Add header rows matching the format shown in the image
-    excelData.push(['ADCB (AED)']);
-    excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE']);
-    excelData.push([]);
-    
-    // Add account information (matching exact format from image)
-    excelData.push(['Account No. :', '12990685920001 - AED']);
-    excelData.push(['IBAN', 'AE720030012990685920001']);
-    
-    // Add date range - always show, format dates if available
-    if (startDate) {
-      excelData.push(['Start Date:', formatDateForExcel(startDate)]);
-    } else {
-      excelData.push(['Start Date:', '']);
-    }
-    
-    if (endDate) {
-      excelData.push(['End Date:', formatDateForExcel(endDate)]);
-    } else {
-      excelData.push(['End Date:', '']);
-    }
-    
-    excelData.push([]);
+    // Helper function to add a row with optional styling
+    const addRow = (values: any[], style?: Partial<ExcelJS.Style>) => {
+      const row = worksheet.addRow(values);
+      if (style) {
+        row.eachCell((cell) => {
+          Object.assign(cell, style);
+        });
+      }
+      currentRow++;
+      return row;
+    };
 
-    // Add summary if available
+    // Header rows
+    addRow(['ADCB (AED)'], { font: { bold: true, size: 14 } });
+    addRow(['GCEC CLOUD SECURITY & SURVEILLANCE'], { font: { bold: true, size: 12 } });
+    addRow([]);
+    
+    // Account information
+    addRow(['Account No. :', '12990685920001 - AED']);
+    addRow(['IBAN', 'AE720030012990685920001']);
+    
+    // Date range
+    addRow(['Start Date:', startDate ? formatDateForExcel(startDate) : '']);
+    addRow(['End Date:', endDate ? formatDateForExcel(endDate) : '']);
+    addRow([]);
+
+    // Summary
     if (summary) {
-      excelData.push(['Summary:']);
-      excelData.push(['Daily Transactions:', summary.dailyTransactions]);
-      excelData.push(['GCEC Post Dated Cheques in Hand:', summary.gcecPdc]);
-      excelData.push(['Customers Post Dated Cheques in Hand:', summary.customerPdc]);
-      excelData.push(['Sales Invoice amount paid against GCEC Purchase Bills:', summary.purchaseBills]);
-      excelData.push(['Total:', summary.total]);
-      excelData.push([]);
+      addRow(['Summary:'], { font: { bold: true } });
+      addRow(['Daily Transactions:', summary.dailyTransactions]);
+      addRow(['GCEC Post Dated Cheques in Hand:', summary.gcecPdc]);
+      addRow(['Customers Post Dated Cheques in Hand:', summary.customerPdc]);
+      addRow(['Sales Invoice amount paid against GCEC Purchase Bills:', summary.purchaseBills]);
+      addRow(['Total:', summary.total]);
+      addRow([]);
     }
 
-    // Group transactions by type (already filtered by API based on startDate/endDate)
+    // Group transactions by type
     const transactionOrder = ['Daily Transaction', 'GCEC PDC', 'Customer PDC', 'Purchase Bill'];
     
     transactionOrder.forEach((type) => {
       const typeTransactions = groupedTransactions[type] || [];
       if (typeTransactions.length > 0) {
-        // Add heading with proper display name
         const displayName = getTransactionTypeDisplayName(type);
-        excelData.push([displayName]);
+        addRow([displayName], { 
+          font: { bold: true, size: 12 },
+          fill: {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE5E7EB' }
+          }
+        });
         
-        // Add headers based on type
+        // Headers
+        let headers: string[] = [];
         if (type === 'Daily Transaction') {
-          excelData.push(['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance', 'Remarks']);
-       
+          headers = ['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance', 'Remarks'];
         } else if (type === 'GCEC PDC') {
-            excelData.push(['Date', 'Payee', 'Cheque Number', 'Amount']);
+          headers = ['Date', 'Payee', 'Cheque Number', 'Amount'];
         } else if (type === 'Customer PDC') {
-            excelData.push(['Date', 'Customer Name', 'Cheque Number', 'Cheque Type', 'Amount']);
+          headers = ['Date', 'Customer Name', 'Cheque Number', 'Cheque Type', 'Amount'];
         } else if (type === 'Purchase Bill') {
-          excelData.push(['Date', 'Vendor Name', 'Invoice Number', 'Payment Method', 'Amount', 'Payment Status']);
+          headers = ['Date', 'Vendor Name', 'Invoice Number', 'Payment Method', 'Amount'];
         }
+        addRow(headers, { font: { bold: true } });
 
-        // Add transaction rows
+        // Transaction rows
         typeTransactions.forEach((transaction) => {
           if (type === 'Daily Transaction') {
             const txn = transaction as DailyTransaction;
-            const formetpaymentType = txn.paymentType === 'cheque' ? txn.chequeNumber : txn.paymentType;
+            const formetpaymentType =
+              txn.paymentType === 'cheque'
+                ? txn.chequeNumber
+                : txn.paymentType === 'creditcard'
+                ? 'Credit Card'
+                : txn.paymentType;
 
             const debitValue = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
             const creditValue = txn.credit ? parseFloat(String(txn.credit).replace(/,/g, '')) : 0;
             const balanceValue = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
-            excelData.push([
+            
+            // Check if bounced/returned cheque
+            const remarks = txn.remarks || '';
+            const isBouncedOrReturned = remarks.toLowerCase().includes('bounced cheque') || 
+                                       remarks.toLowerCase().includes('returned cheque');
+
+            const row = addRow([
               formatDateForExcel(txn.date),
               txn.category,
               formetpaymentType,
-              debitValue, // Store as number
-              creditValue, // Store as number
-              balanceValue, // Store as number
-              txn.remarks || ''
+              debitValue,
+              creditValue,
+              balanceValue,
+              remarks
             ]);
-          } else if (type === 'GCEC PDC' ) {
+
+            // Format number columns
+            row.getCell(4).numFmt = '#,##0.00'; // Debit
+            row.getCell(5).numFmt = '#,##0.00'; // Credit
+            row.getCell(6).numFmt = '#,##0.00'; // Balance
+
+            // If there's a debit amount, make all text in the row red
+            if (debitValue > 0) {
+              row.eachCell((cell) => {
+                cell.font = { color: { argb: 'FFFF0000' } }; // Red color for all cells
+              });
+            }
+
+            // Apply background color if bounced/returned cheque
+            if (isBouncedOrReturned) {
+              row.eachCell((cell) => {
+                cell.fill = {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FF95DCF7' }
+                };
+              });
+            }
+          } else if (type === 'GCEC PDC') {
             const txn = transaction as GCECPDC;
-            const amountValue =  parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
-            excelData.push([
+            const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
+            const row = addRow([
               formatDateForExcel(txn.date),
               txn.customerName,
               txn.chequeNumber,
-              amountValue, // Store as number
+              amountValue
             ]);
+            row.getCell(4).numFmt = '#,##0.00';
+            
+            // Make all text red in GCEC PDC rows (background stays white)
+            row.eachCell((cell) => {
+              cell.font = { color: { argb: 'FFFF0000' } }; // Red color
+            });
           } else if (type === 'Customer PDC') {
             const txn = transaction as CustomerPDC;
             const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
-            // Show 'Security Cheque' only if it's not a Payment Cheque, otherwise show empty
             const chequeTypeDisplay = txn.chequeType === 'Payment Cheque' ? '' : 'Security Cheque';
-            excelData.push([
+            const isSecurityCheque = chequeTypeDisplay === 'Security Cheque';
+            
+            const row = addRow([
               formatDateForExcel(txn.date),
               txn.customerName,
               txn.chequeNumber,
               chequeTypeDisplay,
-              amountValue, // Store as number
+              amountValue
             ]);
-          }
-           else if (type === 'Purchase Bill') {
+            row.getCell(5).numFmt = '#,##0.00';
+            
+            // Apply red background if Security Cheque
+            if (isSecurityCheque) {
+              row.eachCell((cell) => {
+                cell.fill = {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FFFF0000' } // Red color
+                };
+              });
+            }
+          } else if (type === 'Purchase Bill') {
             const txn = transaction as PurchaseBill;
             const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
-            excelData.push([
+            const row = addRow([
               formatDateForExcel(txn.date),
               txn.vendorName,
               txn.invoiceNumber || '',
               txn.paymentMethod,
-              amountValue, // Store as number
-              txn.paymentStatus,
+              amountValue,
              
             ]);
+            row.getCell(5).numFmt = '#,##0.00';
+     
           }
         });
         
-        excelData.push([]); // Empty row between sections
+        addRow([]); // Empty row between sections
       }
     });
 
-    // Create worksheet from data
-    const worksheet = XLSX.utils.aoa_to_sheet(excelData);
-
     // Set column widths
-    worksheet['!cols'] = [
-      { wch: 15 }, // Date
-      { wch: 25 }, // Category/Customer/Vendor
-      { wch: 15 }, // Payment Type/Cheque Number/Invoice
-      { wch: 15 }, // Cheque Number/Cheque Type/Payment Method
-      { wch: 18 }, // Debit/Amount
-      { wch: 18 }, // Credit/Description/Payment Status
-      { wch: 18 }, // Balance/Description
-      { wch: 20 }, // Remarks/Description
+    worksheet.columns = [
+      { width: 15 }, // Date
+      { width: 25 }, // Category/Customer/Vendor
+      { width: 15 }, // Payment Type/Cheque Number/Invoice
+      { width: 15 }, // Cheque Number/Cheque Type/Payment Method
+      { width: 18 }, // Debit/Amount
+      { width: 18 }, // Credit/Description/Payment Status
+      { width: 18 }, // Balance/Description
+      { width: 20 }, // Remarks/Description
     ];
 
-    // Format header rows (make them bold)
-    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
-    for (let row = 0; row <= range.e.r; row++) {
-      const rowData = excelData[row];
-      if (rowData && rowData.length > 0) {
-        // Check if this is a heading row (single cell with transaction type)
-        if (rowData.length === 1 && transactionOrder.includes(rowData[0] as string)) {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: 0 });
-          if (worksheet[cellRef]) {
-            if (!worksheet[cellRef].s) worksheet[cellRef].s = {};
-            worksheet[cellRef].s.font = { bold: true, sz: 12 };
-            worksheet[cellRef].s.fill = { fgColor: { rgb: 'E5E7EB' } };
-          }
-        }
-        // Check if this is a header row (contains "Date", "Category", etc.)
-        if (rowData[0] === 'Date' || rowData[0] === 'Summary:' || rowData[0] === 'GCEC CLOUD SECURITY & SURVEILLANCE') {
-          for (let col = 0; col < rowData.length; col++) {
-            const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
-            if (worksheet[cellRef]) {
-              if (!worksheet[cellRef].s) worksheet[cellRef].s = {};
-              worksheet[cellRef].s.font = { bold: true };
-            }
-          }
-        }
-      }
-    }
-
-    // Format amount columns as numbers with comma separators
-    // Track current section type as we iterate
-    let currentSection: string | null = null;
-    
-    for (let row = 0; row <= range.e.r; row++) {
-      const rowData = excelData[row];
-      if (!rowData || !Array.isArray(rowData)) {
-        continue; // Skip empty rows
-      }
-      
-      // Check if this is a section header (single cell with transaction type display name)
-      if (rowData.length === 1 && rowData[0]) {
-        const displayName = String(rowData[0]);
-        if (displayName === getTransactionTypeDisplayName('Daily Transaction')) {
-          currentSection = 'Daily Transaction';
-        } else if (displayName === getTransactionTypeDisplayName('GCEC PDC')) {
-          currentSection = 'GCEC PDC';
-        } else if (displayName === getTransactionTypeDisplayName('Customer PDC')) {
-          currentSection = 'Customer PDC';
-        } else if (displayName === getTransactionTypeDisplayName('Purchase Bill')) {
-          currentSection = 'Purchase Bill';
-        }
-        continue; // Skip section headers
-      }
-      
-      // Skip empty rows or column header rows
-      if (rowData.length === 0 || rowData[0] === 'Date') {
-        continue;
-      }
-      
-      // Format amounts based on current section
-      if (currentSection === 'Daily Transaction' && rowData.length >= 6) {
-        // Columns 3, 4, 5: Debit, Credit, Balance
-        if (typeof rowData[3] === 'number') {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: 3 });
-          if (worksheet[cellRef]) {
-            worksheet[cellRef].t = 'n';
-            worksheet[cellRef].z = '#,##0.00';
-          }
-        }
-        if (typeof rowData[4] === 'number') {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
-          if (worksheet[cellRef]) {
-            worksheet[cellRef].t = 'n';
-            worksheet[cellRef].z = '#,##0.00';
-          }
-        }
-        if (typeof rowData[5] === 'number') {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: 5 });
-          if (worksheet[cellRef]) {
-            worksheet[cellRef].t = 'n';
-            worksheet[cellRef].z = '#,##0.00';
-          }
-        }
-      } else if (currentSection === 'GCEC PDC' && rowData.length >= 4) {
-        // Column 3: Amount
-        if (typeof rowData[3] === 'number') {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: 3 });
-          if (worksheet[cellRef]) {
-            worksheet[cellRef].t = 'n';
-            worksheet[cellRef].z = '#,##0.00';
-          }
-        }
-      } else if (currentSection === 'Customer PDC' && rowData.length >= 5) {
-        // Column 4: Amount
-        if (typeof rowData[4] === 'number') {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
-          if (worksheet[cellRef]) {
-            worksheet[cellRef].t = 'n';
-            worksheet[cellRef].z = '#,##0.00';
-          }
-        }
-      } else if (currentSection === 'Purchase Bill' && rowData.length >= 6) {
-        // Column 4: Amount
-        if (typeof rowData[4] === 'number') {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
-          if (worksheet[cellRef]) {
-            worksheet[cellRef].t = 'n';
-            worksheet[cellRef].z = '#,##0.00';
-          }
-        }
-      }
-    }
-
-    // Add worksheet to workbook
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'All Transactions');
-
-    // Generate filename
+    // Generate filename and download
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
     const fileName = `All-Transactions-${dateStr}.xlsx`;
 
-    // Download
-    XLSX.writeFile(workbook, fileName);
+    // Write to buffer and download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    window.URL.revokeObjectURL(url);
   }, [transactions, groupedTransactions, summary, startDate, endDate]);
 
   // Render transaction row based on type
@@ -596,38 +552,38 @@ export default function ViewAllTranstion() {
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.chequeNumber || '-'}</TableCell>
           <TableCell className="text-sm py-3 px-4">
             {txn.debit ? (
-              <span className="text-red-600 font-semibold">{formatAmount(txn.debit)} AED</span>
+              <span className="text-red-600 font-semibold">AED{formatAmount(txn.debit)}</span>
             ) : (
               <span className="text-gray-400">-</span>
             )}
           </TableCell>
           <TableCell className="text-sm py-3 px-4">
             {txn.credit ? (
-              <span className="text-green-600 font-semibold">{formatAmount(txn.credit)} AED</span>
+              <span className="text-black font-semibold">AED{formatAmount(txn.credit)}</span>
             ) : (
               <span className="text-gray-400">-</span>
             )}
           </TableCell>
-          <TableCell className="text-gray-700 font-semibold text-sm py-3 px-4">{formatAmount(txn.balance)} AED</TableCell>
+          <TableCell className="text-gray-700 font-semibold text-sm py-3 px-4">AED{formatAmount(txn.balance)}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.remarks || '-'}</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'GCEC PDC') {
       const txn = transaction as GCECPDC;
       return (
-        <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-green-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(txn.date)}</TableCell>
-          <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.customerName}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
+        <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+          <TableCell className="text-red-600 text-sm py-3 px-4">{formatDate(txn.date)}</TableCell>
+          <TableCell className="text-red-600 font-medium text-sm py-3 px-4">{txn.customerName}</TableCell>
+          <TableCell className="text-red-600 text-sm py-3 px-4">-</TableCell>
+          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-gray-400">-</span>
+            <span className="text-red-600">-</span>
           </TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-green-600 font-semibold">{formatAmount(txn.amount)} AED</span>
+            <span className="text-red-600 font-semibold">AED{formatAmount(txn.amount)}</span>
           </TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || '-'}</TableCell>
+          <TableCell className="text-red-600 text-sm py-3 px-4">-</TableCell>
+          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.description || '-'}</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Customer PDC') {
@@ -642,7 +598,7 @@ export default function ViewAllTranstion() {
             <span className="text-gray-400">-</span>
           </TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-green-600 font-semibold">{formatAmount(txn.amount)} AED</span>
+            <span className=" text-black font-semibold">AED{formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || '-'}</TableCell>
@@ -656,11 +612,12 @@ export default function ViewAllTranstion() {
           <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.vendorName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.paymentMethod}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.invoiceNumber || '-'}</TableCell>
-          <TableCell className="text-sm py-3 px-4">
-            <span className="text-red-600 font-semibold">{formatAmount(txn.amount)} AED</span>
-          </TableCell>
+         
           <TableCell className="text-sm py-3 px-4">
             <span className="text-gray-400">-</span>
+          </TableCell>
+          <TableCell className="text-sm py-3 px-4">
+            <span className="text-black font-semibold">AED{formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || '-'}</TableCell>
@@ -674,13 +631,13 @@ export default function ViewAllTranstion() {
     <div className="p-8 bg-gray-50 min-h-screen">
       {/* Header Section */}
     {/* Main Card */}
-    <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+    <div className="bg-white rounded shadow-xl overflow-hidden">
           {/* Action Bar */}
-          <div className="bg-[#eab308] p-6">
+          <div className="bg-[#eab308] p-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center gap-2 bg-white text-black px-6 py-3 rounded-xl font-semibold hover:bg-blue-50 transition-all shadow-md"
+                className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded font-semibold hover:bg-blue-50 transition-all shadow-md"
               >
                 <Calendar className="w-5 h-5" />
                 Filter by Date
@@ -690,7 +647,7 @@ export default function ViewAllTranstion() {
               <button
                 onClick={handleDownloadExcel}
                 disabled={transactions.length === 0 || loading}
-                className="flex items-center gap-2 bg-[#ffff] text-black px-6 py-3 rounded-xl font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="w-5 h-5" />
                 Download Excel
@@ -750,8 +707,8 @@ export default function ViewAllTranstion() {
           </Card>
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
-              <p className="text-sm font-medium text-green-700 mb-2">GCEC Post Dated Cheques in Hand</p>
-              <p className="text-3xl font-bold text-green-900">{summary.gcecPdc}</p>
+              <p className="text-sm font-medium text-black mb-2">GCEC Post Dated Cheques in Hand</p>
+              <p className="text-3xl font-bold text-black">{summary.gcecPdc}</p>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 hover:shadow-lg transition-shadow">

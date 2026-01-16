@@ -474,5 +474,229 @@ export const transactionService = {
     
     return api.get<any>(url);
   },
+
+  // USD Transactions
+  getUsdTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
+    return api.get<BankTransaction[]>('/usd-transactions');
+  },
+
+  createUsdTransaction: async (data: {
+    date: string;
+    description: string;
+    details: string;
+    debit?: string | number;
+    credit?: string | number;
+    bankCharges?: string | number;
+  }): Promise<ApiResponse<BankTransaction>> => {
+    const apiData: any = {
+      date: data.date,
+      description: data.description,
+      details: data.details,
+    };
+    
+    // Debit and credit should be sent as strings like "3.00" and "0.00"
+    if (data.debit !== undefined) {
+      const debitValue = typeof data.debit === 'string' ? parseFloat(data.debit.replace(/,/g, '')) : data.debit;
+      apiData.debit = debitValue.toFixed(2); // Format as "3.00"
+    }
+    if (data.credit !== undefined) {
+      const creditValue = typeof data.credit === 'string' ? parseFloat(data.credit.replace(/,/g, '')) : data.credit;
+      apiData.credit = creditValue.toFixed(2); // Format as "0.00"
+    }
+    
+    // Bank charges should be sent as number (not string)
+    if (data.bankCharges !== undefined) {
+      apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+    
+    return api.post<BankTransaction>('/usd-transactions', apiData);
+  },
+
+  updateUsdTransaction: async (id: string, data: Partial<{
+    date: string;
+    description: string;
+    details: string;
+    debit?: string | number;
+    credit?: string | number;
+    bankCharges?: string | number;
+  }>): Promise<ApiResponse<BankTransaction>> => {
+    const apiData: any = {};
+    
+    if (data.date !== undefined) apiData.date = data.date;
+    if (data.description !== undefined) apiData.description = data.description;
+    if (data.details !== undefined) apiData.details = data.details;
+    
+    // Debit and credit should be sent as strings like "3.00" and "0.00"
+    if (data.debit !== undefined) {
+      const debitValue = typeof data.debit === 'string' ? parseFloat(data.debit.replace(/,/g, '')) : data.debit;
+      apiData.debit = debitValue.toFixed(2); // Format as "3.00"
+    }
+    if (data.credit !== undefined) {
+      const creditValue = typeof data.credit === 'string' ? parseFloat(data.credit.replace(/,/g, '')) : data.credit;
+      apiData.credit = creditValue.toFixed(2); // Format as "0.00"
+    }
+    
+    // Bank charges should be sent as number with key bank_charges
+    if (data.bankCharges !== undefined) {
+      apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+    
+    return api.patch<BankTransaction>(`/usd-transactions/${id}`, apiData);
+  },
+
+  deleteUsdTransaction: async (id: string): Promise<ApiResponse<void>> => {
+    return api.delete<void>(`/usd-transactions/${id}`);
+  },
+
+  // GBP Transactions
+  getGbpTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
+    return api.get<BankTransaction[]>('/gbp-transactions');
+  },
+
+  createGbpTransaction: async (data: {
+    date: string;
+    description: string;
+    details: string;
+    debit?: string | number;
+    credit?: string | number;
+    bankCharges?: string | number;
+  }): Promise<ApiResponse<BankTransaction>> => {
+    const apiData: any = {
+      date: data.date,
+      description: data.description,
+      details: data.details,
+    };
+    
+    // Debit and credit should be sent as strings like "3.00" and "0.00"
+    if (data.debit !== undefined) {
+      const debitValue = typeof data.debit === 'string' ? parseFloat(data.debit.replace(/,/g, '')) : data.debit;
+      apiData.debit = debitValue.toFixed(2); // Format as "3.00"
+    }
+    if (data.credit !== undefined) {
+      const creditValue = typeof data.credit === 'string' ? parseFloat(data.credit.replace(/,/g, '')) : data.credit;
+      apiData.credit = creditValue.toFixed(2); // Format as "0.00"
+    }
+    
+    // Bank charges should be sent as number with key bank_charges
+    if (data.bankCharges !== undefined) {
+      apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+    
+    return api.post<BankTransaction>('/gbp-transactions', apiData);
+  },
+
+  updateGbpTransaction: async (id: string, data: Partial<{
+    date: string;
+    description: string;
+    details: string;
+    debit?: string | number;
+    credit?: string | number;
+    bankCharges?: string | number;
+  }>): Promise<ApiResponse<BankTransaction>> => {
+    const apiData: any = {};
+    
+    if (data.date !== undefined) apiData.date = data.date;
+    if (data.description !== undefined) apiData.description = data.description;
+    if (data.details !== undefined) apiData.details = data.details;
+    
+    // Debit and credit should be sent as strings like "3.00" and "0.00"
+    if (data.debit !== undefined) {
+      const debitValue = typeof data.debit === 'string' ? parseFloat(data.debit.replace(/,/g, '')) : data.debit;
+      apiData.debit = debitValue.toFixed(2); // Format as "3.00"
+    }
+    if (data.credit !== undefined) {
+      const creditValue = typeof data.credit === 'string' ? parseFloat(data.credit.replace(/,/g, '')) : data.credit;
+      apiData.credit = creditValue.toFixed(2); // Format as "0.00"
+    }
+    
+    // Bank charges should be sent as number with key bank_charges
+    if (data.bankCharges !== undefined) {
+      apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+    
+    return api.patch<BankTransaction>(`/gbp-transactions/${id}`, apiData);
+  },
+
+  deleteGbpTransaction: async (id: string): Promise<ApiResponse<void>> => {
+    return api.delete<void>(`/gbp-transactions/${id}`);
+  },
+
+  // FK Emirates NBD Transactions
+  getFkEmiratesTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
+    // Fetch all transactions - filtering by currency will be done on frontend
+    return api.get<BankTransaction[]>('/fk-emirates');
+  },
+
+  createFkEmiratesTransaction: async (data: {
+    date: string;
+    description: string;
+    details: string;
+    debit?: string | number;
+    credit?: string | number;
+    bankCharges?: string | number;
+    currency: 'AED' | 'USD' | 'GBP';
+  }): Promise<ApiResponse<BankTransaction>> => {
+    const apiData: any = {
+      date: data.date,
+      description: data.description,
+      details: data.details,
+      currency: data.currency,
+    };
+    
+    // Debit and credit should be sent as strings like "3.00" and "0.00"
+    if (data.debit !== undefined) {
+      const debitValue = typeof data.debit === 'string' ? parseFloat(data.debit.replace(/,/g, '')) : data.debit;
+      apiData.debit = debitValue.toFixed(2); // Format as "3.00"
+    }
+    if (data.credit !== undefined) {
+      const creditValue = typeof data.credit === 'string' ? parseFloat(data.credit.replace(/,/g, '')) : data.credit;
+      apiData.credit = creditValue.toFixed(2); // Format as "0.00"
+    }
+    
+    // Bank charges should be sent as number with key bank_charges
+    if (data.bankCharges !== undefined) {
+      apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+    
+    return api.post<BankTransaction>('/fk-emirates', apiData);
+  },
+
+  updateFkEmiratesTransaction: async (id: string, data: Partial<{
+    date: string;
+    description: string;
+    details: string;
+    debit?: string | number;
+    credit?: string | number;
+    bankCharges?: string | number;
+    currency?: 'AED' | 'USD' | 'GBP';
+  }>): Promise<ApiResponse<BankTransaction>> => {
+    const apiData: any = {};
+    
+    if (data.date !== undefined) apiData.date = data.date;
+    if (data.description !== undefined) apiData.description = data.description;
+    if (data.details !== undefined) apiData.details = data.details;
+    if (data.currency !== undefined) apiData.currency = data.currency;
+    
+    // Debit and credit should be sent as strings like "3.00" and "0.00"
+    if (data.debit !== undefined) {
+      const debitValue = typeof data.debit === 'string' ? parseFloat(data.debit.replace(/,/g, '')) : data.debit;
+      apiData.debit = debitValue.toFixed(2); // Format as "3.00"
+    }
+    if (data.credit !== undefined) {
+      const creditValue = typeof data.credit === 'string' ? parseFloat(data.credit.replace(/,/g, '')) : data.credit;
+      apiData.credit = creditValue.toFixed(2); // Format as "0.00"
+    }
+    
+    // Bank charges should be sent as number with key bank_charges
+    if (data.bankCharges !== undefined) {
+      apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+    
+    return api.patch<BankTransaction>(`/fk-emirates/${id}`, apiData);
+  },
+
+  deleteFkEmiratesTransaction: async (id: string): Promise<ApiResponse<void>> => {
+    return api.delete<void>(`/fk-emirates/${id}`);
+  },
 };
 

@@ -125,22 +125,68 @@ export const creditCardService = {
   // Options:
   // - No params: Returns current month/year statements
   // - month & year: Returns statements for specific month (format: /statements/YYYY-MM)
+  // - months & year: Returns statements for multiple months (format: /statements?year=YYYY&months=1,2,3)
   // - year only: Returns all months for that year
   getCreditCardStatements: async (options?: {
-    month?: number; // 0-11 (0 = January)
+    month?: number; // 0-11 (0 = January) - single month
+    months?: number[]; // Array of month indices (0-11) - multiple months
     year?: number;
   }): Promise<ApiResponse<CreditCardStatement[]>> => {
     let url = '/statements';
     
-    // If both month and year are provided, use path format: /statements/YYYY-MM
-    if (options?.year !== undefined && options?.month !== undefined) {
+    // Build query parameters if provided
+    const params: string[] = [];
+    
+    if (options?.year !== undefined) {
+      params.push(`year=${options.year}`);
+    }
+    
+    // Handle multiple months first
+    if (options?.months && options.months.length > 0) {
+      // Convert month indices (0-11) to month numbers (1-12) for API
+      const monthNumbers = options.months.map(m => m + 1);
+      params.push(`months=${monthNumbers.join(',')}`);
+    }
+    // Handle single month (only if months array is not provided)
+    else if (options?.month !== undefined) {
       // Format month as 2-digit string (1-12)
       const monthStr = String(options.month + 1).padStart(2, '0');
-      const yearStr = String(options.year);
+      const yearStr = String(options.year || new Date().getFullYear());
       url = `/statements/${yearStr}-${monthStr}`;
-    } else if (options?.year !== undefined) {
-      // If only year is provided, use query parameter
-      url = `/statements?year=${options.year}`;
+      // If we're using path format, return early
+      const response = await api.get<CreditCardStatementApiResponse[]>(url);
+      
+      if (response.success && response.data) {
+        // Map snake_case API response to camelCase
+        const mappedData: CreditCardStatement[] = response.data.map((item: any) => {
+          return {
+            // Use card_id as the unique identifier since id might be null in API response
+            id: item.card_id ? String(item.card_id) : (item.credit_card_id ? String(item.credit_card_id) : String(item.id || '')),
+            issuingBank: item.issuing_bank || '',
+            cardHolder: item.card_holder || '',
+            card_number: item.card_no || item.card_number || '',
+            statement_date: item.statement_date ?? null,
+            due_date: item.due_date ?? null,
+            due_month: item.due_month ?? null,
+            totalPaymentDue: item.total_payment_due !== null && item.total_payment_due !== undefined ? Number(item.total_payment_due) : 0,
+            paid: item.paid !== null && item.paid !== undefined ? Number(item.paid) : 0,
+            epp: item.epp !== null && item.epp !== undefined ? Number(item.epp) : 0,
+            amountPending: item.amount_pending !== null && item.amount_pending !== undefined ? Number(item.amount_pending) : 0,
+          };
+        });
+        
+        return {
+          ...response,
+          data: mappedData,
+        };
+      }
+      
+      return response as unknown as ApiResponse<CreditCardStatement[]>;
+    }
+    
+    // Build URL with query parameters if any
+    if (params.length > 0) {
+      url += `?${params.join('&')}`;
     }
     // If no params, use /statements (returns current month/year)
     

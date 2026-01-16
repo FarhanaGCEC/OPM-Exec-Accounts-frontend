@@ -621,7 +621,7 @@ export default function CustomerPDC() {
                               className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
                                 isSecurityCheque
                                   ? 'text-white hover:bg-red-500 focus:ring-white'
-                                  : 'text-blue-600 hover:bg-blue-50 focus:ring-blue-500'
+                                  : 'text-black hover:bg-gray-100 focus:ring-gray-500'
                               }`}
                               title="Edit cheque"
                               aria-label={`Edit ${cheque.chequeNumber}`}
@@ -633,7 +633,7 @@ export default function CustomerPDC() {
                               className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
                                 isSecurityCheque
                                   ? 'text-white hover:bg-red-500 focus:ring-white'
-                                  : 'text-red-600 hover:bg-red-50 focus:ring-red-500'
+                                  : 'text-black hover:bg-gray-100 focus:ring-gray-500'
                               }`}
                               title="Delete cheque"
                               aria-label={`Delete ${cheque.chequeNumber}`}

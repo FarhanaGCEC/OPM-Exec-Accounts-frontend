@@ -28,6 +28,7 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
   { id: 'overview', label: 'Dashboard', icon: Home, path: '/dashboard' },
   { id: 'bank', label: 'Daily Transactions', icon: CreditCard, path: '/bank' },
+ 
   { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque' },
   {
     id: 'receivable',
@@ -66,6 +67,12 @@ const menuItems: MenuItem[] = [
     icon: CreditCard,
     path: '/matching',
   },
+
+  { id: 'gbp-transactions', label: 'GBP Transactions', icon: CreditCard, path: '/gbp-transactions' },
+  { id: 'usd-transactions', label: 'USD Transactions', icon: CreditCard, path: '/usd-transactions' },
+  { id: 'fks-transactions', label: 'FK EMIRATES NBD', icon: CreditCard, path: '/fks-transactions' },
+
+  
 ];
 
 export default function Sidebar() {
