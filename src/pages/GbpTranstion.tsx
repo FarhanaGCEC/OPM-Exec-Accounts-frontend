@@ -463,12 +463,12 @@ export default function GbpTranstion() {
       </div>
 
       {error && (
-        <div className="mx-16 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+        <div className="mx-8 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
           {error}
         </div>
       )}
 
-      <div className="mx-16">
+      <div className="mx-8">
         {loading && transactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="w-8 h-8 animate-spin text-[#eab308]" />

@@ -588,7 +588,7 @@ export default function FkEmrits() {
       </div>
 
       {/* Currency Tabs */}
-      <div className="mx-16 mb-4 flex gap-1 border-b border-gray-200">
+      <div className="mx-8 mb-4 flex gap-1 border-b border-gray-200">
         {(['AED', 'USD', 'GBP'] as Currency[]).map((currency) => (
           <button
             key={currency}
@@ -608,7 +608,7 @@ export default function FkEmrits() {
       </div>
 
       {/* Filter Section */}
-      <div className="mx-16 mb-4">
+      <div className="mx-8 mb-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
           <Input
@@ -622,12 +622,12 @@ export default function FkEmrits() {
       </div>
 
       {error && (
-        <div className="mx-16 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+        <div className="mx-8 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
           {error}
         </div>
       )}
 
-      <div className="mx-16">
+      <div className="mx-8">
         {loading && allTransactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="w-8 h-8 animate-spin text-[#eab308]" />
