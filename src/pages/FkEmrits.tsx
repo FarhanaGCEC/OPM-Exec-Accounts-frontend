@@ -450,7 +450,7 @@ export default function FkEmrits() {
         const headers = ['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance'];
         const headerRow = addRow(headers);
         headerRow.font = { bold: true, color: { argb: 'FF000000' } }; // Black text
-
+        addRow([]);
         // Get currency format - use proper Excel number format
         let currencyFormat: string;
         if (currency === 'AED') {
