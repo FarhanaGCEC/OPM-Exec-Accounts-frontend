@@ -8,6 +8,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://165.245.188.54',
+        changeOrigin: true,
+      },
+    },
+  },
   resolve: {
     alias: [
       {
