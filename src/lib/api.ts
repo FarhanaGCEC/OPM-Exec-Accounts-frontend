@@ -1,8 +1,8 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 
-// API Base URL - can be set via environment variable
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://165.245.188.54/api';
+// Use same-origin `/api` so browser requests go through the proxy/rewrite.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 // Create axios instance with default config
 const apiClient: AxiosInstance = axios.create({
