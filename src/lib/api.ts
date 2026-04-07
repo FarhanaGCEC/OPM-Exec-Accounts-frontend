@@ -15,6 +15,18 @@ if (import.meta.env.DEV) {
   }
 }
 
+// Live: HTTPS pages + VITE_API_BASE_URL=http://… → browser mixed-content blocking (API looks "down").
+if (
+  import.meta.env.PROD &&
+  typeof window !== 'undefined' &&
+  window.location.protocol === 'https:' &&
+  /^http:\/\//i.test(String(API_BASE_URL).trim())
+) {
+  console.warn(
+    '[API] Production is HTTPS but VITE_API_BASE_URL is HTTP — the browser will usually block XHR/fetch (mixed content). Fix: unset VITE_API_BASE_URL or set it to /api and proxy /api to your server (e.g. vercel.json rewrites).'
+  );
+}
+
 // Create axios instance with default config
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,

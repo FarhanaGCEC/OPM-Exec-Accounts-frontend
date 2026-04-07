@@ -10,6 +10,7 @@ import { Input } from '../components/ui/input';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
@@ -56,8 +57,7 @@ const chequeSchema = z.object({
     .min(3, 'Cheque number must be at least 3 characters'),
   customerName: z.string()
     .min(1, 'Customer name is required')
-    .min(3, 'Customer name must be at least 3 characters')
-    .optional(),
+    .min(3, 'Customer name must be at least 3 characters'),
   amount: z.string()
     .min(1, 'Amount is required')
     .refine((val) => {
@@ -682,6 +682,9 @@ export default function CustomerPDC() {
             <DialogTitle className="text-xl font-bold text-gray-900">
               {editingCheque ? 'Edit Post-Dated Cheque' : 'Add Post-Dated Cheque'}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Enter cheque details and save to create or update a customer post-dated cheque.
+            </DialogDescription>
           </DialogHeader>
           {error && (
             <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
