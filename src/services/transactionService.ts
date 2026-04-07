@@ -133,9 +133,7 @@ function mapPostDatedChequeFromApi(item: PostDatedChequeApiResponse): PostDatedC
   };
 }
 
-/**
- * Multipart PDC expects chequeDate as YYYY-MM-DD (Postman). UI often uses dd/mm/yyyy.
- */
+/** PDC write API expects dates as YYYY-MM-DD; UI often uses dd/mm/yyyy. */
 function formatChequeDateForPdcMultipart(input: string): string {
   const s = String(input).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -159,11 +157,33 @@ function normalizePdcAmount(v: unknown): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-/**
- * POST/PUT/PATCH /pdc bodies use snake_case (same as GET). JSON was incorrectly sent as camelCase,
- * which many backends ignore — validation then reports all fields as "required".
- */
-function buildPdcCreateSnakeBody(
+/** Data URL (`data:image/jpeg;base64,...`) or raw base64 — backend accepts both. */
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Failed to read file as data URL'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('File read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** POST/PUT/PATCH /pdc JSON (reliable through proxies; optional image as base64 — do not mix with multipart). */
+export type PdcWriteJsonBody = {
+  chequeDate: string;
+  chequeNumber: string;
+  customerName: string;
+  amount: number;
+  chequeType: string;
+  pdcType: string;
+  description?: string;
+  attachmentBase64?: string;
+  attachmentFilename?: string;
+};
+
+function buildPdcCreateJsonBody(
   data: Omit<
     PostDatedCheque,
     | 'id'
@@ -173,14 +193,14 @@ function buildPdcCreateSnakeBody(
     | 'attachmentName'
     | 'attachmentUrl'
   >
-): Record<string, string | number> {
-  const body: Record<string, string | number> = {
-    cheque_date: formatChequeDateForPdcMultipart(String(data.chequeDate)),
-    cheque_number: String(data.chequeNumber),
-    customer_name: String(data.customerName ?? '').trim(),
+): PdcWriteJsonBody {
+  const body: PdcWriteJsonBody = {
+    chequeDate: formatChequeDateForPdcMultipart(String(data.chequeDate)),
+    chequeNumber: String(data.chequeNumber),
+    customerName: String(data.customerName ?? '').trim(),
     amount: normalizePdcAmount(data.amount),
-    cheque_type: String(data.chequeType || 'Payment Cheque'),
-    pdc_type: String(data.pdcType),
+    chequeType: String(data.chequeType || 'Payment Cheque'),
+    pdcType: String(data.pdcType),
   };
   if (data.description !== undefined && data.description !== null && String(data.description).trim() !== '') {
     body.description = String(data.description);
@@ -188,25 +208,25 @@ function buildPdcCreateSnakeBody(
   return body;
 }
 
-function pdcCamelMergeToSnakeBody(apiData: Record<string, unknown>): Record<string, string | number> {
-  const out: Record<string, string | number> = {};
+function buildPdcUpdateJsonBodyFromApiData(apiData: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   if (Object.prototype.hasOwnProperty.call(apiData, 'chequeDate') && apiData.chequeDate !== undefined) {
-    out.cheque_date = formatChequeDateForPdcMultipart(String(apiData.chequeDate));
+    out.chequeDate = formatChequeDateForPdcMultipart(String(apiData.chequeDate));
   }
   if (Object.prototype.hasOwnProperty.call(apiData, 'chequeNumber') && apiData.chequeNumber !== undefined) {
-    out.cheque_number = String(apiData.chequeNumber);
+    out.chequeNumber = String(apiData.chequeNumber);
   }
   if (Object.prototype.hasOwnProperty.call(apiData, 'customerName') && apiData.customerName !== undefined) {
-    out.customer_name = String(apiData.customerName ?? '').trim();
+    out.customerName = String(apiData.customerName ?? '').trim();
   }
   if (Object.prototype.hasOwnProperty.call(apiData, 'amount') && apiData.amount !== undefined) {
     out.amount = normalizePdcAmount(apiData.amount);
   }
   if (Object.prototype.hasOwnProperty.call(apiData, 'chequeType') && apiData.chequeType !== undefined) {
-    out.cheque_type = String(apiData.chequeType);
+    out.chequeType = String(apiData.chequeType);
   }
   if (Object.prototype.hasOwnProperty.call(apiData, 'pdcType') && apiData.pdcType !== undefined) {
-    out.pdc_type = String(apiData.pdcType);
+    out.pdcType = String(apiData.pdcType);
   }
   if (
     Object.prototype.hasOwnProperty.call(apiData, 'description') &&
@@ -217,33 +237,6 @@ function pdcCamelMergeToSnakeBody(apiData: Record<string, unknown>): Record<stri
     out.description = String(apiData.description);
   }
   return out;
-}
-
-/**
- * Multipart PDC: production often validates camelCase (e.g. `chequeDate`, `customerName`) —
- * snake_case-only parts can leave `req.body` effectively empty for that schema.
- */
-function appendPdcFormFields(form: FormData, body: Record<string, string | number>) {
-  const add = (key: string, value: unknown) => {
-    if (value === undefined || value === null) return;
-    const s = typeof value === 'number' ? String(value) : String(value);
-    if (s === '') return;
-    form.append(key, s);
-  };
-
-  add('chequeDate', body.cheque_date);
-  add('chequeNumber', body.cheque_number);
-  add('customerName', body.customer_name);
-  add('amount', body.amount);
-  add('chequeType', body.cheque_type);
-  add('pdcType', body.pdc_type);
-  add('description', body.description);
-
-  add('cheque_date', body.cheque_date);
-  add('cheque_number', body.cheque_number);
-  add('customer_name', body.customer_name);
-  add('cheque_type', body.cheque_type);
-  add('pdc_type', body.pdc_type);
 }
 
 // API Response interface (snake_case from backend) - Purchase Bills API
@@ -433,21 +426,20 @@ export const transactionService = {
     >,
     attachment?: File | null
   ): Promise<ApiResponse<PostDatedCheque>> => {
-    const snakeBody = buildPdcCreateSnakeBody(data);
-    // Always multipart: many production servers only parse `POST /pdc` with multer, so JSON
-    // never fills `req.body` and live returns 400 while local (different middleware order) works.
-    const form = new FormData();
-    appendPdcFormFields(form, snakeBody);
+    const jsonBody = buildPdcCreateJsonBody(data);
     if (attachment && attachment.size > 0) {
-      form.append('attachment', attachment, attachment.name);
+      jsonBody.attachmentBase64 = await readFileAsDataUrl(attachment);
+      jsonBody.attachmentFilename = attachment.name;
     }
 
     console.log('[transactionService] createPostDatedCheque - API payload:', {
-      ...snakeBody,
-      attachment: attachment?.name ?? null,
+      ...jsonBody,
+      attachmentBase64: jsonBody.attachmentBase64
+        ? `[${jsonBody.attachmentBase64.length} chars]`
+        : undefined,
     });
 
-    const response = await api.post<PostDatedChequeApiResponse>('/pdc', form);
+    const response = await api.post<PostDatedChequeApiResponse>('/pdc', jsonBody);
 
     if (response.success && response.data) {
       const raw = response.data as unknown as { data?: PostDatedChequeApiResponse };
@@ -475,12 +467,12 @@ export const transactionService = {
       return parseFloat(String(v).replace(/,/g, ''));
     };
 
-    const useMultipart = Boolean(attachment && attachment.size > 0);
+    const hasNewAttachment = Boolean(attachment && attachment.size > 0);
 
     const apiData: Record<string, unknown> = {};
     const base = existing ?? undefined;
 
-    if (useMultipart) {
+    if (hasNewAttachment) {
       if (data.chequeDate !== undefined) apiData.chequeDate = data.chequeDate;
       else if (base?.chequeDate) apiData.chequeDate = base.chequeDate;
 
@@ -517,20 +509,15 @@ export const transactionService = {
       if (data.description !== undefined) apiData.description = data.description;
     }
 
-    const snakeBody = pdcCamelMergeToSnakeBody(apiData);
+    const jsonBody = buildPdcUpdateJsonBodyFromApiData(apiData);
+    if (hasNewAttachment) {
+      jsonBody.attachmentBase64 = await readFileAsDataUrl(attachment!);
+      jsonBody.attachmentFilename = attachment!.name;
+    }
 
-    const response = useMultipart
-      ? await (async () => {
-          const form = new FormData();
-          appendPdcFormFields(form, snakeBody);
-          form.append('attachment', attachment!, attachment!.name);
-          return api.patch<PostDatedChequeApiResponse>(`/pdc/${id}`, form);
-        })()
-      : await (async () => {
-          const form = new FormData();
-          appendPdcFormFields(form, snakeBody);
-          return api.put<PostDatedChequeApiResponse>(`/pdc/${id}`, form);
-        })();
+    const response = hasNewAttachment
+      ? await api.patch<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody)
+      : await api.put<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody);
 
     if (response.success && response.data) {
       const raw = response.data as unknown as { data?: PostDatedChequeApiResponse };
