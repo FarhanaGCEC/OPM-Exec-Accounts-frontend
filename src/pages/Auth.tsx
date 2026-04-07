@@ -12,6 +12,7 @@ import { Checkbox } from '../components/ui/checkbox';
 import { User, Lock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { authService } from '../services/authService';
+import { extractLoginData, persistLoginSession } from '../lib/authPayload';
 
 type LoginFormData = {
   username: string;
@@ -74,16 +75,14 @@ export default function Auth() {
        
       });
       
-      if (response.success && response.data) {
-        // Store auth token
-        localStorage.setItem('authToken', response.data.token);
-        
-        // Store user name
-        if (response.data.user?.name) {
-          localStorage.setItem('userName', response.data.user.name);
-        } else if (response.data.user?.username) {
-          localStorage.setItem('userName', response.data.user.username);
-        }
+      const { token, user } = extractLoginData(response.data);
+
+      if (response.success && response.data && token) {
+        persistLoginSession({
+          token,
+          user,
+          formUsername: formData.username.trim() || undefined,
+        });
         
         // Store remember me preference
         if (rememberMe) {

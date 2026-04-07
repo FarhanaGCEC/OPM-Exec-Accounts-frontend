@@ -2,8 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Dubai';
+  font-style: normal;
+  font-weight: 300;
+  src: local('Dubai Light'), url('/fonts/dubai/Dubai-Light.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Dubai';
+  font-style: normal;
+  font-weight: 400;
+  src: local('Dubai Regular'), url('/fonts/dubai/Dubai-Regular.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Dubai';
+  font-style: normal;
+  font-weight: 500;
+  src: local('Dubai Medium'), url('/fonts/dubai/Dubai-Medium.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'Dubai';
+  font-style: normal;
+  font-weight: 700;
+  src: local('Dubai Bold'), url('/fonts/dubai/Dubai-Bold.woff') format('woff');
+}
+
 @layer base {
   :root {
+    /* GCEC brand gold — use #f7c46d / hover #dea44a in Tailwind as bg-[#f7c46d] etc. */
+    --brand-gold: #f7c46d;
+    --brand-gold-hover: #dea44a;
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -33,6 +64,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: 'Dubai', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 17px;
+    font-weight: 400;
   }
 }
 
@@ -62,4 +96,12 @@
     scrollbar-width: thin;
     scrollbar-color: #cbd5e1 #f1f5f9;
   }
+}
+
+/* Daily Transaction ledger — row tones (cells often need !important to show through). */
+.bank-tx-ledger tbody tr[data-row-bg='bounce'] > td {
+  background-color: #95dcf7 !important;
+}
+.bank-tx-ledger tbody tr[data-row-bg='gcec'] > td {
+  background-color: #fef9c3 !important;
 }

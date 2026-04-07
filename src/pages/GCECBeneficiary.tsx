@@ -79,7 +79,7 @@ export default function GCECBeneficiary() {
                 <h2 className="text-2xl font-bold text-gray-900">GCEC Beneficiary</h2>
                 <Button
                     onClick={() => setIsModalOpen(true)}
-                    className="bg-[#eab308] text-white flex items-center space-x-2"
+                    className="bg-[#f7c46d] text-white flex items-center space-x-2"
                 >
                     <Plus className="w-4 h-4" />
                     <span>Add New Beneficiary</span>
@@ -91,7 +91,7 @@ export default function GCECBeneficiary() {
                     <div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
-                                <TableRow className="bg-[#eab308] border-0">
+                                <TableRow className="bg-[#f7c46d] border-0">
                                     <TableHead className="font-semibold text-black text-sm text-center py-2">
                                         Beneficiary Name
                                     </TableHead>
@@ -157,7 +157,7 @@ export default function GCECBeneficiary() {
                             />
                             <Button
                                 type="submit"
-                                className="w-full bg-[#eab308] text-white py-3 mt-6"
+                                className="w-full bg-[#f7c46d] text-white py-3 mt-6"
                             >
                                 Save Beneficiary
                             </Button>

@@ -37,6 +37,7 @@ import { Loader2, Plus, Calendar as CalendarIcon, Download } from 'lucide-react'
 import { 
     creditCardService, 
     mapApiResponseToCreditCardDetail,
+    displayCreditCardHolderName,
     type CreditCardDetail 
 } from '../services/creditCardService';
 import * as XLSX from 'xlsx';
@@ -214,7 +215,7 @@ export default function CreditCardPaymentsPage() {
         form.reset({
             paymentDate: formattedDate,
             cardNo: payment.cardNo || '',
-            cardHolder: payment.cardHolder || '',
+            cardHolder: displayCreditCardHolderName(payment.cardHolder || ''),
             creditCardId: creditCardId,
             amount: payment.amount || 0,
             remarks: payment.remarks || '',
@@ -600,7 +601,7 @@ export default function CreditCardPaymentsPage() {
             </Button>
             <Button
             onClick={handleAddNew}
-            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
             disabled={loading}
             >
             <Plus className="w-4 h-4 text-black" />
@@ -622,7 +623,7 @@ export default function CreditCardPaymentsPage() {
                     <div className="overflow-x-auto rounded-lg">
                         <Table>
                             <TableHeader>
-                                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Payment Date
                                     </TableHead>
@@ -685,7 +686,7 @@ export default function CreditCardPaymentsPage() {
                                             <TableCell className="text-gray-700 text-sm py-2 text-left"> 
                                                    <Button 
                                                        variant="outline" 
-                                                       className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                                       className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                                        onClick={() => handleEditClick(card)}
                                                    >
                                                        Edit
@@ -839,7 +840,7 @@ export default function CreditCardPaymentsPage() {
                                                     if (value) {
                                                         const selectedCard = availableCreditCards.find(card => card.id === value);
                                                         if (selectedCard) {
-                                                            form.setValue('cardHolder', selectedCard.cardHolder);
+                                                            form.setValue('cardHolder', displayCreditCardHolderName(selectedCard.cardHolder));
                                                             form.setValue('cardNo', selectedCard.cardNo);
                                                         }
                                                     }
@@ -848,11 +849,16 @@ export default function CreditCardPaymentsPage() {
                                                 searchPlaceholder="Search credit card..."
                                                 disabled={isSubmitting || loadingCreditCards}
                                             >
-                                                {availableCreditCards.map((card) => (
-                                                    <SelectItem key={card.id} value={card.id}>
-                                                        {card.cardHolder} - {card.cardNo.slice(-4)} ({card.issuingBank})
-                                                    </SelectItem>
-                                                ))}
+                                                {availableCreditCards.map((card) => {
+                                                    const shown = displayCreditCardHolderName(card.cardHolder);
+                                                    const line = `${shown} - ${card.cardNo.slice(-4)} (${card.issuingBank})`;
+                                                    const searchText = `${card.cardHolder} ${shown} ${card.cardNo} ${card.issuingBank}`;
+                                                    return (
+                                                        <SelectItem key={card.id} value={card.id} textValue={searchText}>
+                                                            {line}
+                                                        </SelectItem>
+                                                    );
+                                                })}
                                             </SearchableSelect>
                                         </FormControl>
                                         <FormMessage />
@@ -966,7 +972,7 @@ export default function CreditCardPaymentsPage() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (

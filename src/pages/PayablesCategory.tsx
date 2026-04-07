@@ -9,9 +9,11 @@ import { Input } from '../components/ui/input';
 import {
     Dialog,
     DialogContent,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from '../components/ui/dialog';
+import { Label } from '../components/ui/label';
 import {
     Form,
     FormControl,
@@ -28,11 +30,20 @@ import {
     TableHeader,
     TableRow,
 } from '../components/ui/table';
-import { Plus, Edit, Trash2, Loader2, Download } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, Download, Upload } from 'lucide-react';
+import BulkCategoryNamesDialog from '../components/BulkCategoryNamesDialog';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
 import type { ApiResponse } from '../lib/api';
+import { isApprovalRequiredError } from '../lib/approvalError';
+import { changeRequestService } from '../services/changeRequestService';
 import * as XLSX from 'xlsx';
+
+const PAYABLES_RESOURCE_TYPE = 'payables_category';
+
+type PayablesApprovalOffer =
+    | { mode: 'edit'; resourceId: string; payload: { name: string } }
+    | { mode: 'delete'; resourceId: string };
 
 const categorySchema = z.object({
     name: z
@@ -54,6 +65,11 @@ export default function PayablesCategory() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [payablesApproval, setPayablesApproval] = useState<PayablesApprovalOffer | null>(null);
+    const [approvalNoteDraft, setApprovalNoteDraft] = useState('');
+    const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+    const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
     const form = useForm<CategoryFormData>({
         resolver: zodResolver(categorySchema),
@@ -122,10 +138,43 @@ export default function PayablesCategory() {
         fetchCategories();
     }, [fetchCategories]);
 
+    const submitPayablesApproval = useCallback(async () => {
+        if (!payablesApproval) return;
+        const offer = payablesApproval;
+        setApprovalSubmitting(true);
+        setError(null);
+        try {
+            await changeRequestService.submit({
+                action: offer.mode === 'edit' ? 'edit' : 'delete',
+                resourceType: PAYABLES_RESOURCE_TYPE,
+                resourceId: offer.resourceId,
+                ...(offer.mode === 'edit' ? { payload: offer.payload } : {}),
+                ...(offer.mode === 'delete' && approvalNoteDraft.trim()
+                    ? { note: approvalNoteDraft.trim() }
+                    : {}),
+            });
+            setPayablesApproval(null);
+            setApprovalNoteDraft('');
+            if (offer.mode === 'edit') {
+                setIsModalOpen(false);
+                setEditingCategory(null);
+                form.reset({ name: '' });
+            }
+            setSuccessMessage(
+                'Change request submitted. An admin can approve it from the Approval queue.'
+            );
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'Could not submit change request');
+        } finally {
+            setApprovalSubmitting(false);
+        }
+    }, [payablesApproval, approvalNoteDraft, form]);
+
     const onSubmit = useCallback(async (data: CategoryFormData) => {
         try {
             setIsSubmitting(true);
             setError(null);
+            setSuccessMessage(null);
 
             let response: ApiResponse<PayablesCategory>;
 
@@ -194,10 +243,20 @@ export default function PayablesCategory() {
                     setError(errorMsg);
                 }
             }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to save category';
-            console.error('[PayablesCategory] Error saving category:', err);
-            setError(errorMessage);
+        } catch (err: unknown) {
+            if (isApprovalRequiredError(err) && editingCategory) {
+                setPayablesApproval({
+                    mode: 'edit',
+                    resourceId: String(editingCategory.id),
+                    payload: { name: data.name },
+                });
+                setApprovalNoteDraft('');
+                setError(null);
+            } else {
+                const errorMessage = err instanceof Error ? err.message : 'Failed to save category';
+                console.error('[PayablesCategory] Error saving category:', err);
+                setError(errorMessage);
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -240,10 +299,18 @@ export default function PayablesCategory() {
             } else {
                 setError(response.message || 'Failed to delete category');
             }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to delete category';
-            setError(errorMessage);
-            console.error('Error deleting category:', err);
+        } catch (err: unknown) {
+            if (isApprovalRequiredError(err) && deletingCategoryId) {
+                setPayablesApproval({ mode: 'delete', resourceId: deletingCategoryId });
+                setApprovalNoteDraft('');
+                setDeletingCategoryId(null);
+                setIsDeleteModalOpen(false);
+                setError(null);
+            } else {
+                const errorMessage = err instanceof Error ? err.message : 'Failed to delete category';
+                setError(errorMessage);
+                console.error('Error deleting category:', err);
+            }
         } finally {
             setIsDeleting(false);
         }
@@ -330,14 +397,23 @@ export default function PayablesCategory() {
                     variant="outline"
                     onClick={handleDownloadExcel}
                     disabled={loading || categories.length === 0}
-                    className="bg-white hover:bg-[#eab308] text-black border-0 flex items-center gap-2"
+                    className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2"
                 >
                     <Download className="w-4 h-4" />
                     <span>Download Excel</span>
                 </Button>
                 <Button
+                    variant="outline"
+                    onClick={() => setBulkImportOpen(true)}
+                    disabled={loading}
+                    className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2"
+                >
+                    <Upload className="w-4 h-4" />
+                    <span>Bulk import</span>
+                </Button>
+                <Button
                 onClick={handleAddNew}
-                className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
                 disabled={loading}
                 >
                 <Plus className="w-4 h-4 text-black" />
@@ -351,13 +427,18 @@ export default function PayablesCategory() {
                     <p className="text-md text-red-600">{error}</p>
                 </div>
             )}
+            {successMessage && (
+                <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-md animate-in fade-in-50">
+                    <p className="text-md text-emerald-800">{successMessage}</p>
+                </div>
+            )}
 
             <Card className="bg-white border border-gray-200 shadow-sm m-8">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
-                                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Name
                                     </TableHead>
@@ -447,7 +528,7 @@ export default function PayablesCategory() {
                                                 {...field}
                                                 disabled={isSubmitting}
                                                 autoFocus
-                                                className="focus-visible:ring-2 focus-visible:ring-[#eab308]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -466,7 +547,7 @@ export default function PayablesCategory() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#eab308] hover:bg-[#d4a007] text-black px-6"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black px-6"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (
@@ -484,6 +565,67 @@ export default function PayablesCategory() {
                 </DialogContent>
             </Dialog>
 
+            <Dialog
+                open={!!payablesApproval}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPayablesApproval(null);
+                        setApprovalNoteDraft('');
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Admin approval required</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-gray-600">
+                        {payablesApproval?.mode === 'edit'
+                            ? 'You cannot edit this list directly. Submit a name change for an admin to review and apply?'
+                            : 'You cannot delete this category directly. Submit a deletion request for an admin to review?'}
+                    </p>
+                    {payablesApproval?.mode === 'delete' && (
+                        <div className="space-y-2">
+                            <Label htmlFor="payables-approval-note">Note (optional)</Label>
+                            <Input
+                                id="payables-approval-note"
+                                value={approvalNoteDraft}
+                                onChange={(e) => setApprovalNoteDraft(e.target.value)}
+                                placeholder="Reason for deletion"
+                                disabled={approvalSubmitting}
+                            />
+                        </div>
+                    )}
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setPayablesApproval(null);
+                                setApprovalNoteDraft('');
+                            }}
+                            disabled={approvalSubmitting}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                            onClick={() => void submitPayablesApproval()}
+                            disabled={approvalSubmitting}
+                        >
+                            {approvalSubmitting ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Submitting…
+                                </>
+                            ) : (
+                                'Submit request'
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Delete Confirmation Dialog */}
             <DeleteConfirmationDialog
                 open={isDeleteModalOpen}
@@ -491,6 +633,18 @@ export default function PayablesCategory() {
                 onConfirm={handleDeleteConfirm}
                 itemName={getCategoryName()}
                 isLoading={isDeleting}
+            />
+
+            <BulkCategoryNamesDialog
+                open={bulkImportOpen}
+                onOpenChange={setBulkImportOpen}
+                variant="payables"
+                listLabel="Debtors List"
+                onSuccess={(summary) => {
+                    void fetchCategories();
+                    setError(null);
+                    setSuccessMessage(summary ?? 'Bulk import completed.');
+                }}
             />
         </Layout>
     );

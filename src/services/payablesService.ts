@@ -8,6 +8,14 @@ export interface PayablesCategory {
   updated_at?: string;
 }
 
+/** Response shape from POST /payables/bulk and /payables/bulk-csv (may be nested under `data`). */
+export interface PayablesBulkResult {
+  inserted?: number;
+  skippedDuplicates?: string[];
+  message?: string;
+  success?: boolean;
+}
+
 export const payablesService = {
   // Get all payables categories
   getPayables: async (): Promise<ApiResponse<PayablesCategory[]>> => {
@@ -27,6 +35,16 @@ export const payablesService = {
   // Delete payables category
   deletePayable: async (id: string): Promise<ApiResponse<void>> => {
     return api.delete<void>(`/payables/${id}`);
+  },
+
+  bulkCreatePayables: async (names: string[]): Promise<ApiResponse<PayablesBulkResult>> => {
+    return api.post<PayablesBulkResult>('/payables/bulk', { names });
+  },
+
+  bulkCreatePayablesCsv: async (file: File): Promise<ApiResponse<PayablesBulkResult>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post<PayablesBulkResult>('/payables/bulk-csv', fd);
   },
 };
 

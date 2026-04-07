@@ -451,7 +451,7 @@ export default function UsdTranstion() {
           </Button>
           <Button
             onClick={handleAddNew}
-            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
             disabled={loading}
           >
             <Plus className="w-4 h-4 text-black" />
@@ -469,7 +469,7 @@ export default function UsdTranstion() {
       <div className="mx-8">
         {loading && transactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin text-[#eab308]" />
+            <Loader2 className="w-8 h-8 animate-spin text-[#f7c46d]" />
           </div>
         ) : transactions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
@@ -480,7 +480,7 @@ export default function UsdTranstion() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-[#eab308] border-0">
+                  <TableRow className="bg-[#f7c46d] border-0">
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Date</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Description</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Details</TableHead>
@@ -666,7 +666,7 @@ export default function UsdTranstion() {
               <Button
                 onClick={handleSave}
                 disabled={loading}
-                className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
               >
                 {loading ? (
                   <>

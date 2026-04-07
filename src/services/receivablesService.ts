@@ -8,6 +8,13 @@ export interface ReceivablesCategory {
   updated_at?: string;
 }
 
+export interface ReceivablesBulkResult {
+  inserted?: number;
+  skippedDuplicates?: string[];
+  message?: string;
+  success?: boolean;
+}
+
 export const receivablesService = {
   // Get all receivables categories
   getReceivables: async (): Promise<ApiResponse<ReceivablesCategory[]>> => {
@@ -27,6 +34,16 @@ export const receivablesService = {
   // Delete receivables category
   deleteReceivable: async (id: string): Promise<ApiResponse<void>> => {
     return api.delete<void>(`/receivables/${id}`);
+  },
+
+  bulkCreateReceivables: async (names: string[]): Promise<ApiResponse<ReceivablesBulkResult>> => {
+    return api.post<ReceivablesBulkResult>('/receivables/bulk', { names });
+  },
+
+  bulkCreateReceivablesCsv: async (file: File): Promise<ApiResponse<ReceivablesBulkResult>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post<ReceivablesBulkResult>('/receivables/bulk-csv', fd);
   },
 };
 

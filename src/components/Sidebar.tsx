@@ -9,7 +9,17 @@ import {
   CircleUser,
   ChevronDown,
   ChevronRight,
+  Users,
+  ClipboardList,
+  Inbox,
 } from 'lucide-react';
+import {
+  clearAuthStorage,
+  isCurrentUserAdmin,
+  isRoleAdmin,
+  showMyChangeRequestsInNav,
+} from '../lib/authPayload';
+import { useAdminChangeRequestStreamOptional } from '../context/AdminChangeRequestStreamContext';
 
 interface SubMenuItem {
   id: string;
@@ -23,10 +33,16 @@ interface MenuItem {
   icon: React.ComponentType<{ className?: string }>;
   path?: string;
   subMenus?: SubMenuItem[];
+  adminOnly?: boolean;
+  /** If set, only JWT/stored role `admin` (not accountant). */
+  roleAdminOnly?: boolean;
+  /** If set, only standard users (approval flow); hide for admin / accountant. */
+  standardUserOnly?: boolean;
 }
 
 const menuItems: MenuItem[] = [
   { id: 'overview', label: 'Dashboard', icon: Home, path: '/dashboard' },
+
   { id: 'bank', label: 'Daily Transactions', icon: CreditCard, path: '/bank' },
  
   { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque' },
@@ -43,11 +59,7 @@ const menuItems: MenuItem[] = [
     label: 'Credit Cards ',
     icon: CreditCard,
     subMenus: [
-      {
-        id: 'credit-card-details',
-        label: 'Credit Cards Details',
-        path: '/credit-card-statements/details',
-      },
+     
       {
         id: 'credit-card-statements',
         label: 'Credit Cards Statements',
@@ -58,6 +70,11 @@ const menuItems: MenuItem[] = [
         id: 'credit-card-payments',
         label: 'Credit Cards Payments',
         path: '/credit-card-statements/payments',
+      },
+      {
+        id: 'credit-card-details',
+        label: 'Credit Cards Details',
+        path: '/credit-card-statements/details',
       },
     ],
   },
@@ -71,29 +88,60 @@ const menuItems: MenuItem[] = [
   { id: 'gbp-transactions', label: 'GBP Transactions', icon: CreditCard, path: '/gbp-transactions' },
   { id: 'usd-transactions', label: 'USD Transactions', icon: CreditCard, path: '/usd-transactions' },
   { id: 'fks-transactions', label: 'FK EMIRATES NBD', icon: CreditCard, path: '/fks-transactions' },
-
-  
+  {
+    id: 'user-management',
+    label: 'User Accounts Management',
+    icon: Users,
+    path: '/admin/users',
+    adminOnly: true,
+  },
+  {
+    id: 'my-change-requests',
+    label: 'My change requests',
+    icon: ClipboardList,
+    path: '/my-change-requests',
+    standardUserOnly: true,
+  },
+  {
+    id: 'approval-queue',
+    label: 'Approval Queue',
+    icon: Inbox,
+    path: '/approval-queue',
+    roleAdminOnly: true,
+  },
 ];
 
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const adminStream = useAdminChangeRequestStreamOptional();
   const [userName, setUserName] = useState<string>('Admin');
+  const [isAdmin, setIsAdmin] = useState(() => isCurrentUserAdmin());
   const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set());
+  const approvalPending = adminStream?.pendingCount ?? 0;
+
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (item.standardUserOnly && !showMyChangeRequestsInNav()) return false;
+    if (item.roleAdminOnly && !isRoleAdmin()) return false;
+    if (item.adminOnly && !isAdmin) return false;
+    return true;
+  });
 
   // Get user name from localStorage
   useEffect(() => {
     const name = localStorage.getItem('userName') || 'Admin';
     setUserName(name);
+    setIsAdmin(isCurrentUserAdmin());
 
     const handleStorageChange = () => {
       const updatedName = localStorage.getItem('userName') || 'Admin';
       setUserName(updatedName);
+      setIsAdmin(isCurrentUserAdmin());
     };
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  }, [location.pathname]);
 
   // Auto-expand menu if current path matches sub-menu
   useEffect(() => {
@@ -110,8 +158,7 @@ export default function Sidebar() {
   }, [location.pathname]);
 
   const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userName');
+    clearAuthStorage();
     localStorage.removeItem('rememberMe');
     navigate('/');
   };
@@ -153,7 +200,7 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-2 space-y-2 overflow-y-auto">
-        {menuItems.map((item) => {
+        {visibleMenuItems.map((item) => {
           const active = item.path ? isActive(item.path) : isSubMenuActive(item.subMenus);
           const isExpanded = item.subMenus && expandedMenus.has(item.id);
           const hasSubMenus = item.subMenus && item.subMenus.length > 0;
@@ -171,17 +218,27 @@ export default function Sidebar() {
                 className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors
                   ${
                     active
-                      ? 'bg-yellow-500 text-gray-900'
+                      ? 'bg-[#f7c46d] text-gray-900'
                       : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800'
                   }
                 `}
               >
                 <span
-                  className={`text-sm font-medium whitespace-nowrap flex-1 text-left ${
+                  className={`text-sm font-medium whitespace-nowrap flex-1 text-left inline-flex items-center ${
                     active ? 'text-gray-900' : 'text-gray-400'
                   }`}
                 >
-                  {item.label}
+                  <span className="truncate">{item.label}</span>
+                  {item.id === 'approval-queue' && approvalPending > 0 && (
+                    <span
+                      className={`ml-2 flex-shrink-0 inline-flex min-w-[1.25rem] justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                        active ? 'bg-gray-900 text-[#f7c46d]' : 'bg-red-600 text-white'
+                      }`}
+                      title={`${approvalPending} pending change request(s)`}
+                    >
+                      {approvalPending > 99 ? '99+' : approvalPending}
+                    </span>
+                  )}
                 </span>
                 {hasSubMenus && (
                   <span className="ml-2">
@@ -206,7 +263,7 @@ export default function Sidebar() {
                         className={`w-full flex items-center px-4 py-2 rounded-lg transition-colors text-sm
                           ${
                             subActive
-                              ? 'bg-yellow-400 text-gray-900 font-medium'
+                              ? 'bg-[#edd06a] text-gray-900 font-medium'
                               : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
                           }
                         `}

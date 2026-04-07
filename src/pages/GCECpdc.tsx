@@ -35,6 +35,8 @@
     import Calendar from '../components/ui/calendar-tailwind';
     import { transactionService, type PostDatedCheque as PostDatedChequeType } from '../services/transactionService';
     import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
+    import { PdcAttachmentTableCell } from '../components/PdcAttachmentTableCell';
+    import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
     import type { ApiResponse } from '../lib/api';
     import * as XLSX from 'xlsx';
 
@@ -141,6 +143,7 @@
     const [isDeleting, setIsDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState<string>('');
+    const [pdcAttachmentFile, setPdcAttachmentFile] = useState<File | null>(null);
     const form = useForm<ChequeFormData>({
         resolver: zodResolver(chequeSchema),
         defaultValues: {
@@ -237,10 +240,15 @@
         
         if (editingCheque) {
             console.log('[PostDatedCheque] Updating cheque:', editingCheque.id, payload);
-            response = await transactionService.updatePostDatedCheque(String(editingCheque.id), payload);
+            response = await transactionService.updatePostDatedCheque(
+            String(editingCheque.id),
+            payload,
+            pdcAttachmentFile,
+            editingCheque
+            );
         } else {
             console.log('[PostDatedCheque] Creating cheque:', payload);
-            response = await transactionService.createPostDatedCheque(payload);
+            response = await transactionService.createPostDatedCheque(payload, pdcAttachmentFile);
         }
 
         if (response.success && response.data) {
@@ -276,6 +284,7 @@
           
             });
             setEditingCheque(null);
+            setPdcAttachmentFile(null);
             setError(null);
             setIsModalOpen(false);
             
@@ -292,10 +301,11 @@
         } finally {
         setIsSubmitting(false);
         }
-    }, [editingCheque, form, fetchCheques]);
+    }, [editingCheque, form, fetchCheques, pdcAttachmentFile]);
 
     const handleEdit = useCallback((cheque: PostDatedCheque) => {
         setEditingCheque(cheque);
+        setPdcAttachmentFile(null);
         const formDate = convertDateForForm(cheque.chequeDate);
         form.reset({
         chequeDate: formDate,
@@ -317,6 +327,7 @@
 
     const handleAddNew = useCallback(() => {
         setEditingCheque(null);
+        setPdcAttachmentFile(null);
         form.reset({
         chequeDate: '',
         chequeNumber: '',
@@ -376,6 +387,7 @@
             customDetails: '',
         });
         setEditingCheque(null);
+        setPdcAttachmentFile(null);
         setError(null);
         }
     }, [form]);
@@ -495,14 +507,14 @@
                     variant="outline"
                     onClick={handleDownloadExcel}
                     disabled={loading || filteredCheques.length === 0}
-                    className="bg-white hover:bg-[#eab308] text-black border-0 flex items-center gap-2"
+                    className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2"
                 >
                     <Download className="w-4 h-4" />
                     <span>Download Excel</span>
                 </Button>
                 <Button
                 onClick={handleAddNew}
-                className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
                 disabled={loading}
                 >
                 <Plus className="w-4 h-4 text-black" />
@@ -527,7 +539,7 @@
             placeholder="Search by Payee..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 pr-4 py-6 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#eab308] focus:border-transparent"
+            className="pl-12 pr-4 py-6 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#f7c46d] focus:border-transparent"
           />
         </div>
       </div>
@@ -538,7 +550,7 @@
             <div className="overflow-x-auto">
                 <Table>
                 <TableHeader>
-                    <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                    <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                         Date
                     </TableHead>
@@ -551,7 +563,9 @@
                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                         Amount
                     </TableHead>
-                  
+                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                        Image
+                    </TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                         Actions
                     </TableHead>
@@ -560,21 +574,21 @@
                 <TableBody>
                     {loading ? (
                     <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
+                        <TableCell colSpan={7} className="text-center py-8">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                         <p className="text-sm text-gray-500">Loading cheques...</p>
                         </TableCell>
                     </TableRow>
                     ) : !Array.isArray(cheques) || cheques.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
+                        <TableCell colSpan={7} className="text-center py-8">
                         <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                         <p className="text-sm text-gray-400">Click "Add New" to create your first cheque.</p>
                         </TableCell>
                     </TableRow>
                     ) : filteredCheques.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
+                        <TableCell colSpan={7} className="text-center py-8">
                         <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                         </TableCell>
                     </TableRow>
@@ -604,7 +618,14 @@
                                     ? `AED ${parseFloat(cheque.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                     : 'AED 0.00'}
                             </TableCell>
-                        
+                            <TableCell className="text-sm py-2 text-left align-middle text-red-600">
+                            <PdcAttachmentTableCell
+                                attachmentUrl={cheque.attachmentUrl}
+                                attachmentName={cheque.attachmentName}
+                                variant="default"
+                                onEditClick={() => handleEdit(cheque)}
+                            />
+                            </TableCell>
                             <TableCell className="text-sm py-2 text-left ">
                             <div className="flex items-center space-x-2">
                                 <button
@@ -829,6 +850,35 @@
                     )}
                 />
 
+                <div className="space-y-2">
+                    <span className="text-base font-medium text-gray-700">
+                    Cheque image <span className="text-gray-400 font-normal">(optional)</span>
+                    </span>
+                    <Input
+                    type="file"
+                    accept="image/*"
+                    disabled={isSubmitting}
+                    onChange={(e) => setPdcAttachmentFile(e.target.files?.[0] ?? null)}
+                    className="cursor-pointer"
+                    />
+                    {pdcAttachmentFile && (
+                    <p className="text-sm text-gray-600">Selected: {pdcAttachmentFile.name}</p>
+                    )}
+                    {editingCheque?.attachmentUrl && !pdcAttachmentFile && (
+                    <p className="text-sm text-gray-600">
+                        Current:{' '}
+                        <a
+                        href={resolveAttachmentHref(editingCheque.attachmentUrl) ?? '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#c9a82f] underline"
+                        >
+                        {editingCheque.attachmentName || 'View image'}
+                        </a>
+                    </p>
+                    )}
+                </div>
+
                 {/* Submit Button */}
                 <div className="flex justify-end space-x-3 pt-4">
                     <Button
@@ -842,7 +892,7 @@
                     </Button>
                     <Button
                     type="submit"
-                    className="bg-[#eab308] hover:bg-[#d4a007] text-black px-6"
+                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black px-6"
                     disabled={isSubmitting}
                     >
                     {isSubmitting ? (

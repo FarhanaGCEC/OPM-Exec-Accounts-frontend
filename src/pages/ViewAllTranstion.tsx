@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { transactionService } from '../services/transactionService';
 import type { ApiResponse } from '../lib/api';
+import { formatIsoDateDisplay, formatJsDateDisplay } from '../lib/formatDisplayDate';
+import { remarksForDailyLedgerDisplay } from '../lib/dailyLedgerRemarksDisplay';
 
 import {
   Table,
@@ -28,6 +30,9 @@ interface DailyTransaction {
   credit: string | null;
   balance: string;
   remarks: string | null;
+  /** API may send camelCase or snake_case — used for Remarks display (GCEC vs Customer PDC). */
+  pdcType?: string;
+  pdc_type?: string;
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
@@ -94,34 +99,20 @@ const formatAmount = (value: string | number | null | undefined): string => {
   return numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-// Helper function to format date
-const formatDate = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  } catch {
-    return dateString;
-  }
-};
-
-// Helper function to format date for Excel (dd-mmm-yyyy format like "01-jan-2026")
+// Helper function to format date for Excel (DD-MMM-YYYY, same as Daily Transaction)
 const formatDateForExcel = (date: Date | string | null): string => {
   if (!date) return '';
-  
-  try {
-    const dateObj = typeof date === 'string' ? new Date(date) : date;
-    if (isNaN(dateObj.getTime())) return '';
-    
-    const day = String(dateObj.getDate()).padStart(2, '0');
-    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-    const month = months[dateObj.getMonth()];
-    const year = dateObj.getFullYear();
-    
-    return `${day}-${month}-${year}`;
-  } catch {
-    return '';
+  if (typeof date === 'string') {
+    const s = formatIsoDateDisplay(date);
+    return s === '—' ? '' : s;
   }
+  const s = formatJsDateDisplay(date);
+  return s === '—' ? '' : s;
 };
+
+function dailyTxnPdcType(txn: DailyTransaction): string | undefined {
+  return txn.pdcType ?? txn.pdc_type;
+}
 
 // Helper function to get display name for transaction type
 const getTransactionTypeDisplayName = (type: string): string => {
@@ -415,10 +406,11 @@ export default function ViewAllTranstion() {
             const creditValue = txn.credit ? parseFloat(String(txn.credit).replace(/,/g, '')) : 0;
             const balanceValue = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
             
-            // Check if bounced/returned cheque
-            const remarks = txn.remarks || '';
-            const isBouncedOrReturned = remarks.toLowerCase().includes('bounced cheque') || 
-                                       remarks.toLowerCase().includes('returned cheque');
+            const rawRemarks = txn.remarks || '';
+            const remarksCell = remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn));
+            const isBouncedOrReturned =
+              rawRemarks.toLowerCase().includes('bounced cheque') ||
+              rawRemarks.toLowerCase().includes('returned cheque');
 
             const row = addRow([
               formatDateForExcel(txn.date),
@@ -427,7 +419,7 @@ export default function ViewAllTranstion() {
               debitValue,
               creditValue,
               balanceValue,
-              remarks
+              remarksCell,
             ]);
 
             // Format number columns
@@ -546,7 +538,7 @@ export default function ViewAllTranstion() {
       const txn = transaction as DailyTransaction;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(txn.date)}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
           <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.category}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.paymentType}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.chequeNumber || '-'}</TableCell>
@@ -565,14 +557,16 @@ export default function ViewAllTranstion() {
             )}
           </TableCell>
           <TableCell className="text-gray-700 font-semibold text-sm py-3 px-4">AED{formatAmount(txn.balance)}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.remarks || '-'}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-3 px-4">
+            {remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn)) || '-'}
+          </TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'GCEC PDC') {
       const txn = transaction as GCECPDC;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
-          <TableCell className="text-red-600 text-sm py-3 px-4">{formatDate(txn.date)}</TableCell>
+          <TableCell className="text-red-600 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
           <TableCell className="text-red-600 font-medium text-sm py-3 px-4">{txn.customerName}</TableCell>
           <TableCell className="text-red-600 text-sm py-3 px-4">-</TableCell>
           <TableCell className="text-red-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
@@ -590,7 +584,7 @@ export default function ViewAllTranstion() {
       const txn = transaction as CustomerPDC;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(txn.date)}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
           <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.customerName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
@@ -608,7 +602,7 @@ export default function ViewAllTranstion() {
       const txn = transaction as PurchaseBill;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(txn.date)}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
           <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.vendorName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.paymentMethod}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.invoiceNumber || '-'}</TableCell>
@@ -633,7 +627,7 @@ export default function ViewAllTranstion() {
     {/* Main Card */}
     <div className="bg-white rounded shadow-xl overflow-hidden">
           {/* Action Bar */}
-          <div className="bg-[#eab308] p-4">
+          <div className="bg-[#f7c46d] p-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <button
                 onClick={() => setShowFilters(!showFilters)}
@@ -732,7 +726,7 @@ export default function ViewAllTranstion() {
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#eab308] mx-auto mb-4"></div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#f7c46d] mx-auto mb-4"></div>
                 <p className="text-base text-gray-500">Loading transactions...</p>
               </div>
             </div>
@@ -823,7 +817,7 @@ export default function ViewAllTranstion() {
                         className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
                           currentPage === 1
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#eab308] hover:text-white hover:border-[#eab308] shadow-sm hover:shadow-md'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#f7c46d] hover:text-white hover:border-[#f7c46d] shadow-sm hover:shadow-md'
                         }`}
                       >
                         Previous
@@ -839,7 +833,7 @@ export default function ViewAllTranstion() {
                               onClick={() => setCurrentPage(page)}
                               className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                 currentPage === page
-                                  ? 'bg-[#eab308] text-white shadow-md scale-105'
+                                  ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                   : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                               }`}
                             >
@@ -854,7 +848,7 @@ export default function ViewAllTranstion() {
                               onClick={() => setCurrentPage(1)}
                               className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                 currentPage === 1
-                                  ? 'bg-[#eab308] text-white shadow-md scale-105'
+                                  ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                   : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                               }`}
                             >
@@ -876,7 +870,7 @@ export default function ViewAllTranstion() {
                                     onClick={() => setCurrentPage(page)}
                                     className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                       currentPage === page
-                                        ? 'bg-[#eab308] text-white shadow-md scale-105'
+                                        ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                         : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                                     }`}
                                   >
@@ -897,7 +891,7 @@ export default function ViewAllTranstion() {
                               onClick={() => setCurrentPage(totalPages)}
                               className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                 currentPage === totalPages
-                                  ? 'bg-[#eab308] text-white shadow-md scale-105'
+                                  ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                   : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                               }`}
                             >
@@ -914,7 +908,7 @@ export default function ViewAllTranstion() {
                         className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
                           currentPage === totalPages
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#eab308] hover:text-white hover:border-[#eab308] shadow-sm hover:shadow-md'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#f7c46d] hover:text-white hover:border-[#f7c46d] shadow-sm hover:shadow-md'
                         }`}
                       >
                         Next
@@ -934,7 +928,7 @@ export default function ViewAllTranstion() {
                               setCurrentPage(page);
                             }
                           }}
-                          className="w-16 h-10 px-2 text-sm text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#eab308] focus:border-[#eab308] shadow-sm"
+                          className="w-16 h-10 px-2 text-sm text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f7c46d] focus:border-[#f7c46d] shadow-sm"
                         />
                         <span className="text-sm text-gray-500">/ {totalPages}</span>
                       </div>

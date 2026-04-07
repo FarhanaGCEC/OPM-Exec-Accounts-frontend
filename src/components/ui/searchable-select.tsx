@@ -40,18 +40,20 @@ export function SearchableSelect({
 
     return React.Children.toArray(children).filter((child) => {
       if (React.isValidElement(child) && child.props) {
-        const props = child.props as { children?: React.ReactNode };
+        const props = child.props as { children?: React.ReactNode; textValue?: string };
         const childChildren = props.children;
-        
+
         let childText = '';
-        if (typeof childChildren === 'string') {
+        if (typeof props.textValue === 'string' && props.textValue.trim() !== '') {
+          childText = props.textValue;
+        } else if (typeof childChildren === 'string') {
           childText = childChildren;
         } else if (childChildren != null) {
           childText = React.Children.toArray(childChildren)
             .filter((c) => typeof c === 'string')
             .join(' ');
         }
-        
+
         return childText.toLowerCase().includes(searchQuery.toLowerCase());
       }
       return true;

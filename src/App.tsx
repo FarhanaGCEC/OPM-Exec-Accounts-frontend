@@ -18,6 +18,13 @@ import './App.css';
 import GbpTranstion from './pages/GbpTranstion';
 import UsdTranstion from './pages/UsdTranstion';
 import FkEmrits from './pages/FkEmrits';
+import UserManagement from './pages/UserManagement';
+import AdminRoute from './components/AdminRoute';
+import ApprovalQueueAdminRoute from './components/ApprovalQueueAdminRoute';
+import MyChangeRequestsRoute from './components/MyChangeRequestsRoute';
+import MyChangeRequests from './pages/MyChangeRequests';
+import ApprovalQueue from './pages/ApprovalQueue';
+import { AdminChangeRequestStreamProvider } from './context/AdminChangeRequestStreamContext';
 
 console.log('[App] App component loading...');
 
@@ -31,6 +38,7 @@ const App = () => {
         v7_relativeSplatPath: true,
       }}
     >
+      <AdminChangeRequestStreamProvider>
       <Routes>
         <Route path="/" element={<Auth />} />
         <Route
@@ -161,8 +169,39 @@ const App = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/users"
+          element={
+            <ProtectedRoute>
+              <AdminRoute>
+                <UserManagement />
+              </AdminRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/my-change-requests"
+          element={
+            <ProtectedRoute>
+              <MyChangeRequestsRoute>
+                <MyChangeRequests />
+              </MyChangeRequestsRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/approval-queue"
+          element={
+            <ProtectedRoute>
+              <ApprovalQueueAdminRoute>
+                <ApprovalQueue />
+              </ApprovalQueueAdminRoute>
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </AdminChangeRequestStreamProvider>
     </Router>
   );
 };

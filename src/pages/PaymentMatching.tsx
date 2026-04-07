@@ -535,7 +535,7 @@ export default function PaymentMatching() {
             </Button>
             <Button
             onClick={handleAddNew}
-            className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg"
+            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
             disabled={loading}
             >
             <Plus className="w-4 h-4 text-black" />
@@ -556,7 +556,7 @@ export default function PaymentMatching() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Payment Date
                   </TableHead>
@@ -867,7 +867,7 @@ export default function PaymentMatching() {
                 </Button>
                 <Button
                   type="submit"
-                  className="bg-[#eab308] hover:bg-[#d4a007] text-black px-6"
+                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black px-6"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (

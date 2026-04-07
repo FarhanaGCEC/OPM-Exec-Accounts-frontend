@@ -1,8 +1,19 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import { clearAuthStorage } from './authPayload';
 
-// Use same-origin `/api` so browser requests go through the proxy/rewrite.
+// Same-origin `/api` → Vite dev proxy or Vercel rewrite to your backend. Avoid pointing this at the
+// raw server URL in the browser — that triggers CORS while Postman does not.
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+
+if (import.meta.env.DEV) {
+  const b = String(API_BASE_URL);
+  if (/^https?:\/\//i.test(b) && !b.replace(/\/$/, '').endsWith('/api')) {
+    console.warn(
+      '[API] VITE_API_BASE_URL looks like a full URL without /api. Requests go to paths like /admin/users under this base — if the base is wrong you will get 404. Prefer VITE_API_BASE_URL=/api for local dev.'
+    );
+  }
+}
 
 // Create axios instance with default config
 const apiClient: AxiosInstance = axios.create({
@@ -13,16 +24,15 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor - Add auth token to requests
+// Request interceptor — every apiClient request (GET/POST/…) sends Bearer when logged in
 apiClient.interceptors.request.use(
   (config) => {
-    // Get token from localStorage or wherever you store it
     const token = localStorage.getItem('authToken');
-    
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     return config;
   },
   (error) => {
@@ -32,10 +42,34 @@ apiClient.interceptors.request.use(
 
 // Helper function to check for token error and redirect
 const handleTokenError = () => {
-  localStorage.removeItem('authToken');
-  localStorage.removeItem('userName');
+  clearAuthStorage();
   window.location.href = '/';
 };
+
+/** Let the browser set multipart boundary (axios default JSON Content-Type breaks FormData). */
+function mergeFormDataRequestConfig(
+  data: unknown,
+  config?: AxiosRequestConfig
+): AxiosRequestConfig | undefined {
+  const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
+  if (!isFormData) return config;
+  return {
+    ...config,
+    transformRequest: [
+      ...(Array.isArray(config?.transformRequest)
+        ? config!.transformRequest!
+        : config?.transformRequest
+          ? [config.transformRequest as any]
+          : []),
+      (body: unknown, headers) => {
+        if (body instanceof FormData && headers && typeof headers === 'object') {
+          delete (headers as Record<string, unknown>)['Content-Type'];
+        }
+        return body;
+      },
+    ] as AxiosRequestConfig['transformRequest'],
+  };
+}
 
 // Response interceptor - Handle errors globally
 apiClient.interceptors.response.use(
@@ -78,10 +112,19 @@ apiClient.interceptors.response.use(
       }
       
       switch (status) {
-        case 401:
-          // Unauthorized - clear token and redirect to login
+        case 401: {
+          try {
+            const attempted = error.config ? apiClient.getUri(error.config) : '(unknown)';
+            console.warn(
+              '[API] 401 Unauthorized (browser sends Authorization: Bearer … only if authToken exists in localStorage). Request:',
+              attempted
+            );
+          } catch {
+            /* ignore */
+          }
           handleTokenError();
           break;
+        }
         case 403:
           // Forbidden
           console.error('Access forbidden');
@@ -121,6 +164,8 @@ export interface ApiResponse<T = any> {
 export interface ApiError {
   message: string;
   status?: number;
+  /** Backend error code when present (e.g. APPROVAL_REQUIRED). */
+  code?: string;
   errors?: Record<string, string[]>;
 }
 
@@ -145,8 +190,7 @@ export const api = {
           if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
               (lowerError.includes('expired') && lowerError.includes('token'))) {
             console.warn('[API] Token error detected in GET response:', errorMessage);
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('userName');
+            clearAuthStorage();
             window.location.href = '/';
             throw new Error(errorMessage);
           }
@@ -170,6 +214,7 @@ export const api = {
       // Throw as Error instance so it can be caught properly
       const errorInstance = new Error(apiError.message);
       (errorInstance as any).status = apiError.status;
+      (errorInstance as any).code = apiError.code;
       (errorInstance as any).errors = apiError.errors;
       throw errorInstance;
     }
@@ -182,7 +227,8 @@ export const api = {
     config?: AxiosRequestConfig
   ): Promise<ApiResponse<T>> => {
     try {
-      const response = await apiClient.post<T>(url, data, config);
+      const mergedConfig = mergeFormDataRequestConfig(data, config);
+      const response = await apiClient.post<T>(url, data, mergedConfig);
       
       // Check for token error in response body
       const responseData = response.data as any;
@@ -193,8 +239,7 @@ export const api = {
           if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
               (lowerError.includes('expired') && lowerError.includes('token'))) {
             console.warn('[API] Token error detected in POST response:', errorMessage);
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('userName');
+            clearAuthStorage();
             window.location.href = '/';
             throw new Error(errorMessage);
           }
@@ -207,7 +252,7 @@ export const api = {
         message: (response.data as any)?.message,
       };
     } catch (error) {
-      throw handleError(error);
+      throw rethrowHandled(error);
     }
   },
 
@@ -218,7 +263,8 @@ export const api = {
     config?: AxiosRequestConfig
   ): Promise<ApiResponse<T>> => {
     try {
-      const response = await apiClient.put<T>(url, data, config);
+      const mergedConfig = mergeFormDataRequestConfig(data, config);
+      const response = await apiClient.put<T>(url, data, mergedConfig);
       
       // Check for token error in response body
       const responseData = response.data as any;
@@ -229,8 +275,7 @@ export const api = {
           if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
               (lowerError.includes('expired') && lowerError.includes('token'))) {
             console.warn('[API] Token error detected in PUT response:', errorMessage);
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('userName');
+            clearAuthStorage();
             window.location.href = '/';
             throw new Error(errorMessage);
           }
@@ -243,7 +288,7 @@ export const api = {
         message: (response.data as any)?.message,
       };
     } catch (error) {
-      throw handleError(error);
+      throw rethrowHandled(error);
     }
   },
 
@@ -254,7 +299,31 @@ export const api = {
     config?: AxiosRequestConfig
   ): Promise<ApiResponse<T>> => {
     try {
-      const response = await apiClient.patch<T>(url, data, config);
+      const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
+      const mergedConfig: AxiosRequestConfig | undefined =
+        isFormData || config
+          ? {
+              ...config,
+              ...(isFormData
+                ? {
+                    transformRequest: [
+                      ...(Array.isArray(config?.transformRequest)
+                        ? config!.transformRequest!
+                        : config?.transformRequest
+                          ? [config.transformRequest as any]
+                          : []),
+                      (body, headers) => {
+                        if (body instanceof FormData && headers && typeof headers === 'object') {
+                          delete (headers as Record<string, unknown>)['Content-Type'];
+                        }
+                        return body;
+                      },
+                    ],
+                  }
+                : {}),
+            }
+          : config;
+      const response = await apiClient.patch<T>(url, data, mergedConfig);
       
       // Check for token error in response body
       const responseData = response.data as any;
@@ -265,8 +334,7 @@ export const api = {
           if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
               (lowerError.includes('expired') && lowerError.includes('token'))) {
             console.warn('[API] Token error detected in PATCH response:', errorMessage);
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('userName');
+            clearAuthStorage();
             window.location.href = '/';
             throw new Error(errorMessage);
           }
@@ -279,7 +347,7 @@ export const api = {
         message: (response.data as any)?.message,
       };
     } catch (error) {
-      throw handleError(error);
+      throw rethrowHandled(error);
     }
   },
 
@@ -300,8 +368,7 @@ export const api = {
           if ((lowerError.includes('invalid') && lowerError.includes('token')) || 
               (lowerError.includes('expired') && lowerError.includes('token'))) {
             console.warn('[API] Token error detected in DELETE response:', errorMessage);
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('userName');
+            clearAuthStorage();
             window.location.href = '/';
             throw new Error(errorMessage);
           }
@@ -314,28 +381,74 @@ export const api = {
         message: (response.data as any)?.message,
       };
     } catch (error) {
-      throw handleError(error);
+      throw rethrowHandled(error);
     }
   },
 };
+
+/** Normalize API errors to `Error` with optional `status`, `code`, `errors`. */
+function rethrowHandled(error: unknown): never {
+  const e = handleError(error);
+  const err = new Error(e.message);
+  (err as any).status = e.status;
+  (err as any).code = e.code;
+  (err as any).errors = e.errors;
+  throw err;
+}
+
+function describeRequest(config: AxiosError['config']): string {
+  if (!config) return '';
+  try {
+    return apiClient.getUri(config);
+  } catch {
+    const b = (config.baseURL || '').replace(/\/$/, '');
+    const u = (config.url || '').replace(/^\//, '');
+    const path = [b, u].filter(Boolean).join('/');
+    if (typeof window !== 'undefined' && path && !/^https?:\/\//i.test(path)) {
+      return `${window.location.origin}${path.startsWith('/') ? path : `/${path}`}`;
+    }
+    return path;
+  }
+}
 
 // Error handler
 const handleError = (error: unknown): ApiError => {
   if (axios.isAxiosError(error)) {
     const axiosError = error as AxiosError;
-    
+
     if (axiosError.response) {
-      // Server responded with error
       const response = axiosError.response as any;
+      const status = axiosError.response.status;
+      const bodyMsg = response.data?.message || response.data?.error;
+      const bodyCode =
+        typeof response.data?.code === 'string' ? response.data.code : undefined;
+      const urlHint = describeRequest(axiosError.config);
+      let message = bodyMsg || axiosError.message || 'An error occurred';
+      if (status === 404) {
+        message =
+          bodyMsg ||
+          `Not found (404). Browser request URL should be like …/api/admin/users (see Network tab). Postman often uses the server IP directly; here it goes through /api proxy. ${urlHint ? `Attempted: ${urlHint}` : ''}`;
+      } else if (status === 401) {
+        message =
+          bodyMsg ||
+          `Unauthorized (401). Log in again and ensure the same Bearer token works in Postman. ${urlHint ? `Request: ${urlHint}` : ''}`;
+      } else if (urlHint && !bodyMsg) {
+        message = `${message} (${urlHint})`;
+      }
       return {
-        message: response.data?.message || axiosError.message || 'An error occurred',
-        status: axiosError.response.status,
+        message: message.trim(),
+        status,
+        code: bodyCode,
         errors: response.data?.errors,
       };
     } else if (axiosError.request) {
-      // Request made but no response
+      const directToBackend =
+        typeof API_BASE_URL === 'string' &&
+        (API_BASE_URL.startsWith('http://') || API_BASE_URL.startsWith('https://'));
       return {
-        message: 'No response from server. Please check your connection.',
+        message: directToBackend
+          ? 'Browser blocked or could not reach server (often CORS). Postman ignores CORS. Set VITE_API_BASE_URL=/api and use the Vite proxy locally or Vercel rewrites in production.'
+          : 'No response from server. Please check your connection.',
       };
     }
   }

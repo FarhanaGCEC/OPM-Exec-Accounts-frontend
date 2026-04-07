@@ -12,6 +12,7 @@ interface DisplayCheque {
   dueDate: string;
   daysLeft: number;
   recipient: string;
+  pdcType: string;
   status: 'urgent' | 'upcoming';
 }
 
@@ -46,7 +47,7 @@ export default function Reminder() {
       setLoading(true);
       setError(null);
 
-      const response: ApiResponse<Reminder[]> = await transactionService.getReminders(7);
+      const response: ApiResponse<Reminder[]> = await transactionService.getReminders(30);
 
       if (response.success && response.data) {
         // Map API response to display format
@@ -65,6 +66,7 @@ export default function Reminder() {
             dueDate: formatDate(reminder.chequeDate),
             daysLeft: daysLeft,
             recipient: reminder.customerName,
+            pdcType: reminder.pdcType,
             status: status,
           };
         });
@@ -133,7 +135,7 @@ export default function Reminder() {
                       ⚠️ Urgent: {urgentCount} {urgentCount === 1 ? 'Cheque' : 'Cheques'} Due This Week
                     </h3>
                     <p className="text-sm text-red-800 leading-relaxed">
-                      You have cheques totaling <span className="font-semibold">AED {totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} </span> due within the next 7 days. Review them below to avoid missed payments.
+                      You have cheques totaling <span className="font-semibold">AED {totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} </span> due within the next 30 days. Review them below to avoid missed payments.
                     </p>
                   </div>
                 </div>
@@ -157,7 +159,7 @@ export default function Reminder() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">Upcoming Post-Dated Cheques</h2>
-                  <p className="text-xs text-gray-600 mt-0.5">Cheques requiring attention in the next 7 days</p>
+                  <p className="text-xs text-gray-600 mt-0.5">Cheques requiring attention in the next 30 days</p>
                 </div>
               </div>
             </div>
@@ -169,7 +171,7 @@ export default function Reminder() {
                     <Calendar className="w-8 h-8 text-gray-400" />
                   </div>
                   <p className="text-gray-500 font-medium">No upcoming cheques</p>
-                  <p className="text-sm text-gray-400 mt-1">All clear for the next 7 days</p>
+                  <p className="text-sm text-gray-400 mt-1">All clear for the next 30 days</p>
                 </div>
               )}
               <div className="space-y-3">
@@ -179,7 +181,7 @@ export default function Reminder() {
                     className={`group relative border-l-4 ${
                       cheque.status === 'urgent' 
                         ? 'border-red-500 bg-gradient-to-r from-red-50 to-red-100/50' 
-                        : 'border-yellow-500 bg-gradient-to-r from-yellow-50 to-orange-50/50'
+                        : 'border-[#f7c46d] bg-gradient-to-r from-[#fdf8e8] to-orange-50/50'
                     } rounded-r-xl p-4 hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5`}
                   >
                     <div className="flex items-start justify-between gap-4">
@@ -245,6 +247,16 @@ export default function Reminder() {
                           </div>
                         </div>
                       </div>
+                      <span className="shrink-0 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+                        {cheque.pdcType.startsWith('GCEC') ? (
+                          <>
+                            <span className="text-[#C29438]">GCEC PDC</span>
+                           
+                          </>
+                        ) : (
+                          cheque.pdcType
+                        )}
+                      </span>
                     </div>
                   </div>
                 ))}

@@ -46,6 +46,13 @@ export const mapApiResponseToCreditCardDetail = (
   };
 };
 
+/** Label shown in credit card pickers (maps internal holder name to display name). */
+export function displayCreditCardHolderName(holder: string | undefined | null): string {
+  const t = String(holder ?? '').trim();
+  if (t.toLowerCase() === 'suleman') return 'MST';
+  return t;
+}
+
 // API Response interface for Credit Card Statements (snake_case from backend)
 export interface CreditCardStatementApiResponse {
   id: number;
@@ -74,6 +81,74 @@ export interface CreditCardStatement {
   paid: number;
   epp: number;
   amountPending: number;
+  /** Stored attachment filename from API */
+  attachmentName?: string | null;
+  /** URL or path to open/download the PDF */
+  attachmentUrl?: string | null;
+}
+
+function mapStatementAttachmentFields(item: any): {
+  attachmentName: string | null;
+  attachmentUrl: string | null;
+} {
+  const nested = item?.attachment;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const name = nested.name ?? item.attachment_name ?? item.attachmentName ?? null;
+    const url = nested.url ?? item.attachment_url ?? item.attachmentUrl ?? null;
+    return {
+      attachmentName: name != null ? String(name) : null,
+      attachmentUrl: url != null ? String(url) : null,
+    };
+  }
+  return {
+    attachmentName:
+      item.attachment_name != null
+        ? String(item.attachment_name)
+        : item.attachmentName != null
+          ? String(item.attachmentName)
+          : null,
+    attachmentUrl:
+      item.attachment_url != null
+        ? String(item.attachment_url)
+        : item.attachmentUrl != null
+          ? String(item.attachmentUrl)
+          : null,
+  };
+}
+
+export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
+  const att = mapStatementAttachmentFields(item);
+  return {
+    id: item.card_id ? String(item.card_id) : (item.credit_card_id ? String(item.credit_card_id) : String(item.id || '')),
+    issuingBank: item.issuing_bank || '',
+    cardHolder: item.card_holder || '',
+    card_number: item.card_no || item.card_number || '',
+    statement_date: item.statement_date ?? null,
+    due_date: item.due_date ?? null,
+    due_month: item.due_month ?? null,
+    totalPaymentDue: item.total_payment_due !== null && item.total_payment_due !== undefined ? Number(item.total_payment_due) : 0,
+    paid: item.paid !== null && item.paid !== undefined ? Number(item.paid) : 0,
+    epp: item.epp !== null && item.epp !== undefined ? Number(item.epp) : 0,
+    amountPending: item.amount_pending !== null && item.amount_pending !== undefined ? Number(item.amount_pending) : 0,
+    attachmentName: att.attachmentName,
+    attachmentUrl: att.attachmentUrl,
+  };
+}
+
+/** Turn API attachment path into a browser-openable URL (same-origin /api proxy or absolute). */
+export function resolveStatementAttachmentHref(pathOrUrl: string | null | undefined): string | null {
+  if (!pathOrUrl || !String(pathOrUrl).trim()) return null;
+  const s = String(pathOrUrl).trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  const base = import.meta.env.VITE_API_BASE_URL || '/api';
+  const path = s.startsWith('/') ? s : `/${s}`;
+  if (base.startsWith('http://') || base.startsWith('https://')) {
+    return `${base.replace(/\/$/, '')}${path}`;
+  }
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}${base.replace(/\/$/, '')}${path}`;
+  }
+  return path;
 }
 
 export const creditCardService = {
@@ -158,22 +233,7 @@ export const creditCardService = {
       
       if (response.success && response.data) {
         // Map snake_case API response to camelCase
-        const mappedData: CreditCardStatement[] = response.data.map((item: any) => {
-          return {
-            // Use card_id as the unique identifier since id might be null in API response
-            id: item.card_id ? String(item.card_id) : (item.credit_card_id ? String(item.credit_card_id) : String(item.id || '')),
-            issuingBank: item.issuing_bank || '',
-            cardHolder: item.card_holder || '',
-            card_number: item.card_no || item.card_number || '',
-            statement_date: item.statement_date ?? null,
-            due_date: item.due_date ?? null,
-            due_month: item.due_month ?? null,
-            totalPaymentDue: item.total_payment_due !== null && item.total_payment_due !== undefined ? Number(item.total_payment_due) : 0,
-            paid: item.paid !== null && item.paid !== undefined ? Number(item.paid) : 0,
-            epp: item.epp !== null && item.epp !== undefined ? Number(item.epp) : 0,
-            amountPending: item.amount_pending !== null && item.amount_pending !== undefined ? Number(item.amount_pending) : 0,
-          };
-        });
+        const mappedData: CreditCardStatement[] = response.data.map((item: any) => mapCreditCardStatementFromApi(item));
         
         return {
           ...response,
@@ -194,22 +254,7 @@ export const creditCardService = {
     
     if (response.success && response.data) {
       // Map snake_case API response to camelCase
-      const mappedData: CreditCardStatement[] = response.data.map((item: any) => {
-        return {
-          // Use card_id as the unique identifier since id might be null in API response
-          id: item.card_id ? String(item.card_id) : (item.credit_card_id ? String(item.credit_card_id) : String(item.id || '')),
-          issuingBank: item.issuing_bank || '',
-          cardHolder: item.card_holder || '',
-          card_number: item.card_no || item.card_number || '',
-          statement_date: item.statement_date ?? null,
-          due_date: item.due_date ?? null,
-          due_month: item.due_month ?? null,
-          totalPaymentDue: item.total_payment_due !== null && item.total_payment_due !== undefined ? Number(item.total_payment_due) : 0,
-          paid: item.paid !== null && item.paid !== undefined ? Number(item.paid) : 0,
-          epp: item.epp !== null && item.epp !== undefined ? Number(item.epp) : 0,
-          amountPending: item.amount_pending !== null && item.amount_pending !== undefined ? Number(item.amount_pending) : 0,
-        };
-      });
+      const mappedData: CreditCardStatement[] = response.data.map((item: any) => mapCreditCardStatementFromApi(item));
       
       return {
         ...response,
@@ -220,7 +265,7 @@ export const creditCardService = {
     return response as unknown as ApiResponse<CreditCardStatement[]>;
   },
 
-  // Update credit card statement
+  /** PATCH numeric fields only (total_due, paid_amount, epp_balance). Does not upload PDFs. */
   updateCreditCardStatement: async (
     id: string | number,
     data: {
@@ -228,46 +273,113 @@ export const creditCardService = {
       paid?: number;
       epp?: number;
     },
-    month?: string // Format: YYYY-MM (e.g., "2026-01")
+    month?: string
   ): Promise<ApiResponse<CreditCardStatement>> => {
-    // Convert to API format
-    const payload: any = {};
+    let url = `/statements/${id}`;
+    if (month) {
+      url += `?month=${encodeURIComponent(month)}`;
+    }
+
+    const payload: Record<string, number> = {};
     if (data.totalPaymentDue !== undefined) payload.total_due = data.totalPaymentDue;
     if (data.paid !== undefined) payload.paid_amount = data.paid;
     if (data.epp !== undefined) payload.epp_balance = data.epp;
-    
-    // Build URL with month query parameter if provided
-    let url = `/statements/${id}`;
-    if (month) {
-      url += `?month=${month}`;
-    }
-    
+
     const response = await api.patch<CreditCardStatementApiResponse>(url, payload);
-    
+
     if (response.success && response.data) {
       const statementData = (response.data as any).data || response.data;
-      
-      const mappedStatement: CreditCardStatement = {
-        id: statementData.card_id ? String(statementData.card_id) : (statementData.credit_card_id ? String(statementData.credit_card_id) : String(statementData.id || '')),
-        issuingBank: statementData.issuing_bank || '',
-        cardHolder: statementData.card_holder || '',
-        card_number: statementData.card_no || statementData.card_number || '',
-        statement_date: statementData.statement_date ?? null,
-        due_date: statementData.due_date ?? null,
-        due_month: statementData.due_month ?? null,
-        totalPaymentDue: statementData.total_payment_due !== null && statementData.total_payment_due !== undefined ? Number(statementData.total_payment_due) : 0,
-        paid: statementData.paid !== null && statementData.paid !== undefined ? Number(statementData.paid) : 0,
-        epp: statementData.epp !== null && statementData.epp !== undefined ? Number(statementData.epp) : 0,
-        amountPending: statementData.amount_pending !== null && statementData.amount_pending !== undefined ? Number(statementData.amount_pending) : 0,
-      };
-      
+      const mappedStatement = mapCreditCardStatementFromApi(statementData);
+
       return {
         ...response,
         data: mappedStatement,
       };
     }
-    
+
     return response as unknown as ApiResponse<CreditCardStatement>;
+  },
+
+  /**
+   * Replace statement PDF via POST /statements/:id/attachment (multipart `attachment`).
+   * Replaces Cloudinary / legacy file per backend; optional ?month=YYYY-MM when :id is card id.
+   */
+  uploadCreditCardStatementPdf: async (
+    id: string | number,
+    file: File,
+    month?: string
+  ): Promise<ApiResponse<CreditCardStatement>> => {
+    let url = `/statements/${id}/attachment`;
+    if (month) {
+      url += `?month=${encodeURIComponent(month)}`;
+    }
+    const form = new FormData();
+    form.append('attachment', file, file.name);
+    const response = await api.post<CreditCardStatementApiResponse>(url, form);
+
+    if (response.success && response.data) {
+      const statementData = (response.data as any).data || response.data;
+      const mappedStatement = mapCreditCardStatementFromApi(statementData);
+
+      return {
+        ...response,
+        data: mappedStatement,
+      };
+    }
+
+    return response as unknown as ApiResponse<CreditCardStatement>;
+  },
+
+  /**
+   * Remove statement PDF: DELETE /statements/:id/attachment?month=YYYY-MM
+   * (Backend must expose this route; clears DB attachment fields and Cloudinary/disk per server.)
+   */
+  deleteCreditCardStatementAttachment: async (
+    id: string | number,
+    month?: string
+  ): Promise<ApiResponse<CreditCardStatement | null>> => {
+    let url = `/statements/${id}/attachment`;
+    if (month) {
+      url += `?month=${encodeURIComponent(month)}`;
+    }
+    const response = await api.delete<
+      CreditCardStatementApiResponse | { data?: CreditCardStatementApiResponse } | null
+    >(url);
+
+    if (!response.success) {
+      return response as ApiResponse<CreditCardStatement | null>;
+    }
+
+    const body = response.data as unknown;
+    if (
+      body == null ||
+      body === '' ||
+      (typeof body === 'object' &&
+        body !== null &&
+        !Array.isArray(body) &&
+        Object.keys(body as object).length === 0)
+    ) {
+      return { ...response, data: null };
+    }
+
+    const raw = body as Record<string, unknown>;
+    const statementRaw =
+      raw && typeof raw === 'object' && 'data' in raw && raw.data != null
+        ? (raw.data as CreditCardStatementApiResponse)
+        : (body as CreditCardStatementApiResponse);
+
+    if (
+      statementRaw &&
+      typeof statementRaw === 'object' &&
+      ('id' in statementRaw ||
+        'issuing_bank' in statementRaw ||
+        'card_holder' in (statementRaw as object))
+    ) {
+      const mapped = mapCreditCardStatementFromApi(statementRaw);
+      return { ...response, data: mapped };
+    }
+
+    return { ...response, data: null };
   },
 
   // Credit Card Payments API

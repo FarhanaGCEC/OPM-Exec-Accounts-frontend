@@ -7,17 +7,21 @@ export interface LoginCredentials {
   rememberMe?: boolean;
 }
 
+export interface AuthUser {
+  id: number | string;
+  username: string;
+  name?: string;
+  role?: string;
+}
+
 export interface AuthResponse {
+  message?: string;
   token: string;
-  user: {
-    id: string;
-    username: string;
-    name: string;
-  };
+  user: AuthUser;
 }
 
 export const authService = {
-  // Login
+  /** POST /api/auth/login */
   login: async (credentials: LoginCredentials): Promise<ApiResponse<AuthResponse>> => {
     return api.post<AuthResponse>('/auth/login', credentials);
   },
@@ -28,8 +32,8 @@ export const authService = {
   },
 
   // Get current user
-  getCurrentUser: async (): Promise<ApiResponse<AuthResponse['user']>> => {
-    return api.get<AuthResponse['user']>('/auth/me');
+  getCurrentUser: async (): Promise<ApiResponse<AuthUser>> => {
+    return api.get<AuthUser>('/auth/me');
   },
 
   // Refresh token

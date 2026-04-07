@@ -369,7 +369,7 @@ export default function CreditCardDetails() {
                 </div>
                 <Button
                     onClick={handleAddClick}
-                    className="bg-[#eab308] hover:bg-[#d4a007] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
                     disabled={loading}
                 >
                     <Plus className="w-4 h-4 text-black" />
@@ -416,7 +416,7 @@ export default function CreditCardDetails() {
                     <div className="overflow-x-auto rounded-lg">
                         <Table>
                             <TableHeader>
-                                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Issuing Bank
                                     </TableHead>
@@ -569,7 +569,7 @@ export default function CreditCardDetails() {
                                                 {...field}
                                                 disabled={isSubmitting}
                                                 autoFocus
-                                                className="focus-visible:ring-2 focus-visible:ring-[#eab308]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -589,7 +589,7 @@ export default function CreditCardDetails() {
                                                 placeholder="Enter Card Holder Name"
                                                 {...field}
                                                 disabled={isSubmitting}
-                                                className="focus-visible:ring-2 focus-visible:ring-[#eab308]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -609,7 +609,7 @@ export default function CreditCardDetails() {
                                                 placeholder="Enter Card Number"
                                                 {...field}
                                                 disabled={isSubmitting}
-                                                className="focus-visible:ring-2 focus-visible:ring-[#eab308]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -642,7 +642,7 @@ export default function CreditCardDetails() {
                                                                 setSelectedYear(year);
                                                             }}
                                                             disabled={isSubmitting}
-                                                            className="focus-visible:ring-2 focus-visible:ring-[#eab308] pr-10"
+                                                            className="focus-visible:ring-2 focus-visible:ring-[#f7c46d] pr-10"
                                                         />
                                                         <PopoverTrigger asChild>
                                                             <button
@@ -671,7 +671,7 @@ export default function CreditCardDetails() {
                                                                             }}
                                                                             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                                                 selectedYear === year
-                                                                                    ? 'bg-[#eab308] text-black'
+                                                                                    ? 'bg-[#f7c46d] text-black'
                                                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                                             }`}
                                                                         >
@@ -696,7 +696,7 @@ export default function CreditCardDetails() {
                                                                             }}
                                                                             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                                                 selectedMonth === index
-                                                                                    ? 'bg-[#eab308] text-black'
+                                                                                    ? 'bg-[#f7c46d] text-black'
                                                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                                             }`}
                                                                         >
@@ -750,7 +750,7 @@ export default function CreditCardDetails() {
                                                     }
                                                 }}
                                                 onBlur={field.onBlur}
-                                                className="focus-visible:ring-2 focus-visible:ring-[#eab308]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -768,7 +768,7 @@ export default function CreditCardDetails() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (

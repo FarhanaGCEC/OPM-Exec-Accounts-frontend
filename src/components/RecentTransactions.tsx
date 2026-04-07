@@ -133,7 +133,7 @@ export default function RecentTransactions({
         <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader >
-              <TableRow className="bg-[#eab308] border-b border-gray-200">
+              <TableRow className="bg-[#f7c46d] border-b border-gray-200">
                 <TableHead className="font-semibold text-white text-xs text-center py-2">
                   DATE
                 </TableHead>

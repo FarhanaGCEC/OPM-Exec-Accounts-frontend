@@ -12,7 +12,11 @@ import {
 } from '../components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { Calendar as CalendarIcon, Loader2, Pencil, ChevronUp, Check, X, Download } from 'lucide-react';
-import { creditCardService, type CreditCardStatement } from '../services/creditCardService.ts';
+import { StatementAttachmentTableCell } from '../components/StatementAttachmentTableCell';
+import {
+    creditCardService,
+    type CreditCardStatement,
+} from '../services/creditCardService';
 import * as XLSX from 'xlsx';
 
 // Group statements by month
@@ -39,7 +43,10 @@ export default function CreditCardStatements() {
         paid: number;
         epp: number;
     } | null>(null);
+    /** New PDF → POST /statements/:id/attachment */
+    const [statementAttachmentFile, setStatementAttachmentFile] = useState<File | null>(null);
     const [saving, setSaving] = useState(false);
+    const [deletingAttachment, setDeletingAttachment] = useState(false);
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const years = [currentDate.getFullYear() - 1, currentDate.getFullYear(), currentDate.getFullYear() + 1];
@@ -134,10 +141,6 @@ export default function CreditCardStatements() {
                 }
             }
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:fetchCreditCards:SET_STATE',message:'Setting creditCards state',data:{count:allStatements.length,cardIds:allStatements.map(c=>c.id),cardIdTypes:allStatements.map(c=>typeof c.id),hasNullIds:allStatements.some(c=>!c.id),hasEmptyIds:allStatements.some(c=>c.id==='')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
-            
             // Group statements by month if multiple months are selected
             if (months.length > 1) {
                 const grouped: GroupedStatements = {};
@@ -185,17 +188,23 @@ export default function CreditCardStatements() {
 
     const formatDate = (dateString: string) => {
         if (!dateString) return '-';
-       
-        const parts = dateString.split('-');
+
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const toDisplay = (day: string, monthNum: number, year: string) => {
+            const monthName = monthNames[monthNum - 1] || String(monthNum);
+            return `${day.padStart(2, '0')}-${monthName}-${year}`;
+        };
+
+        const parts = dateString.trim().split('-');
         if (parts.length === 3) {
-            const day = parts[0].padStart(2, '0');
-            const monthNum = parseInt(parts[1], 10);
-            const year = parts[2];
-            
-            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            const monthName = monthNames[monthNum - 1] || parts[1];
-            
-            return `${day}-${monthName}-${year}`;
+            const [a, b, c] = parts;
+            const yFirst = a.length === 4 && !isNaN(Number(a)) && Number(a) > 1900;
+            if (yFirst) {
+                // API: YYYY-MM-DD
+                return toDisplay(c, parseInt(b, 10), a);
+            }
+            // Legacy: DD-MM-YYYY
+            return toDisplay(a, parseInt(b, 10), c);
         }
         return dateString;
     };
@@ -214,30 +223,23 @@ export default function CreditCardStatements() {
     const handleEdit = useCallback((card: CreditCardStatement) => {
        
         if (!card.id) {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleEdit:ERROR',message:'Card ID missing',data:{card},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
             console.error('Card ID is missing:', card);
             return;
         }
         const cardId = String(card.id);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleEdit:BEFORE_SET',message:'Before setEditingId',data:{cardId,cardIdLength:cardId.length,currentEditingId:editingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         setEditingId(cardId);
+        setStatementAttachmentFile(null);
         setEditValues({
             totalPaymentDue: card.totalPaymentDue,
             paid: card.paid,
             epp: card.epp,
         });
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleEdit:AFTER_SET',message:'After setEditingId',data:{cardId,editValues:{totalPaymentDue:card.totalPaymentDue,paid:card.paid,epp:card.epp}},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
-    }, [creditCards, editingId]);
+    }, []);
 
     const handleCancelEdit = () => {
         setEditingId(null);
         setEditValues(null);
+        setStatementAttachmentFile(null);
     };
 
     const handleSave = async (cardId: string) => {
@@ -253,97 +255,116 @@ export default function CreditCardStatements() {
             setError(null);
             
             // Format month as YYYY-MM for API (use first selected month)
-            const monthIndex = selectedMonths.length > 0 ? selectedMonths[0] : currentDate.getMonth();
+            const monthIndex =
+                selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
             const monthStr = String(monthIndex + 1).padStart(2, '0'); // Convert 0-11 to 1-12, then pad
             const monthParam = `${selectedYear}-${monthStr}`; // Format: YYYY-MM
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleSave:BEFORE_API',message:'Before API call',data:{validCardId,monthParam,editValues,selectedYear,selectedMonths},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'SAVE'})}).catch(()=>{});
-            // #endregion
-            
             // amountPending is auto-calculated by backend, so we don't send it
-            const response = await creditCardService.updateCreditCardStatement(validCardId, {
-                totalPaymentDue: editValues.totalPaymentDue,
-                paid: editValues.paid,
-                epp: editValues.epp,
-            }, monthParam);
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleSave:AFTER_API',message:'After API call',data:{success:response.success,responseData:response.data,responseDataKeys:response.data?Object.keys(response.data):null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'SAVE'})}).catch(()=>{});
-            // #endregion
-            
-            if (response.success && response.data) {
-                // #region agent log
-                const currentCard = creditCards.find(c => String(c.id) === validCardId);
-                fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleSave:BEFORE_UPDATE',message:'Before state update',data:{currentCard,responseData:response.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'SAVE'})}).catch(()=>{});
-                // #endregion
-                
-                // Update only the specific card in the list, preserve all other fields
-                let updatedCard: CreditCardStatement | null = null;
-                setCreditCards(prev => {
-                    const updated = prev.map(card => {
-                        if (String(card.id) === validCardId) {
-                            // Create a new object to ensure React detects the change
-                            updatedCard = {
-                                ...card, // Keep existing fields (including id, issuingBank, cardHolder, etc.)
-                                // Override only the updated financial values from response
-                                totalPaymentDue: response.data.totalPaymentDue !== undefined && response.data.totalPaymentDue !== null
-                                  ? Number(response.data.totalPaymentDue)
-                                  : card.totalPaymentDue,
-                                paid: response.data.paid !== undefined && response.data.paid !== null
-                                  ? Number(response.data.paid)
-                                  : card.paid,
-                                epp: response.data.epp !== undefined && response.data.epp !== null
-                                  ? Number(response.data.epp)
-                                  : card.epp,
-                                amountPending: response.data.amountPending !== undefined && response.data.amountPending !== null
-                                  ? Number(response.data.amountPending)
-                                  : card.amountPending,
-                                // Update dates if provided
-                                statement_date: response.data.statement_date || card.statement_date,
-                                due_date: response.data.due_date || card.due_date,
-                                due_month: response.data.due_month || card.due_month,
-                            };
-                            // #region agent log
-                            fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleSave:UPDATED_CARD',message:'Updated card object',data:{originalCard:card,updatedCard,responseData:response.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'SAVE'})}).catch(()=>{});
-                            // #endregion
-                            return updatedCard;
-                        }
-                        // Keep all other cards unchanged
-                        return card;
-                    });
-                    // #region agent log
-                    fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleSave:AFTER_UPDATE',message:'After state update',data:{updatedCard:updated.find(c=>String(c.id)===validCardId),allCardIds:updated.map(c=>c.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'SAVE'})}).catch(()=>{});
-                    // #endregion
-                    return updated;
-                });
-                
-                // Also update grouped statements if multiple months are selected
-                if (updatedCard && selectedMonths.length > 1) {
-                    const statementMonth = getStatementMonth(updatedCard);
-                    if (statementMonth !== null && selectedMonths.includes(statementMonth)) {
-                        const monthKey = `${selectedYear}-${String(statementMonth + 1).padStart(2, '0')}`;
-                        setGroupedStatements(prevGrouped => {
-                            const updatedGrouped = { ...prevGrouped };
-                            if (updatedGrouped[monthKey]) {
-                                updatedGrouped[monthKey] = updatedGrouped[monthKey].map(c => 
-                                    String(c.id) === validCardId ? updatedCard! : c
-                                );
-                            }
-                            return updatedGrouped;
-                        });
-                    }
-                }
-                
-                // Close edit mode after state update
-                setEditingId(null);
-                setEditValues(null);
-            } else {
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:handleSave:ERROR',message:'API call failed',data:{success:response.success,error:response.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'SAVE'})}).catch(()=>{});
-                // #endregion
-                setError('Failed to update statement');
+            const newAttachment =
+                statementAttachmentFile && statementAttachmentFile.size > 0
+                    ? statementAttachmentFile
+                    : undefined;
+
+            const patchRes = await creditCardService.updateCreditCardStatement(
+                validCardId,
+                {
+                    totalPaymentDue: editValues.totalPaymentDue,
+                    paid: editValues.paid,
+                    epp: editValues.epp,
+                },
+                monthParam
+            );
+
+            if (!patchRes.success || !patchRes.data) {
+                setError(patchRes.message || 'Failed to update statement');
+                return;
             }
+
+            let merged = patchRes.data;
+
+            if (newAttachment) {
+                const uploadRes = await creditCardService.uploadCreditCardStatementPdf(
+                    validCardId,
+                    newAttachment,
+                    monthParam
+                );
+                if (!uploadRes.success || !uploadRes.data) {
+                    setError(uploadRes.message || 'Statement saved, but PDF upload failed — try uploading the file again.');
+                    return;
+                }
+                merged = {
+                    ...merged,
+                    attachmentName: uploadRes.data.attachmentName ?? merged.attachmentName,
+                    attachmentUrl: uploadRes.data.attachmentUrl ?? merged.attachmentUrl,
+                };
+            }
+
+            const responseData = merged;
+
+            // Update only the specific card in the list, preserve all other fields
+            let updatedCard: CreditCardStatement | null = null;
+            setCreditCards(prev => {
+                const updated = prev.map(card => {
+                    if (String(card.id) === validCardId) {
+                        updatedCard = {
+                            ...card,
+                            totalPaymentDue:
+                                responseData.totalPaymentDue !== undefined &&
+                                responseData.totalPaymentDue !== null
+                                    ? Number(responseData.totalPaymentDue)
+                                    : card.totalPaymentDue,
+                            paid:
+                                responseData.paid !== undefined && responseData.paid !== null
+                                    ? Number(responseData.paid)
+                                    : card.paid,
+                            epp:
+                                responseData.epp !== undefined && responseData.epp !== null
+                                    ? Number(responseData.epp)
+                                    : card.epp,
+                            amountPending:
+                                responseData.amountPending !== undefined &&
+                                responseData.amountPending !== null
+                                    ? Number(responseData.amountPending)
+                                    : card.amountPending,
+                            statement_date: responseData.statement_date || card.statement_date,
+                            due_date: responseData.due_date || card.due_date,
+                            due_month: responseData.due_month || card.due_month,
+                            attachmentName:
+                                responseData.attachmentName !== undefined
+                                    ? responseData.attachmentName
+                                    : card.attachmentName,
+                            attachmentUrl:
+                                responseData.attachmentUrl !== undefined
+                                    ? responseData.attachmentUrl
+                                    : card.attachmentUrl,
+                        };
+                        return updatedCard;
+                    }
+                    return card;
+                });
+                return updated;
+            });
+
+            if (updatedCard && selectedMonths.length > 1) {
+                const statementMonth = getStatementMonth(updatedCard);
+                if (statementMonth !== null && selectedMonths.includes(statementMonth)) {
+                    const monthKey = `${selectedYear}-${String(statementMonth + 1).padStart(2, '0')}`;
+                    setGroupedStatements(prevGrouped => {
+                        const updatedGrouped = { ...prevGrouped };
+                        if (updatedGrouped[monthKey]) {
+                            updatedGrouped[monthKey] = updatedGrouped[monthKey].map(c =>
+                                String(c.id) === validCardId ? updatedCard! : c
+                            );
+                        }
+                        return updatedGrouped;
+                    });
+                }
+            }
+
+            setEditingId(null);
+            setEditValues(null);
+            setStatementAttachmentFile(null);
         } catch (err: any) {
             const errorMessage = err?.message || 'Failed to update statement';
             console.error('Error updating statement:', err);
@@ -361,6 +382,71 @@ export default function CreditCardStatements() {
             [field]: numValue,
         });
     };
+
+    const handleDeleteStatementAttachment = useCallback(
+        async (cardId: string) => {
+            if (
+                !window.confirm(
+                    'Remove this statement PDF from the server? This uses DELETE …/statements/:id/attachment.'
+                )
+            ) {
+                return;
+            }
+            const validCardId = String(cardId);
+            const monthIndex =
+                selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
+            const monthStr = String(monthIndex + 1).padStart(2, '0');
+            const monthParam = `${selectedYear}-${monthStr}`;
+            try {
+                setDeletingAttachment(true);
+                setError(null);
+                const res = await creditCardService.deleteCreditCardStatementAttachment(
+                    validCardId,
+                    monthParam
+                );
+                if (!res.success) {
+                    setError(res.message || 'Failed to remove attachment');
+                    return;
+                }
+                setCreditCards((prev) => {
+                    let merged: CreditCardStatement | null = null;
+                    const next = prev.map((card) => {
+                        if (String(card.id) !== validCardId) return card;
+                        merged = res.data
+                            ? {
+                                  ...card,
+                                  attachmentName: res.data.attachmentName ?? null,
+                                  attachmentUrl: res.data.attachmentUrl ?? null,
+                              }
+                            : { ...card, attachmentName: null, attachmentUrl: null };
+                        return merged;
+                    });
+                    if (merged && selectedMonths.length > 1) {
+                        const statementMonth = getStatementMonth(merged);
+                        if (statementMonth !== null && selectedMonths.includes(statementMonth)) {
+                            const monthKey = `${selectedYear}-${String(statementMonth + 1).padStart(2, '0')}`;
+                            setGroupedStatements((prevGrouped) => {
+                                const updatedGrouped = { ...prevGrouped };
+                                if (updatedGrouped[monthKey]) {
+                                    updatedGrouped[monthKey] = updatedGrouped[monthKey].map((c) =>
+                                        String(c.id) === validCardId ? merged! : c
+                                    );
+                                }
+                                return updatedGrouped;
+                            });
+                        }
+                    }
+                    return next;
+                });
+                setStatementAttachmentFile(null);
+            } catch (err: unknown) {
+                setError(err instanceof Error ? err.message : 'Failed to remove attachment');
+            } finally {
+                setDeletingAttachment(false);
+            }
+        },
+        [selectedMonths, selectedYear]
+    );
 
     const fullMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -420,7 +506,8 @@ export default function CreditCardStatements() {
                         'Total Payment Due',
                         'Paid',
                         'EPP',
-                        'Amount Pending'
+                        'Amount Pending',
+                        'Attachment',
                     ]);
 
                     // Add statement rows
@@ -435,7 +522,8 @@ export default function CreditCardStatements() {
                             card.totalPaymentDue || 0,
                             card.paid || 0,
                             card.epp || 0,
-                            card.amountPending || 0
+                            card.amountPending || 0,
+                            card.attachmentName || '',
                         ]);
                     });
 
@@ -454,11 +542,12 @@ export default function CreditCardStatements() {
                         { wch: 15 }, // Paid
                         { wch: 15 }, // EPP
                         { wch: 18 }, // Amount Pending
+                        { wch: 28 }, // Attachment
                     ];
 
                     // Format header row (row 2, 0-indexed)
                     const headerRow = 2;
-                    for (let col = 0; col <= 9; col++) {
+                    for (let col = 0; col <= 10; col++) {
                         const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
                         if (worksheet[headerCellRef]) {
                             if (!worksheet[headerCellRef].s) {
@@ -523,7 +612,8 @@ export default function CreditCardStatements() {
                 'Total Payment Due',
                 'Paid',
                 'EPP',
-                'Amount Pending'
+                'Amount Pending',
+                'Attachment',
             ]);
 
             // Add statement rows
@@ -538,7 +628,8 @@ export default function CreditCardStatements() {
                     card.totalPaymentDue || 0,
                     card.paid || 0,
                     card.epp || 0,
-                    card.amountPending || 0
+                    card.amountPending || 0,
+                    card.attachmentName || '',
                 ]);
             });
 
@@ -557,11 +648,12 @@ export default function CreditCardStatements() {
                 { wch: 15 }, // Paid
                 { wch: 15 }, // EPP
                 { wch: 18 }, // Amount Pending
+                { wch: 28 }, // Attachment
             ];
 
             // Format header row (row 2, 0-indexed)
             const headerRow = 2;
-            for (let col = 0; col <= 9; col++) {
+            for (let col = 0; col <= 10; col++) {
                 const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
                 if (worksheet[headerCellRef]) {
                     if (!worksheet[headerCellRef].s) {
@@ -624,7 +716,7 @@ export default function CreditCardStatements() {
                         variant="outline"
                         onClick={handleDownloadExcel}
                         disabled={loading || creditCards.length === 0}
-                        className="bg-white hover:bg-[#eab308] text-black border-0 flex items-center gap-2"
+                        className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2"
                     >
                         <Download className="w-4 h-4" />
                         <span>Download Excel</span>
@@ -647,7 +739,7 @@ export default function CreditCardStatements() {
                     <PopoverContent className="w-auto p-0" align="end">
                         <div className="p-4 space-y-4">
                             {/* Selected Period Display */}
-                            <div className="border border-gray-300 rounded-lg p-3 bg-[#eab308]">
+                            <div className="border border-gray-300 rounded-lg p-3 bg-[#f7c46d]">
                                 <div className="text-xs font-medium text-gray-600 mb-1">Selected Period</div>
                                 <div className="flex items-center space-x-2">
                                     <CalendarIcon className="w-4 h-4 text-gray-600" />
@@ -665,7 +757,7 @@ export default function CreditCardStatements() {
                                             onClick={() => setSelectedYear(year)}
                                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                 selectedYear === year
-                                                    ? 'bg-[#eab308] text-black'
+                                                    ? 'bg-[#f7c46d] text-black'
                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                         >
@@ -685,7 +777,7 @@ export default function CreditCardStatements() {
                                             onClick={() => toggleMonth(index)}
                                             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                 selectedMonths.includes(index)
-                                                    ? 'bg-[#eab308] text-black'
+                                                    ? 'bg-[#f7c46d] text-black'
                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                         >
@@ -706,7 +798,7 @@ export default function CreditCardStatements() {
                                 </Button>
                                 <Button
                                     onClick={handleApplyPeriod}
-                                    className="flex-1 bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                    className="flex-1 bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                     disabled={selectedMonths.length === 0}
                                 >
                                     Apply
@@ -738,7 +830,7 @@ export default function CreditCardStatements() {
                         return (
                             <Card key={monthKey} className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
                                 <CardContent className="p-0">
-                                    <div className="bg-[#eab308] px-6 py-3 border-b border-gray-200">
+                                    <div className="bg-[#f7c46d] px-6 py-3 border-b border-gray-200">
                                         <h3 className="text-lg font-bold text-black">
                                             {monthName} {year}
                                         </h3>
@@ -746,7 +838,7 @@ export default function CreditCardStatements() {
                                     <div className="overflow-x-auto rounded-lg">
                                         <Table>
                                             <TableHeader>
-                                                <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                                         Issuing Bank
                                                     </TableHead>
@@ -778,6 +870,9 @@ export default function CreditCardStatements() {
                                                         Amount Pending
                                                     </TableHead>
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                                        Attachment
+                                                    </TableHead>
+                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                                         Actions
                                                     </TableHead>
                                                 </TableRow>
@@ -785,7 +880,7 @@ export default function CreditCardStatements() {
                                             <TableBody>
                                                 {statements.length === 0 ? (
                                                     <TableRow>
-                                                        <TableCell colSpan={11} className="text-center py-8">
+                                                        <TableCell colSpan={12} className="text-center py-8">
                                                             <p className="text-sm text-gray-500">No statements found for {monthName} {year}.</p>
                                                         </TableCell>
                                                     </TableRow>
@@ -858,6 +953,33 @@ export default function CreditCardStatements() {
                                                                 }`}>
                                                                     {formatCurrency(card.amountPending)}
                                                                 </TableCell>
+                                                                <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
+                                                                    <StatementAttachmentTableCell
+                                                                        card={card}
+                                                                        isEditing={Boolean(
+                                                                            editingId &&
+                                                                                String(editingId) ===
+                                                                                    String(card.id) &&
+                                                                                editValues
+                                                                        )}
+                                                                        statementAttachmentFile={
+                                                                            statementAttachmentFile
+                                                                        }
+                                                                        onAttachmentFileChange={
+                                                                            setStatementAttachmentFile
+                                                                        }
+                                                                        onDeleteAttachment={
+                                                                            card.id
+                                                                                ? () =>
+                                                                                      void handleDeleteStatementAttachment(
+                                                                                          String(card.id)
+                                                                                      )
+                                                                                : undefined
+                                                                        }
+                                                                        deleteAttachmentBusy={deletingAttachment}
+                                                                        onEditClick={() => handleEdit(card)}
+                                                                    />
+                                                                </TableCell>
                                                                 <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                                     {editingId && String(editingId) === String(card.id) ? (
                                                                         <div className="flex gap-2">
@@ -869,7 +991,11 @@ export default function CreditCardStatements() {
                                                                                         handleSave(String(card.id));
                                                                                     }
                                                                                 }}
-                                                                                disabled={saving || !card.id}
+                                                                                disabled={
+                                                                                    saving ||
+                                                                                    deletingAttachment ||
+                                                                                    !card.id
+                                                                                }
                                                                                 className="bg-green-500 hover:bg-green-600 text-white border-0"
                                                                             >
                                                                                 <Check className="w-4 h-4" />
@@ -878,7 +1004,7 @@ export default function CreditCardStatements() {
                                                                                 variant="outline"
                                                                                 size="sm"
                                                                                 onClick={handleCancelEdit}
-                                                                                disabled={saving}
+                                                                                disabled={saving || deletingAttachment}
                                                                                 className="bg-red-500 hover:bg-red-600 text-white border-0"
                                                                             >
                                                                                 <X className="w-4 h-4" />
@@ -894,7 +1020,7 @@ export default function CreditCardStatements() {
                                                                                 }
                                                                             }}
                                                                             disabled={!card.id}
-                                                                            className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                                                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                                                         >
                                                                             <Pencil className="w-4 h-4 text-black" />
                                                                             Edit
@@ -919,7 +1045,7 @@ export default function CreditCardStatements() {
                         <div className="overflow-x-auto rounded-lg">
                             <Table>
                                 <TableHeader>
-                                    <TableRow className="bg-[#eab308] border-0 hover:bg-[#d4a007]">
+                                    <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
                                             Issuing Bank
                                         </TableHead>
@@ -951,6 +1077,9 @@ export default function CreditCardStatements() {
                                             Amount Pending
                                         </TableHead>
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                            Attachment
+                                        </TableHead>
+                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
                                             Actions
                                         </TableHead>
                                     </TableRow>
@@ -958,24 +1087,20 @@ export default function CreditCardStatements() {
                                 <TableBody>
                                     {loading ? (
                                         <TableRow>
-                                            <TableCell colSpan={11} className="text-center py-8">
+                                            <TableCell colSpan={12} className="text-center py-8">
                                                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                                 <p className="text-sm text-gray-500">Loading credit card statements...</p>
                                             </TableCell>
                                         </TableRow>
                                     ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={11} className="text-center py-8">
+                                            <TableCell colSpan={12} className="text-center py-8">
                                                 <p className="text-sm text-gray-500 mb-1">No credit card statements found for selected period.</p>
                                                 <p className="text-sm text-gray-400">Select a different month/year to view statements.</p>
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        creditCards.map((card, index) => {
-                                            // #region agent log
-                                            const comparisonResult = editingId && String(editingId) === String(card.id);
-                                            fetch('http://127.0.0.1:7242/ingest/8b8f95b1-a1bf-4166-908a-00cc530c965f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreditCardStatments.tsx:render:ROW',message:'Rendering card row',data:{index,cardId:card.id,cardIdType:typeof card.id,cardIdString:String(card.id),editingId,editingIdType:typeof editingId,editingIdString:String(editingId),comparisonResult,hasEditValues:!!editValues},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                                            // #endregion
+                                        creditCards.map((card) => {
                                             return (
                                             <TableRow
                                                 key={card.id}
@@ -1046,6 +1171,28 @@ export default function CreditCardStatements() {
                                                     {/* amountPending is auto-calculated, so it's read-only */}
                                                     {formatCurrency(card.amountPending)}
                                                 </TableCell>
+                                                <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
+                                                    <StatementAttachmentTableCell
+                                                        card={card}
+                                                        isEditing={Boolean(
+                                                            editingId &&
+                                                                String(editingId) === String(card.id) &&
+                                                                editValues
+                                                        )}
+                                                        statementAttachmentFile={statementAttachmentFile}
+                                                        onAttachmentFileChange={setStatementAttachmentFile}
+                                                        onDeleteAttachment={
+                                                            card.id
+                                                                ? () =>
+                                                                      void handleDeleteStatementAttachment(
+                                                                          String(card.id)
+                                                                      )
+                                                                : undefined
+                                                        }
+                                                        deleteAttachmentBusy={deletingAttachment}
+                                                        onEditClick={() => handleEdit(card)}
+                                                    />
+                                                </TableCell>
                                                 <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                     {editingId && String(editingId) === String(card.id) ? (
                                                         <div className="flex gap-2">
@@ -1057,7 +1204,9 @@ export default function CreditCardStatements() {
                                                                         handleSave(String(card.id));
                                                                     }
                                                                 }}
-                                                                disabled={saving || !card.id}
+                                                                disabled={
+                                                                    saving || deletingAttachment || !card.id
+                                                                }
                                                                 className="bg-green-500 hover:bg-green-600 text-white border-0"
                                                             >
                                                                 <Check className="w-4 h-4" />
@@ -1066,7 +1215,7 @@ export default function CreditCardStatements() {
                                                                 variant="outline"
                                                                 size="sm"
                                                                 onClick={handleCancelEdit}
-                                                                disabled={saving}
+                                                                disabled={saving || deletingAttachment}
                                                                 className="bg-red-500 hover:bg-red-600 text-white border-0"
                                                             >
                                                                 <X className="w-4 h-4" />
@@ -1083,7 +1232,7 @@ export default function CreditCardStatements() {
                                                                 }
                                                             }}
                                                             disabled={!card.id}
-                                                            className="bg-[#eab308] hover:bg-[#d4a007] text-black"
+                                                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                                         >
                                                             <Pencil className="w-4 h-4 text-black" />
                                                             Edit

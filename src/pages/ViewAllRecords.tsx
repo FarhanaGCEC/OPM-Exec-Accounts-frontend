@@ -235,7 +235,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('all')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'all'
-              ? 'bg-[#eab308] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -244,7 +244,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('online')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'online'
-              ? 'bg-[#eab308] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -253,7 +253,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('cheque')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cheque'
-              ? 'bg-[#eab308] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -262,7 +262,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('cash')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cash'
-              ? 'bg-[#eab308] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -277,7 +277,7 @@ export default function ViewAllRecords() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#eab308] border-0">
+                <TableRow className="bg-[#f7c46d] border-0">
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Date
                   </TableHead>
