@@ -37,13 +37,18 @@ import { receivablesService, type ReceivablesCategory } from '../services/receiv
 import type { ApiResponse } from '../lib/api';
 import { isApprovalRequiredError } from '../lib/approvalError';
 import { changeRequestService } from '../services/changeRequestService';
+import {
+    isChangeRequestSubmittedEnvelope,
+    userMessageFromChangeRequestSubmit,
+} from '../lib/changeRequestUi';
 import * as XLSX from 'xlsx';
 
 const RECEIVABLES_RESOURCE_TYPE = 'receivables_category';
 
 type ReceivablesApprovalOffer =
     | { mode: 'edit'; resourceId: string; payload: { name: string } }
-    | { mode: 'delete'; resourceId: string };
+    | { mode: 'delete'; resourceId: string }
+    | { mode: 'success'; message: string };
 
 const categorySchema = z.object({
     name: z
@@ -118,12 +123,12 @@ export default function ReciveableCategory() {
     }, [fetchCategories]);
 
     const submitReceivablesApproval = useCallback(async () => {
-        if (!receivablesApproval) return;
+        if (!receivablesApproval || receivablesApproval.mode === 'success') return;
         const offer = receivablesApproval;
         setApprovalSubmitting(true);
         setError(null);
         try {
-            await changeRequestService.submit({
+            const res = await changeRequestService.submit({
                 action: offer.mode === 'edit' ? 'edit' : 'delete',
                 resourceType: RECEIVABLES_RESOURCE_TYPE,
                 resourceId: offer.resourceId,
@@ -132,16 +137,15 @@ export default function ReciveableCategory() {
                     ? { note: approvalNoteDraft.trim() }
                     : {}),
             });
-            setReceivablesApproval(null);
+            const apiMessage = userMessageFromChangeRequestSubmit(res);
             setApprovalNoteDraft('');
             if (offer.mode === 'edit') {
                 setIsModalOpen(false);
                 setEditingCategory(null);
                 form.reset({ name: '' });
             }
-            setSuccessMessage(
-                'Change request submitted. An admin can approve it from the Approval queue.'
-            );
+            setSuccessMessage(apiMessage);
+            setReceivablesApproval({ mode: 'success', message: apiMessage });
         } catch (e: unknown) {
             setError(e instanceof Error ? e.message : 'Could not submit change request');
         } finally {
@@ -230,6 +234,9 @@ export default function ReciveableCategory() {
                     payload: { name: data.name },
                 });
                 setApprovalNoteDraft('');
+                setIsModalOpen(false);
+                setEditingCategory(null);
+                form.reset({ name: '' });
                 setError(null);
             } else {
                 const errorMessage = err instanceof Error ? err.message : 'Failed to save category';
@@ -270,11 +277,21 @@ export default function ReciveableCategory() {
             const response: ApiResponse<void> = await receivablesService.deleteReceivable(deletingCategoryId);
             
             if (response.success) {
-                setCategories(prevCategories =>
-                    prevCategories.filter(cat => cat.id !== deletingCategoryId)
-                );
-                setDeletingCategoryId(null);
-                setIsDeleteModalOpen(false);
+                if (isChangeRequestSubmittedEnvelope(response.data)) {
+                    const apiMessage = userMessageFromChangeRequestSubmit(
+                        response as ApiResponse<unknown>
+                    );
+                    setSuccessMessage(apiMessage);
+                    setReceivablesApproval({ mode: 'success', message: apiMessage });
+                    setDeletingCategoryId(null);
+                    setIsDeleteModalOpen(false);
+                } else {
+                    setCategories(prevCategories =>
+                        prevCategories.filter(cat => cat.id !== deletingCategoryId)
+                    );
+                    setDeletingCategoryId(null);
+                    setIsDeleteModalOpen(false);
+                }
             } else {
                 setError(response.message || 'Failed to delete category');
             }
@@ -555,52 +572,79 @@ export default function ReciveableCategory() {
             >
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Admin approval required</DialogTitle>
+                        <DialogTitle>
+                            {receivablesApproval?.mode === 'success'
+                                ? 'Request submitted'
+                                : 'Admin approval required'}
+                        </DialogTitle>
                     </DialogHeader>
-                    <p className="text-sm text-gray-600">
-                        {receivablesApproval?.mode === 'edit'
-                            ? 'You cannot edit this list directly. Submit a name change for an admin to review and apply?'
-                            : 'You cannot delete this category directly. Submit a deletion request for an admin to review?'}
-                    </p>
-                    {receivablesApproval?.mode === 'delete' && (
-                        <div className="space-y-2">
-                            <Label htmlFor="receivables-approval-note">Note (optional)</Label>
-                            <Input
-                                id="receivables-approval-note"
-                                value={approvalNoteDraft}
-                                onChange={(e) => setApprovalNoteDraft(e.target.value)}
-                                placeholder="Reason for deletion"
-                                disabled={approvalSubmitting}
-                            />
-                        </div>
+                    {receivablesApproval?.mode === 'success' ? (
+                        <p className="text-sm text-green-800 font-medium leading-relaxed">
+                            {receivablesApproval.message}
+                        </p>
+                    ) : (
+                        <>
+                            <p className="text-sm text-gray-600">
+                                {receivablesApproval?.mode === 'edit'
+                                    ? 'You cannot edit this list directly. Submit a name change for an admin to review and apply?'
+                                    : 'You cannot delete this category directly. Submit a deletion request for an admin to review?'}
+                            </p>
+                            {receivablesApproval?.mode === 'delete' && (
+                                <div className="space-y-2">
+                                    <Label htmlFor="receivables-approval-note">Note (optional)</Label>
+                                    <Input
+                                        id="receivables-approval-note"
+                                        value={approvalNoteDraft}
+                                        onChange={(e) => setApprovalNoteDraft(e.target.value)}
+                                        placeholder="Reason for deletion"
+                                        disabled={approvalSubmitting}
+                                    />
+                                </div>
+                            )}
+                        </>
                     )}
                     <DialogFooter className="gap-2 sm:gap-0">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                                setReceivablesApproval(null);
-                                setApprovalNoteDraft('');
-                            }}
-                            disabled={approvalSubmitting}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="button"
-                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                            onClick={() => void submitReceivablesApproval()}
-                            disabled={approvalSubmitting}
-                        >
-                            {approvalSubmitting ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    Submitting…
-                                </>
-                            ) : (
-                                'Submit request'
-                            )}
-                        </Button>
+                        {receivablesApproval?.mode === 'success' ? (
+                            <Button
+                                type="button"
+                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                                onClick={() => {
+                                    setReceivablesApproval(null);
+                                    setApprovalNoteDraft('');
+                                }}
+                            >
+                                Done
+                            </Button>
+                        ) : (
+                            <>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                        setReceivablesApproval(null);
+                                        setApprovalNoteDraft('');
+                                    }}
+                                    disabled={approvalSubmitting}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="button"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                    onClick={() => void submitReceivablesApproval()}
+                                    disabled={approvalSubmitting}
+                                >
+                                    {approvalSubmitting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Submitting…
+                                        </>
+                                    ) : (
+                                        'Submit request'
+                                    )}
+                                </Button>
+                            </>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

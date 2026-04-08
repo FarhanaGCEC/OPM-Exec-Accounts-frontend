@@ -1,9 +1,11 @@
+import type { SidebarPermissionKey } from './sidebarMenuPermissions';
+
 /** localStorage keys — use these when reading the logged-in user or role. */
 export const AUTH_STORAGE_KEYS = {
   token: 'authToken',
   userName: 'userName',
   userRole: 'userRole',
-  /** JSON: { id?, username?, name?, role } */
+  /** JSON: { id?, username?, name?, role, sidebarPermissions? } */
   authUser: 'authUser',
 } as const;
 
@@ -12,12 +14,29 @@ export type StoredAuthUser = {
   username?: string;
   name?: string;
   role: string;
+  /** Present for role `user`; from login / profile `user.sidebarPermissions`. */
+  sidebarPermissions?: Record<string, boolean>;
 };
+
+function parseSidebarPermissions(raw: unknown): Record<string, boolean> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'boolean') out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 /** Unwrap common API shapes: { token, user } or { data: { token, user } } */
 export function extractLoginData(data: unknown): {
   token?: string;
-  user?: { username?: string; name?: string; role?: string; id?: number | string };
+  user?: {
+    username?: string;
+    name?: string;
+    role?: string;
+    id?: number | string;
+    sidebarPermissions?: Record<string, boolean>;
+  };
 } {
   if (!data || typeof data !== 'object') return {};
   const root = data as Record<string, unknown>;
@@ -29,10 +48,18 @@ export function extractLoginData(data: unknown): {
     (typeof root.token === 'string' ? root.token : undefined) ??
     (nested && typeof nested.token === 'string' ? nested.token : undefined);
   const userRaw = root.user ?? nested?.user;
-  const user =
-    userRaw && typeof userRaw === 'object' && !Array.isArray(userRaw)
-      ? (userRaw as { username?: string; name?: string; role?: string; id?: number | string })
-      : undefined;
+  if (!userRaw || typeof userRaw !== 'object' || Array.isArray(userRaw)) {
+    return { token, user: undefined };
+  }
+  const u = userRaw as Record<string, unknown>;
+  const sidebarPermissions = parseSidebarPermissions(u.sidebarPermissions);
+  const user = {
+    username: typeof u.username === 'string' ? u.username : undefined,
+    name: typeof u.name === 'string' ? u.name : undefined,
+    role: typeof u.role === 'string' ? u.role : undefined,
+    id: (typeof u.id === 'number' || typeof u.id === 'string' ? u.id : undefined) as number | string | undefined,
+    ...(sidebarPermissions ? { sidebarPermissions } : {}),
+  };
   return { token, user };
 }
 
@@ -90,10 +117,28 @@ export function showMyChangeRequestsInNav(): boolean {
   return true;
 }
 
-/** After login: token, display name, `userRole`, and full `authUser` JSON. */
+/**
+ * Whether a canonical sidebar key is allowed for the current session.
+ * Admin / accountant: always true. Role `user`: from `authUser.sidebarPermissions` in localStorage (login).
+ */
+export function hasSidebarPermission(key: SidebarPermissionKey): boolean {
+  const role = syncUserRoleFromSession();
+  if (isAdminRole(role) || isAccountantRole(role)) return true;
+  const perms = readStoredAuthUser()?.sidebarPermissions;
+  if (!perms) return false;
+  return perms[key] === true;
+}
+
+/** After login: token, display name, `userRole`, full `authUser` JSON, and `sidebarPermissions` for role `user`. */
 export function persistLoginSession(args: {
   token: string;
-  user?: { id?: number | string; username?: string; name?: string; role?: string };
+  user?: {
+    id?: number | string;
+    username?: string;
+    name?: string;
+    role?: string;
+    sidebarPermissions?: Record<string, boolean>;
+  };
   /** Used when API omits username on `user` */
   formUsername?: string;
 }): StoredAuthUser {
@@ -109,12 +154,17 @@ export function persistLoginSession(args: {
 
   localStorage.setItem(AUTH_STORAGE_KEYS.userRole, role);
 
+  const roleLower = role.toLowerCase().trim();
   const snapshot: StoredAuthUser = {
     id: user?.id,
     username: user?.username ?? formUsername,
     name: user?.name,
     role,
   };
+  if (roleLower === 'user' && user?.sidebarPermissions && typeof user.sidebarPermissions === 'object') {
+    snapshot.sidebarPermissions = user.sidebarPermissions;
+  }
+
   localStorage.setItem(AUTH_STORAGE_KEYS.authUser, JSON.stringify(snapshot));
 
   return snapshot;

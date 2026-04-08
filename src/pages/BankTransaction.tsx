@@ -57,6 +57,10 @@ import BulkTransactionUploadDialog from '../components/BulkTransactionUploadDial
 import type { ApiResponse } from '../lib/api';
 import { isApprovalRequiredError } from '../lib/approvalError';
 import { changeRequestService } from '../services/changeRequestService';
+import {
+  isChangeRequestSubmittedEnvelope,
+  userMessageFromChangeRequestSubmit,
+} from '../lib/changeRequestUi';
 import { canApprovePdcDailyLedger } from '../lib/authPayload';
 import {
   remarksForDailyLedgerDisplay,
@@ -488,7 +492,9 @@ export default function BankTransaction() {
 
   type ApprovalOffer =
     | { mode: 'edit'; resourceId: string; payload: Record<string, unknown> }
-    | { mode: 'delete'; resourceId: string };
+    | { mode: 'delete'; resourceId: string }
+    | { mode: 'pdc_daily_ledger'; resourceId: string; payload: Record<string, unknown> }
+    | { mode: 'success'; message: string };
   const [approvalOffer, setApprovalOffer] = useState<ApprovalOffer | null>(null);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -664,17 +670,39 @@ export default function BankTransaction() {
         setError(null);
         setSuccessMessage(null);
         const response = await transactionService.patchPdcDailyLedgerApproved(pdcId, true);
+        if (
+          response.success &&
+          isChangeRequestSubmittedEnvelope(response.data)
+        ) {
+          const apiMessage = userMessageFromChangeRequestSubmit(
+            response as ApiResponse<unknown>
+          );
+          setSuccessMessage(apiMessage);
+          await fetchTransactions();
+          return;
+        }
         if (response.success === false) {
           throw new Error(response.message || response.error || 'Approval failed');
         }
         setSuccessMessage('Daily ledger approval saved.');
         await fetchTransactions();
       } catch (e: unknown) {
-        const err = e as Error & { status?: number };
-        if (err.status === 403) {
-          setError('You do not have permission to approve. Admin or accountant only.');
+        if (isApprovalRequiredError(e)) {
+          setPdcApproveDialogOpen(false);
+          setPdcApprovePdcId(null);
+          setApprovalOffer({
+            mode: 'pdc_daily_ledger',
+            resourceId: String(pdcId),
+            payload: { approved: true },
+          });
+          setError(null);
         } else {
-          setError(err.message || 'Approval failed');
+          const err = e as Error & { status?: number };
+          if (err.status === 403) {
+            setError('You do not have permission to approve. Admin or accountant only.');
+          } else {
+            setError(err.message || 'Approval failed');
+          }
         }
       } finally {
         setPdcLedgerApproving(null);
@@ -828,6 +856,17 @@ export default function BankTransaction() {
             remarks: (pendingEditPayload.remarks as string) ?? '',
           },
         });
+        setIsModalOpen(false);
+        setEditingTransaction(null);
+        form.reset({
+          date: '',
+          type: 'Debit',
+          categoryId: '',
+          paymentType: 'cash',
+          chequeNumber: '',
+          remarks: '',
+          amount: '',
+        });
         setError(null);
       } else {
         const errorMessage = err instanceof Error ? err.message : 'Failed to create transaction';
@@ -840,19 +879,27 @@ export default function BankTransaction() {
   };
 
   const submitApprovalRequest = async () => {
-    if (!approvalOffer) return;
+    if (!approvalOffer || approvalOffer.mode === 'success') return;
     const offer = approvalOffer;
     const mode = offer.mode;
     setApprovalSubmitting(true);
     setError(null);
     try {
-      await changeRequestService.submit({
-        action: mode === 'edit' ? 'edit' : 'delete',
-        resourceType: 'transaction',
-        resourceId: offer.resourceId,
-        ...(mode === 'edit' ? { payload: offer.payload } : {}),
-      });
-      setApprovalOffer(null);
+      const res =
+        mode === 'pdc_daily_ledger'
+          ? await changeRequestService.submit({
+              action: 'edit',
+              resourceType: 'pdc',
+              resourceId: offer.resourceId,
+              payload: offer.payload,
+            })
+          : await changeRequestService.submit({
+              action: mode === 'edit' ? 'edit' : 'delete',
+              resourceType: 'transaction',
+              resourceId: offer.resourceId,
+              ...(mode === 'edit' ? { payload: offer.payload } : {}),
+            });
+      const apiMessage = userMessageFromChangeRequestSubmit(res);
       if (mode === 'edit') {
         setIsModalOpen(false);
         setEditingTransaction(null);
@@ -866,9 +913,11 @@ export default function BankTransaction() {
           amount: '',
         });
       }
-      setSuccessMessage(
-        'Change request submitted. An admin can approve it under Approval queue in the sidebar.'
-      );
+      setSuccessMessage(apiMessage);
+      setApprovalOffer({ mode: 'success', message: apiMessage });
+      if (mode === 'pdc_daily_ledger') {
+        await fetchTransactions();
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not submit change request');
     } finally {
@@ -1024,13 +1073,23 @@ export default function BankTransaction() {
       const response: ApiResponse<void> = await transactionService.deleteBankTransaction(deletingTransactionId);
       
       if (response.success) {
-        setTransactions(prevTransactions =>
-          prevTransactions.filter(t => String(t.id) !== deletingTransactionId)
-        );
-        setDeletingTransactionId(null);
-        setIsDeleteModalOpen(false);
-        // Refetch to ensure data is in sync
-        await fetchTransactions();
+        if (isChangeRequestSubmittedEnvelope(response.data)) {
+          const apiMessage = userMessageFromChangeRequestSubmit(
+            response as ApiResponse<unknown>
+          );
+          setSuccessMessage(apiMessage);
+          setApprovalOffer({ mode: 'success', message: apiMessage });
+          setDeletingTransactionId(null);
+          setIsDeleteModalOpen(false);
+        } else {
+          setTransactions(prevTransactions =>
+            prevTransactions.filter(t => String(t.id) !== deletingTransactionId)
+          );
+          setDeletingTransactionId(null);
+          setIsDeleteModalOpen(false);
+          // Refetch to ensure data is in sync
+          await fetchTransactions();
+        }
       } else {
         setError(response.message || 'Failed to delete transaction');
       }
@@ -2536,37 +2595,57 @@ export default function BankTransaction() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Admin approval required</DialogTitle>
+            <DialogTitle>
+              {approvalOffer?.mode === 'success' ? 'Request submitted' : 'Admin approval required'}
+            </DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
-            {approvalOffer?.mode === 'edit'
-              ? 'Your account cannot edit transactions directly. Submit this update for an admin to review and apply?'
-              : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
-          </p>
+          {approvalOffer?.mode === 'success' ? (
+            <p className="text-sm text-green-800 font-medium leading-relaxed">{approvalOffer.message}</p>
+          ) : (
+            <p className="text-sm text-gray-600">
+              {approvalOffer?.mode === 'edit'
+                ? 'Your account cannot edit transactions directly. Submit this update for an admin to review and apply?'
+                : approvalOffer?.mode === 'pdc_daily_ledger'
+                  ? 'Your account cannot approve this PDC for the daily ledger directly. Submit an approval request for an admin to review?'
+                  : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
+            </p>
+          )}
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setApprovalOffer(null)}
-              disabled={approvalSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-              onClick={() => void submitApprovalRequest()}
-              disabled={approvalSubmitting}
-            >
-              {approvalSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Submitting…
-                </>
-              ) : (
-                'Submit request'
-              )}
-            </Button>
+            {approvalOffer?.mode === 'success' ? (
+              <Button
+                type="button"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                onClick={() => setApprovalOffer(null)}
+              >
+                Done
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setApprovalOffer(null)}
+                  disabled={approvalSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                  onClick={() => void submitApprovalRequest()}
+                  disabled={approvalSubmitting}
+                >
+                  {approvalSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Submitting…
+                    </>
+                  ) : (
+                    'Submit request'
+                  )}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

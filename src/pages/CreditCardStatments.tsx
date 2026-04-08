@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from '../components/Layout';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -17,7 +17,30 @@ import {
     creditCardService,
     type CreditCardStatement,
 } from '../services/creditCardService';
+import { changeRequestService } from '../services/changeRequestService';
+import type { ApiResponse } from '../lib/api';
+import { userMessageFromChangeRequestSubmit } from '../lib/changeRequestUi';
+import { isApprovalRequiredError } from '../lib/approvalError';
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '../components/ui/dialog';
 import * as XLSX from 'xlsx';
+
+type StatementApprovalOffer =
+    | {
+          mode: 'edit';
+          resourceId: string;
+          statementMonth: string;
+          payload: Record<string, unknown>;
+          note?: string;
+      }
+    | { mode: 'delete_attachment'; resourceId: string; statementMonth: string }
+    /** Shown after POST /user/change-requests succeeds — keeps feedback inside the dialog. */
+    | { mode: 'success'; message: string };
 
 // Group statements by month
 interface GroupedStatements {
@@ -47,6 +70,10 @@ export default function CreditCardStatements() {
     const [statementAttachmentFile, setStatementAttachmentFile] = useState<File | null>(null);
     const [saving, setSaving] = useState(false);
     const [deletingAttachment, setDeletingAttachment] = useState(false);
+    const [approvalOffer, setApprovalOffer] = useState<StatementApprovalOffer | null>(null);
+    const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const successBannerRef = useRef<HTMLDivElement>(null);
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const years = [currentDate.getFullYear() - 1, currentDate.getFullYear(), currentDate.getFullYear() + 1];
@@ -242,6 +269,47 @@ export default function CreditCardStatements() {
         setStatementAttachmentFile(null);
     };
 
+    useEffect(() => {
+        if (!successMessage) return;
+        successBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, [successMessage]);
+
+    const submitStatementApprovalRequest = async () => {
+        if (!approvalOffer || approvalOffer.mode === 'success') return;
+        const offer = approvalOffer;
+        setApprovalSubmitting(true);
+        setError(null);
+        try {
+            let res: ApiResponse<unknown>;
+            if (offer.mode === 'edit') {
+                res = await changeRequestService.submit({
+                    action: 'edit',
+                    resourceType: 'card_statement',
+                    resourceId: offer.resourceId,
+                    payload: offer.payload,
+                    ...(offer.note?.trim() ? { note: offer.note.trim() } : {}),
+                });
+            } else {
+                res = await changeRequestService.submit({
+                    action: 'delete',
+                    resourceType: 'card_statement',
+                    resourceId: offer.resourceId,
+                    payload: { statementMonth: offer.statementMonth },
+                });
+            }
+            const apiMessage = userMessageFromChangeRequestSubmit(res);
+            setEditingId(null);
+            setEditValues(null);
+            setStatementAttachmentFile(null);
+            setSuccessMessage(apiMessage);
+            setApprovalOffer({ mode: 'success', message: apiMessage });
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'Could not submit change request');
+        } finally {
+            setApprovalSubmitting(false);
+        }
+    };
+
     const handleSave = async (cardId: string) => {
         if (!editValues) return;
         const validCardId = String(cardId);
@@ -249,16 +317,16 @@ export default function CreditCardStatements() {
             setError('Invalid card ID');
             return;
         }
+
+        const monthIndex =
+            selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
+        const monthStr = String(monthIndex + 1).padStart(2, '0');
+        const monthParam = `${selectedYear}-${monthStr}`;
         
         try {
             setSaving(true);
             setError(null);
-            
-            // Format month as YYYY-MM for API (use first selected month)
-            const monthIndex =
-                selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
-            const monthStr = String(monthIndex + 1).padStart(2, '0'); // Convert 0-11 to 1-12, then pad
-            const monthParam = `${selectedYear}-${monthStr}`; // Format: YYYY-MM
+            setSuccessMessage(null);
             
             // amountPending is auto-calculated by backend, so we don't send it
             const newAttachment =
@@ -365,10 +433,37 @@ export default function CreditCardStatements() {
             setEditingId(null);
             setEditValues(null);
             setStatementAttachmentFile(null);
-        } catch (err: any) {
-            const errorMessage = err?.message || 'Failed to update statement';
+        } catch (err: unknown) {
             console.error('Error updating statement:', err);
-            setError(errorMessage);
+            if (isApprovalRequiredError(err) && editValues) {
+                const payload: Record<string, unknown> = {
+                    statementMonth: monthParam,
+                    total_due: editValues.totalPaymentDue,
+                    paid_amount: editValues.paid,
+                    epp_balance: editValues.epp,
+                };
+                if (statementAttachmentFile && statementAttachmentFile.name) {
+                    payload.replace_attachment_requested = true;
+                }
+                setApprovalOffer({
+                    mode: 'edit',
+                    resourceId: validCardId,
+                    statementMonth: monthParam,
+                    payload,
+                    ...(statementAttachmentFile
+                        ? {
+                              note: `Statement figures update; also replace PDF (${statementAttachmentFile.name}). Admin may need to attach the file after approval.`,
+                          }
+                        : {}),
+                });
+                setEditingId(null);
+                setEditValues(null);
+                setStatementAttachmentFile(null);
+                setError(null);
+            } else {
+                const errorMessage = err instanceof Error ? err.message : 'Failed to update statement';
+                setError(errorMessage);
+            }
         } finally {
             setSaving(false);
         }
@@ -440,7 +535,17 @@ export default function CreditCardStatements() {
                 });
                 setStatementAttachmentFile(null);
             } catch (err: unknown) {
-                setError(err instanceof Error ? err.message : 'Failed to remove attachment');
+                if (isApprovalRequiredError(err)) {
+                    setApprovalOffer({
+                        mode: 'delete_attachment',
+                        resourceId: validCardId,
+                        statementMonth: monthParam,
+                    });
+                    setError(null);
+                    setSuccessMessage(null);
+                } else {
+                    setError(err instanceof Error ? err.message : 'Failed to remove attachment');
+                }
             } finally {
                 setDeletingAttachment(false);
             }
@@ -809,6 +914,16 @@ export default function CreditCardStatements() {
                 </Popover>
                 </div>
             </div>
+
+            {successMessage && (
+                <div
+                    ref={successBannerRef}
+                    role="status"
+                    className="mb-4 mx-4 p-3 bg-green-50 border border-green-200 rounded-md animate-in fade-in-50 shadow-sm"
+                >
+                    <p className="text-sm text-green-800 font-medium">{successMessage}</p>
+                </div>
+            )}
 
             {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
@@ -1249,6 +1364,71 @@ export default function CreditCardStatements() {
                     </CardContent>
                 </Card>
             )}
+
+            <Dialog
+                open={!!approvalOffer}
+                onOpenChange={(open) => {
+                    if (!open) setApprovalOffer(null);
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {approvalOffer?.mode === 'success'
+                                ? 'Request submitted'
+                                : 'Admin approval required'}
+                        </DialogTitle>
+                    </DialogHeader>
+                    {approvalOffer?.mode === 'success' ? (
+                        <p className="text-sm text-green-800 font-medium leading-relaxed">
+                            {approvalOffer.message}
+                        </p>
+                    ) : (
+                        <p className="text-sm text-gray-600">
+                            {approvalOffer?.mode === 'delete_attachment'
+                                ? 'Your account cannot remove this statement PDF directly. Submit a request so an admin can review and remove it?'
+                                : 'Your account cannot edit statement amounts directly. Submit these changes for an admin to review and apply?'}
+                        </p>
+                    )}
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        {approvalOffer?.mode === 'success' ? (
+                            <Button
+                                type="button"
+                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                                onClick={() => setApprovalOffer(null)}
+                            >
+                                Done
+                            </Button>
+                        ) : (
+                            <>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setApprovalOffer(null)}
+                                    disabled={approvalSubmitting}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="button"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                    onClick={() => void submitStatementApprovalRequest()}
+                                    disabled={approvalSubmitting}
+                                >
+                                    {approvalSubmitting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
+                                            Submitting…
+                                        </>
+                                    ) : (
+                                        'Submit request'
+                                    )}
+                                </Button>
+                            </>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </Layout>
     );
 }

@@ -9,6 +9,7 @@ import { Input } from '../components/ui/input';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
@@ -37,6 +38,12 @@ import Calendar from '../components/ui/calendar-tailwind';
 import { transactionService, type PaymentMatching as PaymentMatchingType } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import type { ApiResponse } from '../lib/api';
+import { isApprovalRequiredError } from '../lib/approvalError';
+import { changeRequestService } from '../services/changeRequestService';
+import {
+  isChangeRequestSubmittedEnvelope,
+  userMessageFromChangeRequestSubmit,
+} from '../lib/changeRequestUi';
 
 interface PaymentMatching extends PaymentMatchingType {
   date?: string; // Formatted date for display
@@ -64,6 +71,14 @@ const paymentSchema = z.object({
 });
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
+
+/** Backend change-request resource type for Customer Credit Card Payments / purchase bills. */
+const PURCHASE_BILL_RESOURCE_TYPE = 'purchase_bill';
+
+type PurchaseBillApprovalOffer =
+  | { mode: 'edit'; resourceId: string; payload: Record<string, unknown> }
+  | { mode: 'delete'; resourceId: string }
+  | { mode: 'success'; message: string };
 
 // Format date from ISO to DD-MMM-YYYY (e.g., "01-Jan-2026")
 const formatDateForDisplay = (dateString: string): string => {
@@ -122,6 +137,9 @@ export default function PaymentMatching() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [purchaseBillApproval, setPurchaseBillApproval] = useState<PurchaseBillApprovalOffer | null>(null);
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
 
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema),
@@ -188,10 +206,44 @@ export default function PaymentMatching() {
     fetchPayments();
   }, [fetchPayments]);
 
+  const submitPurchaseBillApproval = useCallback(async () => {
+    if (!purchaseBillApproval || purchaseBillApproval.mode === 'success') return;
+    const offer = purchaseBillApproval;
+    setApprovalSubmitting(true);
+    setError(null);
+    try {
+      const res = await changeRequestService.submit({
+        action: offer.mode === 'edit' ? 'edit' : 'delete',
+        resourceType: PURCHASE_BILL_RESOURCE_TYPE,
+        resourceId: offer.resourceId,
+        ...(offer.mode === 'edit' ? { payload: offer.payload } : {}),
+      });
+      const apiMessage = userMessageFromChangeRequestSubmit(res);
+      if (offer.mode === 'edit') {
+        setIsModalOpen(false);
+        setEditingPayment(null);
+        form.reset({
+          paymentDate: '',
+          invoiceNumber: '',
+          customerName: '',
+          paymentMethod: 'Credit Card',
+          amount: '',
+        });
+      }
+      setSuccessMessage(apiMessage);
+      setPurchaseBillApproval({ mode: 'success', message: apiMessage });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not submit change request');
+    } finally {
+      setApprovalSubmitting(false);
+    }
+  }, [purchaseBillApproval, form]);
+
   const onSubmit = useCallback(async (data: PaymentFormData) => {
     try {
       setIsSubmitting(true);
       setError(null);
+      setSuccessMessage(null);
 
       // Prepare payload - all required fields must be included
       // Keep date in dd/mm/yyyy format as API expects
@@ -217,6 +269,30 @@ export default function PaymentMatching() {
       } else {
         console.log('[PaymentMatching] Creating payment:', payload);
         response = await transactionService.createPaymentMatching(payload);
+      }
+
+      if (
+        response.success &&
+        response.data &&
+        isChangeRequestSubmittedEnvelope(response.data as unknown)
+      ) {
+        const apiMessage = userMessageFromChangeRequestSubmit(
+          response as ApiResponse<unknown>
+        );
+        setSuccessMessage(apiMessage);
+        setPurchaseBillApproval({ mode: 'success', message: apiMessage });
+        form.reset({
+          paymentDate: '',
+          invoiceNumber: '',
+          customerName: '',
+          paymentMethod: 'Credit Card',
+          amount: '',
+        });
+        setEditingPayment(null);
+        setError(null);
+        setIsModalOpen(false);
+        fetchPayments().catch(err => console.error('Error refetching after save:', err));
+        return;
       }
 
       if (response.success && response.data) {
@@ -259,10 +335,36 @@ export default function PaymentMatching() {
         const errorMsg = response.message || 'Failed to save payment';
         setError(errorMsg);
       }
-    } catch (err: any) {
-      const errorMessage = err?.message || err?.error || 'Failed to save payment';
-      console.error('[PaymentMatching] Error saving payment:', err);
-      setError(errorMessage);
+    } catch (err: unknown) {
+      if (isApprovalRequiredError(err) && editingPayment) {
+        const payload: Record<string, unknown> = {
+          bill_date: data.paymentDate,
+          vendor_name: data.customerName,
+          payment_method: data.paymentMethod,
+          amount: parseFloat(data.amount.replace(/,/g, '')),
+        };
+        if (data.invoiceNumber?.trim()) payload.invoice_number = data.invoiceNumber.trim();
+        setPurchaseBillApproval({
+          mode: 'edit',
+          resourceId: String(editingPayment.id),
+          payload,
+        });
+        setIsModalOpen(false);
+        setEditingPayment(null);
+        form.reset({
+          paymentDate: '',
+          invoiceNumber: '',
+          customerName: '',
+          paymentMethod: 'Credit Card',
+          amount: '',
+        });
+        setError(null);
+      } else {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to save payment';
+        console.error('[PaymentMatching] Error saving payment:', err);
+        setError(errorMessage);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -302,6 +404,7 @@ export default function PaymentMatching() {
   const handleDeleteClick = useCallback((id: string) => {
     setDeletingPaymentId(id);
     setError(null);
+    setSuccessMessage(null);
     setIsDeleteModalOpen(true);
   }, []);
 
@@ -314,18 +417,36 @@ export default function PaymentMatching() {
       const response: ApiResponse<void> = await transactionService.deletePaymentMatching(deletingPaymentId);
       
       if (response.success) {
-        setPayments(prevPayments =>
-          prevPayments.filter(payment => payment.id !== deletingPaymentId)
-        );
-        setDeletingPaymentId(null);
-        setIsDeleteModalOpen(false);
+        if (isChangeRequestSubmittedEnvelope(response.data)) {
+          const apiMessage = userMessageFromChangeRequestSubmit(
+            response as ApiResponse<unknown>
+          );
+          setSuccessMessage(apiMessage);
+          setPurchaseBillApproval({ mode: 'success', message: apiMessage });
+          setDeletingPaymentId(null);
+          setIsDeleteModalOpen(false);
+        } else {
+          setPayments(prevPayments =>
+            prevPayments.filter(payment => payment.id !== deletingPaymentId)
+          );
+          setDeletingPaymentId(null);
+          setIsDeleteModalOpen(false);
+        }
       } else {
         setError(response.message || 'Failed to delete payment');
       }
-    } catch (err: any) {
-      const errorMessage = err?.message || err?.error || 'Failed to delete payment';
-      setError(errorMessage);
-      console.error('Error deleting payment:', err);
+    } catch (err: unknown) {
+      if (isApprovalRequiredError(err) && deletingPaymentId) {
+        setPurchaseBillApproval({ mode: 'delete', resourceId: deletingPaymentId });
+        setDeletingPaymentId(null);
+        setIsDeleteModalOpen(false);
+        setError(null);
+      } else {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to delete payment';
+        setError(errorMessage);
+        console.error('Error deleting payment:', err);
+      }
     } finally {
       setIsDeleting(false);
     }
@@ -543,6 +664,12 @@ export default function PaymentMatching() {
             </Button>
         </div>
         </div>
+
+      {successMessage && (
+        <div className="mb-4 mx-8 p-3 bg-green-50 border border-green-200 rounded-md shadow-sm">
+          <p className="text-sm font-medium text-green-800">{successMessage}</p>
+        </div>
+      )}
 
       {error && !isModalOpen && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
@@ -882,6 +1009,71 @@ export default function PaymentMatching() {
               </div>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!purchaseBillApproval}
+        onOpenChange={(open) => {
+          if (!open) setPurchaseBillApproval(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {purchaseBillApproval?.mode === 'success'
+                ? 'Request submitted'
+                : 'Admin approval required'}
+            </DialogTitle>
+          </DialogHeader>
+          {purchaseBillApproval?.mode === 'success' ? (
+            <p className="text-sm text-green-800 font-medium leading-relaxed">
+              {purchaseBillApproval.message}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-600">
+              {purchaseBillApproval?.mode === 'edit'
+                ? 'Your account cannot edit this payment directly. Submit the changes for an admin to review and apply?'
+                : 'Your account cannot delete this bill directly. Submit a delete request for an admin to review?'}
+            </p>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            {purchaseBillApproval?.mode === 'success' ? (
+              <Button
+                type="button"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                onClick={() => setPurchaseBillApproval(null)}
+              >
+                Done
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPurchaseBillApproval(null)}
+                  disabled={approvalSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                  onClick={() => void submitPurchaseBillApproval()}
+                  disabled={approvalSubmitting}
+                >
+                  {approvalSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Submitting…
+                    </>
+                  ) : (
+                    'Submit request'
+                  )}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

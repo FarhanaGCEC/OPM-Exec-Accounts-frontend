@@ -28,6 +28,12 @@ export interface CreateUserPayload {
   username: string;
   password: string;
   role?: AppUserRole;
+  /**
+   * When role is `user`, sent once on create (same shape as PUT .../sidebar-permissions).
+   * Prefer `permissions`; use `sidebarPermissions` if you only have that shape — send one, not both.
+   */
+  permissions?: Record<string, boolean>;
+  sidebarPermissions?: Record<string, boolean>;
 }
 
 function extractUsers(payload: unknown): AppUser[] {
@@ -63,13 +69,25 @@ export const userService = {
     return extractUsers(res.data);
   },
 
-  /** POST /api/auth/signup (via baseURL `/api` → `/auth/signup`). */
+  /**
+   * POST /api/admin/create-user (baseURL `/api` → `/admin/create-user`).
+   * For role `user`, optional `permissions` or `sidebarPermissions` is applied in the same request (only one field sent).
+   */
   createUser: async (payload: CreateUserPayload): Promise<ApiResponse<unknown>> => {
-    return api.post<unknown>('/auth/signup', {
+    const body: Record<string, unknown> = {
       username: payload.username.trim(),
       password: payload.password,
       role: payload.role ?? 'user',
-    });
+    };
+    const role = String(payload.role ?? 'user').toLowerCase();
+    if (role === 'user') {
+      if (payload.permissions) {
+        body.permissions = payload.permissions;
+      } else if (payload.sidebarPermissions) {
+        body.sidebarPermissions = payload.sidebarPermissions;
+      }
+    }
+    return api.post<unknown>('/admin/create-user', body);
   },
 
   /** PUT /api/admin/update-role/:id — body { role: "admin" | "accountant" | "user" } */

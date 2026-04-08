@@ -15,10 +15,12 @@ import {
 } from 'lucide-react';
 import {
   clearAuthStorage,
+  hasSidebarPermission,
   isCurrentUserAdmin,
   isRoleAdmin,
   showMyChangeRequestsInNav,
 } from '../lib/authPayload';
+import type { SidebarPermissionKey } from '../lib/sidebarMenuPermissions';
 import { useAdminChangeRequestStreamOptional } from '../context/AdminChangeRequestStreamContext';
 
 interface SubMenuItem {
@@ -33,6 +35,8 @@ interface MenuItem {
   icon: React.ComponentType<{ className?: string }>;
   path?: string;
   subMenus?: SubMenuItem[];
+  /** API sidebar key; role `user` needs true in localStorage `authUser.sidebarPermissions`. */
+  sidebarKey?: SidebarPermissionKey;
   adminOnly?: boolean;
   /** If set, only JWT/stored role `admin` (not accountant). */
   roleAdminOnly?: boolean;
@@ -41,23 +45,31 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { id: 'overview', label: 'Dashboard', icon: Home, path: '/dashboard' },
+  { id: 'overview', label: 'Dashboard', icon: Home, path: '/dashboard', sidebarKey: 'dashboard' },
 
-  { id: 'bank', label: 'Daily Transactions', icon: CreditCard, path: '/bank' },
+  {
+    id: 'bank',
+    label: 'Daily Transactions',
+    icon: CreditCard,
+    path: '/bank',
+    sidebarKey: 'daily_transactions',
+  },
  
-  { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque' },
+  { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque', sidebarKey: 'post_dated_cheques' },
   {
     id: 'receivable',
     label: 'Creditors List',
     icon: ListOrdered,
     path: '/reciveables',
+    sidebarKey: 'creditors_list',
   },
-  { id: 'category', label: 'Debtors List', icon: ListOrdered, path: '/category' },
+  { id: 'category', label: 'Debtors List', icon: ListOrdered, path: '/category', sidebarKey: 'debtors_list' },
 
   {
     id: 'credit-card',
     label: 'Credit Cards ',
     icon: CreditCard,
+    sidebarKey: 'credit_cards',
     subMenus: [
      
       {
@@ -83,16 +95,36 @@ const menuItems: MenuItem[] = [
     label: 'Customer Credit Card Payments',
     icon: CreditCard,
     path: '/matching',
+    sidebarKey: 'customer_credit_card_payments',
   },
 
-  { id: 'gbp-transactions', label: 'GBP Transactions', icon: CreditCard, path: '/gbp-transactions' },
-  { id: 'usd-transactions', label: 'USD Transactions', icon: CreditCard, path: '/usd-transactions' },
-  { id: 'fks-transactions', label: 'FK EMIRATES NBD', icon: CreditCard, path: '/fks-transactions' },
+  {
+    id: 'gbp-transactions',
+    label: 'GBP Transactions',
+    icon: CreditCard,
+    path: '/gbp-transactions',
+    sidebarKey: 'gbp_transactions',
+  },
+  {
+    id: 'usd-transactions',
+    label: 'USD Transactions',
+    icon: CreditCard,
+    path: '/usd-transactions',
+    sidebarKey: 'usd_transactions',
+  },
+  {
+    id: 'fks-transactions',
+    label: 'FK EMIRATES NBD',
+    icon: CreditCard,
+    path: '/fks-transactions',
+    sidebarKey: 'fk_emirates_nbd',
+  },
   {
     id: 'user-management',
     label: 'User Accounts Management',
     icon: Users,
     path: '/admin/users',
+    sidebarKey: 'user_accounts_management',
     adminOnly: true,
   },
   {
@@ -107,6 +139,7 @@ const menuItems: MenuItem[] = [
     label: 'Approval Queue',
     icon: Inbox,
     path: '/approval-queue',
+    sidebarKey: 'approval_queue',
     roleAdminOnly: true,
   },
 ];
@@ -124,6 +157,7 @@ export default function Sidebar() {
     if (item.standardUserOnly && !showMyChangeRequestsInNav()) return false;
     if (item.roleAdminOnly && !isRoleAdmin()) return false;
     if (item.adminOnly && !isAdmin) return false;
+    if (item.sidebarKey && !hasSidebarPermission(item.sidebarKey)) return false;
     return true;
   });
 

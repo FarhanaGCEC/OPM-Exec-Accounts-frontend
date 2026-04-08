@@ -3,6 +3,7 @@ import Layout from '../components/Layout';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { PasswordInput } from '../components/ui/password-input';
 import { Label } from '../components/ui/label';
 import {
   Dialog,
@@ -26,6 +27,13 @@ import {
   normalizeManageableRole,
 } from '../services/userService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
+import { Checkbox } from '../components/ui/checkbox';
+import {
+  SIDEBAR_MENU_ITEMS,
+  emptySidebarPermissions,
+  type SidebarPermissionKey,
+  type SidebarPermissionMap,
+} from '../lib/sidebarMenuPermissions';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -42,6 +50,9 @@ export default function UserManagement() {
   const [newRole, setNewRole] = useState<ManageableUserRole>('user');
   const [createMessage, setCreateMessage] = useState<string | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [newUserPermissions, setNewUserPermissions] = useState<SidebarPermissionMap>(() =>
+    emptySidebarPermissions()
+  );
 
   const [editUser, setEditUser] = useState<AppUser | null>(null);
   const [editRole, setEditRole] = useState<ManageableUserRole>('user');
@@ -84,7 +95,12 @@ export default function UserManagement() {
     setNewUsername('');
     setNewPassword('');
     setNewRole('user');
+    setNewUserPermissions(emptySidebarPermissions());
     setIsCreateModalOpen(true);
+  };
+
+  const toggleNewUserPermission = (key: SidebarPermissionKey) => {
+    setNewUserPermissions((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -100,6 +116,7 @@ export default function UserManagement() {
         username: newUsername,
         password: newPassword,
         role: newRole,
+        ...(newRole === 'user' ? { permissions: { ...newUserPermissions } } : {}),
       });
       setIsCreateModalOpen(false);
       await loadUsers();
@@ -308,7 +325,7 @@ export default function UserManagement() {
       </Card>
 
       <Dialog open={isCreateModalOpen} onOpenChange={(o) => !o && setIsCreateModalOpen(false)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={newRole === 'user' ? 'sm:max-w-lg max-h-[90vh] overflow-y-auto' : 'sm:max-w-md'}>
           <DialogHeader>
             <DialogTitle>Add New User</DialogTitle>
           </DialogHeader>
@@ -324,9 +341,8 @@ export default function UserManagement() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="modal-password">Password</Label>
-              <Input
+              <PasswordInput
                 id="modal-password"
-                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 autoComplete="new-password"
@@ -336,7 +352,13 @@ export default function UserManagement() {
               <Label>Role</Label>
               <Select
                 value={newRole}
-                onValueChange={(v) => setNewRole(v as ManageableUserRole)}
+                onValueChange={(v) => {
+                  const next = v as ManageableUserRole;
+                  setNewRole(next);
+                  if (next === 'user') {
+                    setNewUserPermissions(emptySidebarPermissions());
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Role" />
@@ -348,6 +370,30 @@ export default function UserManagement() {
                 </SelectContent>
               </Select>
             </div>
+            {newRole === 'user' && (
+              <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50/80 p-3">
+                <Label className="text-sm font-medium text-gray-900">Sidebar access</Label>
+                <p className="text-xs text-gray-600">
+                  Check each section this user may open. Unchecked items stay hidden for them after login.
+                </p>
+                <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                  {SIDEBAR_MENU_ITEMS.map(({ key, label }) => (
+                    <label
+                      key={key}
+                      className="flex cursor-pointer items-start gap-2 rounded-md py-1 text-sm text-gray-800 hover:bg-gray-100/80"
+                    >
+                      <Checkbox
+                        id={`create-perm-${key}`}
+                        checked={newUserPermissions[key]}
+                        onCheckedChange={() => toggleNewUserPermission(key)}
+                        className="mt-0.5"
+                      />
+                      <span className="leading-snug">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             {createMessage && (
               <p className={`text-sm ${createMessage.includes('success') ? 'text-green-600' : 'text-red-600'}`}>
                 {createMessage}
@@ -405,9 +451,8 @@ export default function UserManagement() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-password">New password</Label>
-              <Input
+              <PasswordInput
                 id="edit-password"
-                type="password"
                 value={editPassword}
                 onChange={(e) => setEditPassword(e.target.value)}
                 autoComplete="new-password"

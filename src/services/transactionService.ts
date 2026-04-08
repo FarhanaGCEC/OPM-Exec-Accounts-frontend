@@ -1,6 +1,7 @@
 import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
 import type { BulkApiTransactionRow } from '../lib/bulkTransactionCsv';
+import { isChangeRequestSubmittedEnvelope } from '../lib/changeRequestUi';
 
 export interface BankTransaction {
   id?: string | number;
@@ -441,6 +442,10 @@ export const transactionService = {
 
     const response = await api.post<PostDatedChequeApiResponse>('/pdc', jsonBody);
 
+    if (response.success && response.data && isChangeRequestSubmittedEnvelope(response.data)) {
+      return response as unknown as ApiResponse<PostDatedCheque>;
+    }
+
     if (response.success && response.data) {
       const raw = response.data as unknown as { data?: PostDatedChequeApiResponse };
       const row = raw && typeof raw === 'object' && 'data' in raw && raw.data ? raw.data : (response.data as PostDatedChequeApiResponse);
@@ -519,6 +524,10 @@ export const transactionService = {
       ? await api.patch<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody)
       : await api.put<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody);
 
+    if (response.success && response.data && isChangeRequestSubmittedEnvelope(response.data)) {
+      return response as unknown as ApiResponse<PostDatedCheque>;
+    }
+
     if (response.success && response.data) {
       const raw = response.data as unknown as { data?: PostDatedChequeApiResponse };
       const row = raw && typeof raw === 'object' && 'data' in raw && raw.data ? raw.data : (response.data as PostDatedChequeApiResponse);
@@ -582,6 +591,9 @@ export const transactionService = {
     console.log('[transactionService] createPaymentMatching - API payload:', JSON.stringify(apiData, null, 2));
     
     const response = await api.post<PaymentMatchingApiResponse>('/purchase-bills', apiData);
+    if (response.success && response.data && isChangeRequestSubmittedEnvelope(response.data)) {
+      return response as unknown as ApiResponse<PaymentMatching>;
+    }
     if (response.success && response.data) {
       // Map response back to camelCase
       const mappedData: PaymentMatching = {
@@ -621,6 +633,9 @@ export const transactionService = {
     if (data.description !== undefined) apiData.description = data.description;
     
     const response = await api.patch<PaymentMatchingApiResponse>(`/purchase-bills/${id}`, apiData);
+    if (response.success && response.data && isChangeRequestSubmittedEnvelope(response.data)) {
+      return response as unknown as ApiResponse<PaymentMatching>;
+    }
     if (response.success && response.data) {
       // Map response back to camelCase
       const mappedData: PaymentMatching = {

@@ -116,6 +116,52 @@ function mapStatementAttachmentFields(item: any): {
   };
 }
 
+/** PATCH must not merge API error/hint envelopes into table rows (they map to zeros). */
+function assertPatchBodyIsStatementRow(statementData: unknown): void {
+  if (!statementData || typeof statementData !== 'object' || Array.isArray(statementData)) {
+    throw new Error('Invalid statement update response from server.');
+  }
+  const o = statementData as Record<string, unknown>;
+  if (typeof o.code === 'string' && o.code === 'APPROVAL_REQUIRED') {
+    const e = new Error(String(o.error ?? o.message ?? 'Approval required'));
+    (e as any).code = 'APPROVAL_REQUIRED';
+    throw e;
+  }
+  const hasRowFields =
+    o.issuing_bank != null ||
+    o.card_holder != null ||
+    o.card_no != null ||
+    o.card_number != null ||
+    o.credit_card_id != null ||
+    o.card_id != null ||
+    o.total_payment_due != null ||
+    o.total_due != null ||
+    o.totalDue != null ||
+    o.paid != null ||
+    o.paid_amount != null ||
+    o.paidAmount != null ||
+    o.epp != null ||
+    o.epp_balance != null ||
+    o.eppBalance != null ||
+    o.amount_pending != null ||
+    o.amountPending != null;
+  if (hasRowFields) return;
+  const msg = String(o.error ?? o.message ?? o.hint ?? '').trim();
+  const e = new Error(msg || 'Statement update was not applied.');
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes('approval') ||
+    lower.includes('admin') ||
+    lower.includes('change request') ||
+    lower.includes('cannot edit')
+  ) {
+    (e as any).code = 'APPROVAL_REQUIRED';
+  } else if (typeof o.code === 'string') {
+    (e as any).code = o.code;
+  }
+  throw e;
+}
+
 export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
   const att = mapStatementAttachmentFields(item);
   return {
@@ -288,7 +334,8 @@ export const creditCardService = {
     const response = await api.patch<CreditCardStatementApiResponse>(url, payload);
 
     if (response.success && response.data) {
-      const statementData = (response.data as any).data || response.data;
+      const statementData = (response.data as any).data ?? response.data;
+      assertPatchBodyIsStatementRow(statementData);
       const mappedStatement = mapCreditCardStatementFromApi(statementData);
 
       return {

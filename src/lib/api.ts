@@ -181,6 +181,91 @@ export interface ApiError {
   errors?: Record<string, string[]>;
 }
 
+/**
+ * Walk `data`, `data.data`, … (common API envelopes) and detect business failures returned with HTTP 2xx.
+ * - Any object with `code: "APPROVAL_REQUIRED"` (often nested under `success: true` wrappers).
+ * - Any object with `success: false` (or string `"false"`).
+ */
+function walkResponseEnvelopes(
+  node: unknown,
+  visit: (layer: Record<string, unknown>) => void,
+  depth = 0
+): void {
+  if (depth > 6 || !node || typeof node !== 'object' || Array.isArray(node)) return;
+  const o = node as Record<string, unknown>;
+  visit(o);
+  const inner = o.data;
+  if (inner != null && typeof inner === 'object' && !Array.isArray(inner)) {
+    walkResponseEnvelopes(inner, visit, depth + 1);
+  }
+}
+
+function throwIfResponseBusinessFailure(status: number, responseData: unknown): void {
+  walkResponseEnvelopes(responseData, (o) => {
+    if (typeof o.code === 'string' && o.code === 'APPROVAL_REQUIRED') {
+      const err = new Error(String(o.error ?? o.message ?? 'Approval required'));
+      (err as any).status = status;
+      (err as any).code = 'APPROVAL_REQUIRED';
+      throw err;
+    }
+    const s = o.success;
+    if (s === false || s === 'false') {
+      const err = new Error(String(o.error ?? o.message ?? 'Request failed'));
+      (err as any).status = status;
+      (err as any).code = typeof o.code === 'string' ? o.code : undefined;
+      throw err;
+    }
+  });
+}
+
+/**
+ * Depth-first scan for the first non-empty user-facing string on common keys.
+ * Used when `data.message` chains miss (e.g. message only under `result` / nested blobs).
+ */
+function extractMessageFromObjectGraph(body: unknown, depth = 0): string | undefined {
+  if (depth > 10 || body == null) return undefined;
+  if (typeof body === 'string') return body.trim() || undefined;
+  if (Array.isArray(body)) {
+    for (const item of body) {
+      const found = extractMessageFromObjectGraph(item, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (typeof body !== 'object') return undefined;
+  const o = body as Record<string, unknown>;
+  for (const key of ['message', 'msg', 'detail', 'description', 'hint']) {
+    const v = o[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  for (const v of Object.values(o)) {
+    const found = extractMessageFromObjectGraph(v, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+export function extractSuccessMessageFromBody(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const pick = (o: Record<string, unknown>): string | undefined => {
+    for (const key of ['message', 'msg', 'detail', 'description', 'hint']) {
+      const v = o[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return undefined;
+  };
+  let node: unknown = body;
+  for (let depth = 0; depth < 6; depth++) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) break;
+    const msg = pick(node as Record<string, unknown>);
+    if (msg) return msg;
+    const inner = (node as Record<string, unknown>).data;
+    if (inner == null) break;
+    node = inner;
+  }
+  return extractMessageFromObjectGraph(body);
+}
+
 // Generic API methods
 export const api = {
   // GET request
@@ -257,11 +342,13 @@ export const api = {
           }
         }
       }
+
+      throwIfResponseBusinessFailure(response.status, response.data);
       
       return {
         data: response.data,
         success: true,
-        message: (response.data as any)?.message,
+        message: extractSuccessMessageFromBody(response.data),
       };
     } catch (error) {
       throw rethrowHandled(error);
@@ -293,11 +380,13 @@ export const api = {
           }
         }
       }
+
+      throwIfResponseBusinessFailure(response.status, response.data);
       
       return {
         data: response.data,
         success: true,
-        message: (response.data as any)?.message,
+        message: extractSuccessMessageFromBody(response.data),
       };
     } catch (error) {
       throw rethrowHandled(error);
@@ -352,11 +441,13 @@ export const api = {
           }
         }
       }
+
+      throwIfResponseBusinessFailure(response.status, response.data);
       
       return {
         data: response.data,
         success: true,
-        message: (response.data as any)?.message,
+        message: extractSuccessMessageFromBody(response.data),
       };
     } catch (error) {
       throw rethrowHandled(error);
@@ -386,11 +477,13 @@ export const api = {
           }
         }
       }
+
+      throwIfResponseBusinessFailure(response.status, response.data);
       
       return {
         data: response.data,
         success: true,
-        message: (response.data as any)?.message,
+        message: extractSuccessMessageFromBody(response.data),
       };
     } catch (error) {
       throw rethrowHandled(error);
@@ -464,10 +557,20 @@ const handleError = (error: unknown): ApiError => {
       };
     }
   }
-  
+
+  if (error instanceof Error) {
+    const ex = error as any;
+    return {
+      message: error.message,
+      status: typeof ex.status === 'number' ? ex.status : undefined,
+      code: typeof ex.code === 'string' ? ex.code : undefined,
+      errors: ex.errors,
+    };
+  }
+
   // Unknown error
   return {
-    message: error instanceof Error ? error.message : 'An unknown error occurred',
+    message: 'An unknown error occurred',
   };
 };
 

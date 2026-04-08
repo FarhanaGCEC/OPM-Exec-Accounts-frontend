@@ -10,6 +10,8 @@
     import {
     Dialog,
     DialogContent,
+    DialogDescription,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
     } from '../components/ui/dialog';
@@ -38,12 +40,25 @@
     import { PdcAttachmentTableCell } from '../components/PdcAttachmentTableCell';
     import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
     import type { ApiResponse } from '../lib/api';
+    import { isApprovalRequiredError } from '../lib/approvalError';
+    import {
+    isChangeRequestSubmittedEnvelope,
+    userMessageFromChangeRequestSubmit,
+    } from '../lib/changeRequestUi';
+    import { changeRequestService } from '../services/changeRequestService';
     import * as XLSX from 'xlsx';
 
     interface PostDatedCheque extends PostDatedChequeType {
     date?: string; // Formatted date for display
     amountFormatted?: string; // Formatted amount for display
     }
+
+    const PDC_CHANGE_REQUEST_RESOURCE = 'pdc';
+
+    type PdcApprovalOffer =
+    | { mode: 'edit'; resourceId: string; payload: Record<string, unknown>; note?: string }
+    | { mode: 'delete'; resourceId: string }
+    | { mode: 'success'; message: string };
 
     // Zod validation schema
     const chequeSchema = z.object({
@@ -142,6 +157,9 @@
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [pdcApproval, setPdcApproval] = useState<PdcApprovalOffer | null>(null);
+    const [approvalSubmitting, setApprovalSubmitting] = useState(false);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [pdcAttachmentFile, setPdcAttachmentFile] = useState<File | null>(null);
     const form = useForm<ChequeFormData>({
@@ -213,10 +231,34 @@
         fetchCheques();
     }, [fetchCheques]);
 
+    const submitPdcApproval = useCallback(async () => {
+        if (!pdcApproval || pdcApproval.mode === 'success') return;
+        const offer = pdcApproval;
+        setApprovalSubmitting(true);
+        setError(null);
+        try {
+        const res = await changeRequestService.submit({
+            action: offer.mode === 'edit' ? 'edit' : 'delete',
+            resourceType: PDC_CHANGE_REQUEST_RESOURCE,
+            resourceId: offer.resourceId,
+            ...(offer.mode === 'edit' ? { payload: offer.payload } : {}),
+            ...(offer.mode === 'edit' && offer.note?.trim() ? { note: offer.note.trim() } : {}),
+        });
+        const apiMessage = userMessageFromChangeRequestSubmit(res);
+        setSuccessMessage(apiMessage);
+        setPdcApproval({ mode: 'success', message: apiMessage });
+        } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Could not submit change request');
+        } finally {
+        setApprovalSubmitting(false);
+        }
+    }, [pdcApproval]);
+
     const onSubmit = useCallback(async (data: ChequeFormData) => {
         try {
         setIsSubmitting(true);
         setError(null);
+        setSuccessMessage(null);
 
         // Prepare payload - all required fields must be included
         // Keep date in dd/mm/yyyy format as API expects
@@ -249,6 +291,33 @@
         } else {
             console.log('[PostDatedCheque] Creating cheque:', payload);
             response = await transactionService.createPostDatedCheque(payload, pdcAttachmentFile);
+        }
+
+        if (
+            response.success &&
+            response.data &&
+            isChangeRequestSubmittedEnvelope(response.data as unknown)
+        ) {
+            const apiMessage = userMessageFromChangeRequestSubmit(
+            response as ApiResponse<unknown>
+            );
+            setSuccessMessage(apiMessage);
+            setPdcApproval({ mode: 'success', message: apiMessage });
+            form.reset({
+            chequeDate: '',
+            chequeNumber: '',
+            customerName: '',
+            amount: '',
+            pdcType: 'GCEC PDC',
+            chequeType: 'Payment Cheque',
+            customDetails: '',
+            });
+            setEditingCheque(null);
+            setPdcAttachmentFile(null);
+            setError(null);
+            setIsModalOpen(false);
+            fetchCheques().catch(err => console.error('Error refetching after save:', err));
+            return;
         }
 
         if (response.success && response.data) {
@@ -294,10 +363,48 @@
             const errorMsg = response.message || 'Failed to save cheque';
             setError(errorMsg);
         }
-        } catch (err: any) {
-        const errorMessage = err?.message || err?.error || 'Failed to save cheque';
-        console.error('[PostDatedCheque] Error saving cheque:', err);
-        setError(errorMessage);
+        } catch (err: unknown) {
+        if (isApprovalRequiredError(err) && editingCheque) {
+            const payload: Record<string, unknown> = {
+            chequeDate: data.chequeDate,
+            chequeNumber: data.chequeNumber,
+            customerName: (data.customerName ?? '').trim(),
+            amount: parseFloat(data.amount.replace(/,/g, '')),
+            pdcType: data.pdcType,
+            chequeType: data.chequeType,
+            };
+            if (data.pdcType === 'Custom PDC' && data.customDetails?.trim()) {
+            payload.description = data.customDetails.trim();
+            }
+            const note =
+            pdcAttachmentFile && pdcAttachmentFile.size > 0
+                ? `PDC update requested; replace attachment (${pdcAttachmentFile.name}). Admin may need to attach the file after approval.`
+                : undefined;
+            setPdcApproval({
+            mode: 'edit',
+            resourceId: String(editingCheque.id),
+            payload,
+            ...(note ? { note } : {}),
+            });
+            form.reset({
+            chequeDate: '',
+            chequeNumber: '',
+            customerName: '',
+            amount: '',
+            pdcType: 'GCEC PDC',
+            chequeType: 'Payment Cheque',
+            customDetails: '',
+            });
+            setEditingCheque(null);
+            setPdcAttachmentFile(null);
+            setIsModalOpen(false);
+            setError(null);
+        } else {
+            const errorMessage =
+            err instanceof Error ? err.message : 'Failed to save cheque';
+            console.error('[PostDatedCheque] Error saving cheque:', err);
+            setError(errorMessage);
+        }
         } finally {
         setIsSubmitting(false);
         }
@@ -353,21 +460,40 @@
         try {
         setIsDeleting(true);
         setError(null);
+        setSuccessMessage(null);
         const response: ApiResponse<void> = await transactionService.deletePostDatedCheque(deletingChequeId);
         
         if (response.success) {
+            if (isChangeRequestSubmittedEnvelope(response.data)) {
+            const apiMessage = userMessageFromChangeRequestSubmit(
+                response as ApiResponse<unknown>
+            );
+            setSuccessMessage(apiMessage);
+            setPdcApproval({ mode: 'success', message: apiMessage });
+            setDeletingChequeId(null);
+            setIsDeleteModalOpen(false);
+            } else {
             setCheques(prevCheques =>
-            prevCheques.filter(cheque => cheque.id !== deletingChequeId)
+                prevCheques.filter(cheque => cheque.id !== deletingChequeId)
             );
             setDeletingChequeId(null);
             setIsDeleteModalOpen(false);
+            }
         } else {
             setError(response.message || 'Failed to delete cheque');
         }
-        } catch (err: any) {
-        const errorMessage = err?.message || err?.error || 'Failed to delete cheque';
-        setError(errorMessage);
-        console.error('Error deleting cheque:', err);
+        } catch (err: unknown) {
+        if (isApprovalRequiredError(err) && deletingChequeId) {
+            setPdcApproval({ mode: 'delete', resourceId: deletingChequeId });
+            setDeletingChequeId(null);
+            setIsDeleteModalOpen(false);
+            setError(null);
+        } else {
+            const errorMessage =
+            err instanceof Error ? err.message : 'Failed to delete cheque';
+            setError(errorMessage);
+            console.error('Error deleting cheque:', err);
+        }
         } finally {
         setIsDeleting(false);
         }
@@ -522,6 +648,12 @@
                 </Button>
             </div>
         </div>
+
+        {successMessage && (
+            <div className="mb-4 mx-8 p-3 bg-green-50 border border-green-200 rounded-md shadow-sm">
+            <p className="text-sm font-medium text-green-800">{successMessage}</p>
+            </div>
+        )}
 
         {error && !isModalOpen && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
@@ -907,6 +1039,74 @@
                 </div>
                 </form>
             </Form>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog
+            open={!!pdcApproval}
+            onOpenChange={(open) => {
+            if (!open) setPdcApproval(null);
+            }}
+        >
+            <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+                <DialogTitle>
+                {pdcApproval?.mode === 'success'
+                    ? 'Request submitted'
+                    : 'Admin approval required'}
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                Submit this change for an administrator to review.
+                </DialogDescription>
+            </DialogHeader>
+            {pdcApproval?.mode === 'success' ? (
+                <p className="text-sm text-green-800 font-medium leading-relaxed">
+                {pdcApproval.message}
+                </p>
+            ) : (
+                <p className="text-sm text-gray-600">
+                {pdcApproval?.mode === 'edit'
+                    ? 'Your account cannot edit this PDC directly. Submit the changes for an admin to review and apply?'
+                    : 'Your account cannot delete this PDC directly. Submit a delete request for an admin to review?'}
+                </p>
+            )}
+            <DialogFooter className="gap-2 sm:gap-0">
+                {pdcApproval?.mode === 'success' ? (
+                <Button
+                    type="button"
+                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                    onClick={() => setPdcApproval(null)}
+                >
+                    Done
+                </Button>
+                ) : (
+                <>
+                    <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setPdcApproval(null)}
+                    disabled={approvalSubmitting}
+                    >
+                    Cancel
+                    </Button>
+                    <Button
+                    type="button"
+                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                    onClick={() => void submitPdcApproval()}
+                    disabled={approvalSubmitting}
+                    >
+                    {approvalSubmitting ? (
+                        <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Submitting…
+                        </>
+                    ) : (
+                        'Submit request'
+                    )}
+                    </Button>
+                </>
+                )}
+            </DialogFooter>
             </DialogContent>
         </Dialog>
 

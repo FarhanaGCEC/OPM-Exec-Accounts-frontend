@@ -8,6 +8,7 @@ import {
   CardHeader,
 } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { PasswordInput } from '../components/ui/password-input';
 import { Checkbox } from '../components/ui/checkbox';
 import { User, Lock } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -177,14 +178,13 @@ export default function Auth() {
                 >
                   <Lock className="w-5 h-5 text-gray-600" strokeWidth={2} />
                 </div>
-                <Input
-                  type="password"
+                <PasswordInput
                   placeholder="Password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className={cn(
-                    "pl-10 pr-4 py-2 bg-white rounded-md text-gray-800 border",
-                    errors.password || error ? "border-red-500" : "border-gray-300"
+                    'pl-10 py-2 bg-white rounded-md text-gray-800 border',
+                    errors.password || error ? 'border-red-500' : 'border-gray-300'
                   )}
                   style={{ position: 'relative', zIndex: 10 }}
                 />
