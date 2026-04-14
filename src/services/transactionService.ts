@@ -10,7 +10,7 @@ export interface BankTransaction {
   category?: string; // Category name from API
   categoryId?: string | number; // For POST/PUT requests
   type?: 'Debit' | 'Credit'; // For POST/PUT requests
-  paymentType: 'creditcard' | 'cheque' | 'cash' | 'banktransfer' | 'online';
+  paymentType: 'creditcard' | 'cheque' | 'cash' | 'banktransfer' | 'online' | 'dd';
   chequeNumber?: string;
   debit?: number | null; // From API response
   credit?: number | null; // From API response
@@ -29,6 +29,19 @@ export interface BankTransaction {
   showLedgerApprovalCheckbox?: boolean;
   approvalPendingFooterDuplicate?: boolean;
 }
+
+/** POST /transactions/bulk-delete success body (may be nested under `data`). */
+export type BulkDeleteTransactionsResult = {
+  deletedLedger?: number;
+  deletedPdc?: number;
+  deletedPurchaseBills?: number;
+  missingLedgerIds?: (string | number)[];
+  missingPdcIds?: (string | number)[];
+  missingPurchaseBillIds?: (string | number)[];
+  /** Ledger-only misses (legacy / short field). */
+  missingIds?: (string | number)[];
+  message?: string;
+};
 
 // API Response interface (snake_case from backend)
 export interface PostDatedChequeApiResponse {
@@ -387,6 +400,17 @@ export const transactionService = {
 
   deleteBankTransaction: async (id: string): Promise<ApiResponse<void>> => {
     return api.delete<void>(`/transactions/${id}`);
+  },
+
+  /**
+   * POST /transactions/bulk-delete — `ids` for plain ledger + string synthetic keys (e.g. pdc-due-…);
+   * `transactions` for typed rows (`transactionType` + full row) so PDC / bill ids are not conflated with ledger ids.
+   */
+  deleteBankTransactionsBulk: async (body: {
+    ids: (string | number)[];
+    transactions: Record<string, unknown>[];
+  }): Promise<ApiResponse<BulkDeleteTransactionsResult>> => {
+    return api.post<BulkDeleteTransactionsResult>('/transactions/bulk-delete', body);
   },
 
   /**

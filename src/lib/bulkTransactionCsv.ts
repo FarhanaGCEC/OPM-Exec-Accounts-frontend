@@ -7,7 +7,7 @@ export const BULK_TX_MAX_ROWS = 500;
 export type BulkApiTransactionRow = {
   date: string;
   type: 'Debit' | 'Credit';
-  paymentType: 'cash' | 'cheque' | 'creditcard' | 'online';
+  paymentType: 'cash' | 'cheque' | 'creditcard' | 'online' | 'dd';
   amount: number;
   categoryId?: number;
   chequeNumber?: string;
@@ -135,6 +135,7 @@ export function normalizeBulkPaymentType(raw: string): BulkApiTransactionRow['pa
   ) {
     return 'online';
   }
+  if (x === 'dd' || x === 'direct debit' || x === 'directdebit') return 'dd';
   return null;
 }
 
@@ -465,7 +466,7 @@ export function parseBulkTransactionTable(
       if (!ptype) {
         issues.push({
           csvRow: fileRow,
-          message: `Invalid paymentType: "${get('paymenttype')}" (cash, cheque, creditcard, online, or leave blank for online)`,
+          message: `Invalid paymentType: "${get('paymenttype')}" (cash, cheque, creditcard, dd, online, or leave blank for online)`,
         });
         continue;
       }
@@ -540,7 +541,7 @@ export function parseBulkTransactionTable(
     if (!ptype) {
       issues.push({
         csvRow: fileRow,
-        message: `Invalid paymentType: "${get('paymenttype')}" (cash, cheque, creditcard, online, or leave blank for online)`,
+        message: `Invalid paymentType: "${get('paymenttype')}" (cash, cheque, creditcard, dd, online, or leave blank for online)`,
       });
       continue;
     }

@@ -26,7 +26,7 @@ export default function PostDatedCheque() {
                       <User className="w-8 h-8 text-black" />
                     </div>
                     <div>
-                      <h2 className="text-2xl font-bold text-black">Customer PDC</h2>
+                      <h2 className="text-2xl font-bold text-black">Customer PDC in hand</h2>
                       <p className="text-[#f7c46d]">Post Dated Cheque</p>
                     </div>
                   </div>
@@ -44,7 +44,7 @@ export default function PostDatedCheque() {
                       <Building2 className="w-8 h-8 text-black" />
                     </div>
                     <div>
-                      <h2 className="text-2xl font-bold text-black">GCEC PDC</h2>
+                      <h2 className="text-2xl font-bold text-black">GCEC issued PDC</h2>
                       <p className="text-[#f7c46d]">Corporate Cheques</p>
                     </div>
                   </div>

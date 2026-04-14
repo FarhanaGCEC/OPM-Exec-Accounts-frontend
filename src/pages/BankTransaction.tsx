@@ -16,6 +16,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -50,6 +51,7 @@ import { receivablesService, type ReceivablesCategory } from '../services/receiv
 import {
   transactionService,
   type BankTransaction as BankTransactionType,
+  type BulkDeleteTransactionsResult,
   normalizePdcTypeFromApi,
 } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
@@ -91,6 +93,22 @@ function readPdcLedgerRowFlags(tx: Record<string, unknown>) {
       pick('approvalPendingFooterDuplicate', 'approval_pending_footer_duplicate')
     ),
   };
+}
+
+/** Map GET /transactions paymentType to UI form values (online → banktransfer, DD variants → dd). */
+function normalizeLedgerPaymentTypeForUi(
+  pt: unknown
+): 'creditcard' | 'cheque' | 'cash' | 'banktransfer' | 'dd' {
+  const s = String(pt ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  if (s === 'online') return 'banktransfer';
+  if (s === 'dd' || s === 'directdebit') return 'dd';
+  if (s === 'creditcard' || s === 'cheque' || s === 'cash' || s === 'banktransfer') {
+    return s;
+  }
+  return 'cash';
 }
 
 /** Same detection as ledger grid row background for bounced / returned cheque. */
@@ -327,8 +345,164 @@ interface BankTransaction extends BankTransactionType {
   debitFormatted?: string | null; // Formatted debit amount
   creditFormatted?: string | null; // Formatted credit amount
   remarks?: string | null; // Remarks for the transaction
-  
+  /** Raw GET /transactions row for bulk-delete `transactions` payload (typed rows). */
+  bulkDeleteSourceRow?: Record<string, unknown>;
+
   originalDate?: string; // Store original ISO date for editing
+}
+
+const BULK_DELETE_ENTITY_TYPES = new Set([
+  'GCEC PDC',
+  'Customer PDC',
+  'Custom PDC',
+  'Purchase Bill',
+]);
+
+/** PDC rows in bulk-delete must use numeric post_dated_cheques id, not synthetic ledger keys like pdc-due-20. */
+const BULK_DELETE_PDC_TRANSACTION_TYPES = new Set([
+  'GCEC PDC',
+  'Customer PDC',
+  'Custom PDC',
+]);
+
+function numericPostDatedChequeId(t: BankTransaction): number | undefined {
+  if (t.pdcId != null && String(t.pdcId).trim() !== '') {
+    const n = Number(t.pdcId);
+    if (!Number.isNaN(n)) return n;
+  }
+  const raw = t.bulkDeleteSourceRow?.pdcId ?? t.bulkDeleteSourceRow?.pdc_id;
+  if (raw != null && String(raw).trim() !== '') {
+    const n = Number(raw);
+    if (!Number.isNaN(n)) return n;
+  }
+  const m = /^pdc-due-(\d+)$/i.exec(String(t.id ?? '').trim());
+  if (m) return Number(m[1]);
+  return undefined;
+}
+
+/** PDC / purchase-bill rows must use `transactions[]` with transactionType — not bare numeric `ids`. */
+function rowMustUseTransactionPayload(t: BankTransaction): boolean {
+  const raw = t.bulkDeleteSourceRow;
+  const apiT = String(raw?.transactionType ?? raw?.transaction_type ?? '').trim();
+  if (BULK_DELETE_ENTITY_TYPES.has(apiT)) return true;
+  if (apiT.toLowerCase().includes('purchase')) return true;
+  if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) return true;
+  if (rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) return true;
+  if (t.syntheticFromPdc) return true;
+  if (raw?.vendorName != null || raw?.vendor_name != null) return true;
+  return false;
+}
+
+/** Plain ledger id (number) or synthetic string id (e.g. pdc-due-123) for `ids` only. */
+function rowIdForBulkDeleteIdsArray(t: BankTransaction): string | number | null {
+  const idStr = String(t.id ?? '').trim();
+  if (!idStr) return null;
+  if (!/^\d+$/.test(idStr)) return idStr;
+  return Number(idStr);
+}
+
+function buildBulkDeleteTransactionPayload(t: BankTransaction): Record<string, unknown> {
+  const src =
+    t.bulkDeleteSourceRow != null
+      ? ({ ...t.bulkDeleteSourceRow } as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+  let transactionType = String(src.transactionType ?? src.transaction_type ?? '').trim();
+  if (!transactionType) {
+    if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) transactionType = 'GCEC PDC';
+    else if (rowIsCustomerPdcHighlight(t.remarks, t.pdcType))
+      transactionType = 'Customer PDC';
+    else if (t.syntheticFromPdc) transactionType = normalizePdcTypeFromApi(t.pdcType);
+    else if (
+      src.vendorName != null ||
+      src.vendor_name != null ||
+      src.invoiceNumber != null ||
+      src.invoice_number != null
+    )
+      transactionType = 'Purchase Bill';
+  }
+  if (!transactionType) transactionType = 'Daily Transaction';
+
+  const pdcNumericId = numericPostDatedChequeId(t);
+  const isPdcTypedRow = BULK_DELETE_PDC_TRANSACTION_TYPES.has(transactionType);
+  const idForApi: string | number =
+    isPdcTypedRow && pdcNumericId != null ? pdcNumericId : (t.id ?? '');
+
+  const out: Record<string, unknown> = {
+    ...src,
+    transactionType,
+    id: idForApi,
+    pdcId: pdcNumericId ?? t.pdcId ?? src.pdcId ?? src.pdc_id,
+    pdcType: t.pdcType ?? src.pdcType ?? src.pdc_type,
+    syntheticFromPdc:
+      t.syntheticFromPdc ?? src.syntheticFromPdc ?? src.synthetic_from_pdc,
+  };
+  if (isPdcTypedRow && pdcNumericId != null) {
+    out.post_dated_cheque_id = pdcNumericId;
+    out.post_dated_cheques_id = pdcNumericId;
+  }
+  return out;
+}
+
+function buildBulkDeleteRequestBody(list: BankTransaction[]): {
+  ids: (string | number)[];
+  transactions: Record<string, unknown>[];
+} {
+  const ids: (string | number)[] = [];
+  const transactions: Record<string, unknown>[] = [];
+  const idKeys = new Set<string>();
+  const txnKeys = new Set<string>();
+
+  for (const t of list) {
+    if (t.approvalPendingFooterDuplicate) continue;
+
+    if (rowMustUseTransactionPayload(t)) {
+      const payload = buildBulkDeleteTransactionPayload(t);
+      const tt = String(payload.transactionType ?? '');
+      const key = `${tt}:${String(payload.id)}:${String(payload.pdcId ?? '')}`;
+      if (txnKeys.has(key)) continue;
+      txnKeys.add(key);
+      transactions.push(payload);
+    } else {
+      const id = rowIdForBulkDeleteIdsArray(t);
+      if (id == null) continue;
+      const k = `${typeof id}:${id}`;
+      if (idKeys.has(k)) continue;
+      idKeys.add(k);
+      ids.push(id);
+    }
+  }
+  return { ids, transactions };
+}
+
+function unwrapBulkDeleteResult(raw: unknown): BulkDeleteTransactionsResult | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  if (o.data && typeof o.data === 'object' && !Array.isArray(o.data)) {
+    return o.data as BulkDeleteTransactionsResult;
+  }
+  return o as BulkDeleteTransactionsResult;
+}
+
+function formatBulkDeleteSuccessMessage(raw: unknown, fallback: string): string {
+  const d = unwrapBulkDeleteResult(raw);
+  if (!d) return fallback;
+  const parts: string[] = [];
+  if (typeof d.deletedLedger === 'number') parts.push(`${d.deletedLedger} ledger`);
+  if (typeof d.deletedPdc === 'number') parts.push(`${d.deletedPdc} PDC`);
+  if (typeof d.deletedPurchaseBills === 'number')
+    parts.push(`${d.deletedPurchaseBills} purchase bill(s)`);
+  const notes: string[] = [];
+  if (Array.isArray(d.missingIds) && d.missingIds.length)
+    notes.push(`missing ledger ids: ${d.missingIds.length}`);
+  if (Array.isArray(d.missingLedgerIds) && d.missingLedgerIds.length)
+    notes.push(`missing ledger ids (detail): ${d.missingLedgerIds.length}`);
+  if (Array.isArray(d.missingPdcIds) && d.missingPdcIds.length)
+    notes.push(`missing PDC ids: ${d.missingPdcIds.length}`);
+  if (Array.isArray(d.missingPurchaseBillIds) && d.missingPurchaseBillIds.length)
+    notes.push(`missing purchase bill ids: ${d.missingPurchaseBillIds.length}`);
+  let msg = parts.length ? `Deleted ${parts.join(', ')}.` : fallback;
+  if (notes.length) msg += ` ${notes.join('; ')}.`;
+  return msg;
 }
 
 function parseTransactionDateForSort(t: BankTransaction): Date | null {
@@ -412,6 +586,7 @@ function ledgerExportDetailsColumn(t: BankTransaction): string {
   if (t.paymentType === 'cash') return 'Cash';
   if (t.paymentType === 'creditcard') return 'Credit Card';
   if (t.paymentType === 'banktransfer') return 'Online';
+  if (t.paymentType === 'dd') return 'DD';
   if (t.paymentType) return t.paymentType;
   return '';
 }
@@ -424,9 +599,8 @@ const transactionSchema = z.object({
   type: z.enum(['Debit', 'Credit'], {
     required_error: 'Please select a type',
   }),
-  categoryId: z.string()
-    .min(1, 'Category is required'),
-  paymentType: z.enum(['creditcard', 'cheque', 'cash', 'banktransfer'], {
+  categoryId: z.string(),
+  paymentType: z.enum(['creditcard', 'cheque', 'cash', 'banktransfer', 'dd'], {
     required_error: 'Please select a payment type',
   }),
   chequeNumber: z.string().optional(),
@@ -437,6 +611,12 @@ const transactionSchema = z.object({
       const num = parseFloat(val.replace(/,/g, ''));
       return !isNaN(num) && num > 0;
     }, 'Amount must be greater than 0'),
+}).refine((data) => {
+  if (data.paymentType === 'dd') return true;
+  return data.categoryId.trim().length > 0;
+}, {
+  message: 'Category is required',
+  path: ['categoryId'],
 }).refine((data) => {
   // If payment type is cheque, chequeNumber is required
   if (data.paymentType === 'cheque') {
@@ -481,8 +661,6 @@ export default function BankTransaction() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'online' | 'cheque' | 'cash'>('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [searchDetails, setSearchDetails] = useState<string>('');
@@ -493,6 +671,11 @@ export default function BankTransaction() {
   type ApprovalOffer =
     | { mode: 'edit'; resourceId: string; payload: Record<string, unknown> }
     | { mode: 'delete'; resourceId: string }
+    | {
+        mode: 'delete_bulk';
+        ids: (string | number)[];
+        transactions: Record<string, unknown>[];
+      }
     | { mode: 'pdc_daily_ledger'; resourceId: string; payload: Record<string, unknown> }
     | { mode: 'success'; message: string };
   const [approvalOffer, setApprovalOffer] = useState<ApprovalOffer | null>(null);
@@ -502,6 +685,8 @@ export default function BankTransaction() {
   const [pdcApproveDialogOpen, setPdcApproveDialogOpen] = useState(false);
   const [pdcApprovePdcId, setPdcApprovePdcId] = useState<number | null>(null);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const form = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
@@ -530,6 +715,13 @@ export default function BankTransaction() {
   useEffect(() => {
     form.setValue('categoryId', '');
   }, [transactionType, form]);
+
+  // DD (direct debit) does not use a payables/receivables category
+  useEffect(() => {
+    if (paymentType === 'dd') {
+      form.setValue('categoryId', '');
+    }
+  }, [paymentType, form]);
 
   // Fetch both payables and receivables categories
   const fetchCategories = useCallback(async () => {
@@ -595,14 +787,16 @@ export default function BankTransaction() {
           const formattedDate =
             apiDate && !isFooterDup ? formatDate(String(apiDate)) : '';
 
-          const debitAmount = transaction.debit
-            ? transaction.debit.toLocaleString('en-US', {
+          const debitNum = parseLedgerAmount(transaction.debit);
+          const creditNum = parseLedgerAmount(transaction.credit);
+          const debitAmount = debitNum
+            ? debitNum.toLocaleString('en-US', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })
             : null;
-          const creditAmount = transaction.credit
-            ? transaction.credit.toLocaleString('en-US', {
+          const creditAmount = creditNum
+            ? creditNum.toLocaleString('en-US', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })
@@ -616,8 +810,7 @@ export default function BankTransaction() {
                 })
               : String(transaction.balance || '0');
 
-          const frontendPaymentType =
-            transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
+          const frontendPaymentType = normalizeLedgerPaymentTypeForUi(transaction.paymentType);
 
           const remarksRaw = row.remarks;
           const remarks =
@@ -625,6 +818,7 @@ export default function BankTransaction() {
 
           return {
             ...transaction,
+            bulkDeleteSourceRow: { ...row },
             id: String(transaction.id ?? ''),
             date: formattedDate,
             originalDate: isoForEdit,
@@ -634,7 +828,8 @@ export default function BankTransaction() {
               | 'creditcard'
               | 'cheque'
               | 'cash'
-              | 'banktransfer',
+              | 'banktransfer'
+              | 'dd',
             debit: transaction.debit,
             credit: transaction.credit,
             debitFormatted: debitAmount,
@@ -734,24 +929,31 @@ export default function BankTransaction() {
       const amountNumber = parseFloat(data.amount.replace(/,/g, ''));
 
       // Prepare payload for API
-      // Convert 'banktransfer' to 'online' for API
-      const apiPaymentType = data.paymentType === 'banktransfer' ? 'online' : data.paymentType;
+      // Convert 'banktransfer' to 'online' for API; DD stays `dd`
+      const apiPaymentType =
+        data.paymentType === 'banktransfer'
+          ? 'online'
+          : data.paymentType === 'dd'
+            ? 'dd'
+            : data.paymentType;
       
       const payload: {
         date: string;
         type: 'Debit' | 'Credit';
-        categoryId: string | number;
-        paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
+        categoryId?: string | number;
+        paymentType: 'creditcard' | 'cheque' | 'cash' | 'online' | 'dd';
         chequeNumber?: string;
         remarks?: string;
         amount: number;
       } = {
         date: data.date, // Format: dd/mm/yyyy
         type: data.type,
-        categoryId: data.categoryId,
-        paymentType: apiPaymentType as 'creditcard' | 'cheque' | 'cash' | 'online',
+        paymentType: apiPaymentType as 'creditcard' | 'cheque' | 'cash' | 'online' | 'dd',
         amount: amountNumber,
       };
+      if (data.paymentType !== 'dd' && data.categoryId.trim() !== '') {
+        payload.categoryId = data.categoryId;
+      }
 
       // Only include chequeNumber if payment type is cheque
       if (data.paymentType === 'cheque' && data.chequeNumber) {
@@ -779,7 +981,10 @@ export default function BankTransaction() {
       if (response.success && response.data) {
         // Find category name for display based on transaction type
         const categoryList = data.type === 'Debit' ? payablesCategories : receivablesCategories;
-        const selectedCategory = categoryList.find(cat => String(cat.id) === data.categoryId);
+        const selectedCategory =
+          data.paymentType === 'dd'
+            ? undefined
+            : categoryList.find((cat) => String(cat.id) === data.categoryId);
         
         // Format amount with commas for display
         const amountValue = typeof response.data.amount === 'number' 
@@ -801,7 +1006,7 @@ export default function BankTransaction() {
           const updatedTransaction: BankTransaction = {
             ...response.data,
             id: String(response.data.id || editingTransaction.id),
-            categoryName: selectedCategory?.name,
+            categoryName: selectedCategory?.name ?? response.data.category ?? 'N/A',
             amount: formattedAmount,
             balance: formattedBalance,
           };
@@ -821,7 +1026,7 @@ export default function BankTransaction() {
           const newTransaction: BankTransaction = {
             ...response.data,
             id: String(response.data.id || Date.now()),
-            categoryName: selectedCategory?.name,
+            categoryName: selectedCategory?.name ?? response.data.category ?? 'N/A',
             amount: formattedAmount,
             balance: formattedBalance,
           };
@@ -893,12 +1098,19 @@ export default function BankTransaction() {
               resourceId: offer.resourceId,
               payload: offer.payload,
             })
-          : await changeRequestService.submit({
-              action: mode === 'edit' ? 'edit' : 'delete',
-              resourceType: 'transaction',
-              resourceId: offer.resourceId,
-              ...(mode === 'edit' ? { payload: offer.payload } : {}),
-            });
+          : mode === 'delete_bulk'
+            ? await changeRequestService.submit({
+                action: 'delete',
+                resourceType: 'transaction',
+                resourceId: 'bulk',
+                payload: { ids: offer.ids, transactions: offer.transactions },
+              })
+            : await changeRequestService.submit({
+                action: mode === 'edit' ? 'edit' : 'delete',
+                resourceType: 'transaction',
+                resourceId: offer.resourceId,
+                ...(mode === 'edit' ? { payload: offer.payload } : {}),
+              });
       const apiMessage = userMessageFromChangeRequestSubmit(res);
       if (mode === 'edit') {
         setIsModalOpen(false);
@@ -915,7 +1127,7 @@ export default function BankTransaction() {
       }
       setSuccessMessage(apiMessage);
       setApprovalOffer({ mode: 'success', message: apiMessage });
-      if (mode === 'pdc_daily_ledger') {
+      if (mode === 'pdc_daily_ledger' || mode === 'delete_bulk') {
         await fetchTransactions();
       }
     } catch (e: unknown) {
@@ -1026,24 +1238,26 @@ export default function BankTransaction() {
       }
     }
     
+    const formPaymentType = normalizeLedgerPaymentTypeForUi(transaction.paymentType);
+    if (formPaymentType === 'dd') {
+      categoryId = '';
+    }
+
     console.log('[handleEdit] Final categoryId:', categoryId);
-    
-    // Ensure paymentType is 'banktransfer' not 'online' for form
-    const formPaymentType = transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
-    
+
     // Reset form with all values
     form.reset({
       date: dateValue,
       type: transactionType as 'Debit' | 'Credit',
       categoryId: categoryId,
-      paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
+      paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer' | 'dd',
       chequeNumber: transaction.chequeNumber && transaction.chequeNumber !== '-' ? transaction.chequeNumber : '' ,
       remarks: transaction.remarks || '',
       amount: amountValue,
     });
     
-    // Force set categoryId after a small delay to ensure form is ready
-    if (categoryId) {
+    // Force set categoryId after a small delay to ensure form is ready (not for DD)
+    if (categoryId && formPaymentType !== 'dd') {
       setTimeout(() => {
         form.setValue('categoryId', categoryId, { shouldValidate: false });
         console.log('[handleEdit] Force set categoryId after reset:', categoryId);
@@ -1109,6 +1323,68 @@ export default function BankTransaction() {
     }
   }, [deletingTransactionId, fetchTransactions]);
 
+  const bulkDeletePayload = useMemo(
+    () => buildBulkDeleteRequestBody(transactions),
+    [transactions]
+  );
+
+  const handleBulkDeleteConfirm = useCallback(async () => {
+    if (
+      bulkDeletePayload.ids.length === 0 &&
+      bulkDeletePayload.transactions.length === 0
+    ) {
+      setError('No rows to bulk-delete.');
+      return;
+    }
+    try {
+      setIsBulkDeleting(true);
+      setError(null);
+      const response = await transactionService.deleteBankTransactionsBulk(bulkDeletePayload);
+
+      if (response.success) {
+        if (isChangeRequestSubmittedEnvelope(response.data)) {
+          const apiMessage = userMessageFromChangeRequestSubmit(
+            response as ApiResponse<unknown>
+          );
+          setSuccessMessage(apiMessage);
+          setApprovalOffer({ mode: 'success', message: apiMessage });
+          setIsBulkDeleteModalOpen(false);
+        } else {
+          setTransactions([]);
+          setIsBulkDeleteModalOpen(false);
+          setSuccessMessage(
+            formatBulkDeleteSuccessMessage(
+              response.data,
+              response.message || 'Bulk delete completed.'
+            )
+          );
+          await fetchTransactions();
+        }
+      } else {
+        setError(
+          response.error || response.message || 'Failed to delete all transactions'
+        );
+      }
+    } catch (err: unknown) {
+      if (isApprovalRequiredError(err)) {
+        setApprovalOffer({
+          mode: 'delete_bulk',
+          ids: bulkDeletePayload.ids,
+          transactions: bulkDeletePayload.transactions,
+        });
+        setIsBulkDeleteModalOpen(false);
+        setError(null);
+      } else {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to delete all transactions';
+        console.error('[BankTransaction] Bulk delete error:', err);
+        setError(errorMessage);
+      }
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }, [bulkDeletePayload, fetchTransactions]);
+
   const handleAddNew = useCallback(() => {
     setEditingTransaction(null);
     setError(null);
@@ -1131,10 +1407,6 @@ export default function BankTransaction() {
     const amount = transaction.debitFormatted || transaction.creditFormatted || '0';
     return `${transaction.categoryName || 'Transaction'} - ${amount} AED`;
   }, [deletingTransactionId, transactions]);
-
-
-
-
 
   // Helper function to parse date from DD-MMM-YYYY format
   const parseDateForFilter = useCallback((dateString: string): Date | null => {
@@ -1164,7 +1436,13 @@ export default function BankTransaction() {
 
     // Filter by payment type
     // 'online' tab shows both creditcard and banktransfer (which comes as 'online' from API)
-    if (activeTab === 'online' && transaction.paymentType !== 'creditcard' && transaction.paymentType !== 'banktransfer') return false;
+    if (
+      activeTab === 'online' &&
+      transaction.paymentType !== 'creditcard' &&
+      transaction.paymentType !== 'banktransfer' &&
+      transaction.paymentType !== 'dd'
+    )
+      return false;
     if (activeTab === 'cheque' && transaction.paymentType !== 'cheque') return false;
     if (activeTab === 'cash' && transaction.paymentType !== 'cash') return false;
     
@@ -1198,6 +1476,8 @@ export default function BankTransaction() {
         ? 'Credit Card'
         : transaction.paymentType === 'banktransfer'
         ? 'Online'
+        : transaction.paymentType === 'dd'
+        ? 'DD'
         : transaction.paymentType || '';
       
       if (!details.toLowerCase().includes(searchDetails.toLowerCase().trim())) return false;
@@ -1237,38 +1517,22 @@ export default function BankTransaction() {
     [filteredTransactions]
   );
 
-  // Pagination: body stays chronological; last page appends **frontend-only** copies of unapproved PDC (no date).
+  // Full table: all body rows, then **frontend-only** copies of unapproved PDC at the end (no date).
   const bodyTransactions = filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t));
   const pdcPendingBottomRows = bodyTransactions.filter((t) => isUnapprovedPdcPinBottom(t));
-  const totalBodyPages = Math.max(1, Math.ceil(bodyTransactions.length / itemsPerPage));
-  const totalPages = totalBodyPages;
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
 
-  type PaginatedLedgerRow = {
+  type LedgerTableRow = {
     transaction: BankTransaction;
     clientPendingBottomDup?: boolean;
   };
 
-  const paginatedRows: PaginatedLedgerRow[] =
-    currentPage < totalBodyPages
-      ? bodyTransactions.slice(startIndex, endIndex).map((t) => ({ transaction: t }))
-      : [
-          ...bodyTransactions.slice(startIndex, endIndex).map((t) => ({ transaction: t })),
-          ...pdcPendingBottomRows.map((t) => ({
-            transaction: t,
-            clientPendingBottomDup: true as const,
-          })),
-        ];
-
-  useEffect(() => {
-    setCurrentPage((p) => Math.min(p, totalBodyPages));
-  }, [totalBodyPages]);
-
-  // Reset to page 1 when filter changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, startDate, endDate, searchDetails, searchAmount, searchDescription, searchRemarks]);
+  const ledgerTableRows: LedgerTableRow[] = [
+    ...bodyTransactions.map((t) => ({ transaction: t })),
+    ...pdcPendingBottomRows.map((t) => ({
+      transaction: t,
+      clientPendingBottomDup: true as const,
+    })),
+  ];
 
   // Clear all filters
   const handleClearFilters = () => {
@@ -1278,7 +1542,6 @@ export default function BankTransaction() {
     setSearchAmount('');
     setSearchDescription('');
     setSearchRemarks('');
-    setCurrentPage(1);
   };
 
   // CSV Download function
@@ -1810,7 +2073,6 @@ export default function BankTransaction() {
        
         <Button
           onClick={() => {
-            setCurrentPage(1);
             handleClearFilters();
           }}
           className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-10 flex-1 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
@@ -1878,6 +2140,24 @@ export default function BankTransaction() {
         >
           <Upload className="w-4 h-4" />
           <span>Bulk upload</span>
+        </Button>
+        <Button
+          type="button"
+          onClick={() => {
+            setError(null);
+            setIsBulkDeleteModalOpen(true);
+          }}
+          variant="outline"
+          className="flex items-center space-x-2 border-red-200 text-red-700 hover:bg-red-50"
+          disabled={
+            loading ||
+            loadingCategories ||
+            (bulkDeletePayload.ids.length === 0 &&
+              bulkDeletePayload.transactions.length === 0)
+          }
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Delete all</span>
         </Button>
         <Button
           onClick={handleDownloadCSV}
@@ -1963,7 +2243,7 @@ export default function BankTransaction() {
                     </td>
                   </tr>
                 ) : (
-                  paginatedRows.map(({ transaction, clientPendingBottomDup }) => {
+                  ledgerTableRows.map(({ transaction, clientPendingBottomDup }) => {
                     const isBouncedCheque = isBouncedChequeRemarks(transaction.remarks);
                     const isGcecPdc = rowIsGcecPdcHighlight(
                       transaction.remarks,
@@ -2007,6 +2287,8 @@ export default function BankTransaction() {
                           ? 'Credit Card'
                           : transaction.paymentType === 'banktransfer'
                           ? 'Online'
+                          : transaction.paymentType === 'dd'
+                          ? 'DD'
                           : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
                       </td>
                       <td className="text-sm py-2 text-left p-2 align-middle">
@@ -2142,74 +2424,6 @@ export default function BankTransaction() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
-      {bodyTransactions.length > itemsPerPage && (
-        <div className="mt-4 flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            Showing {startIndex + 1} to{' '}
-            {currentPage < totalBodyPages
-              ? Math.min(endIndex, bodyTransactions.length)
-              : bodyTransactions.length}
-            of {bodyTransactions.length} ledger rows
-            {currentPage === totalBodyPages && pdcPendingBottomRows.length > 0 && (
-              <span>
-                {` · ${pdcPendingBottomRows.length} PDC pending copy (no date) at end`}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-              variant="outline"
-              className="border-gray-300 hover:bg-gray-50 text-black"
-            >
-              Previous
-            </Button>
-            <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                // Show first page, last page, current page, and pages around current
-                if (
-                  page === 1 ||
-                  page === totalPages ||
-                  (page >= currentPage - 1 && page <= currentPage + 1)
-                ) {
-                  return (
-                    <Button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      variant={currentPage === page ? "default" : "outline"}
-                      className={
-                        currentPage === page
-                          ? "bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                          : "border-gray-300 hover:bg-gray-50 text-black"
-                      }
-                      size="sm"
-                    >
-                      {page}
-                    </Button>
-                  );
-                } else if (
-                  page === currentPage - 2 ||
-                  page === currentPage + 2
-                ) {
-                  return <span key={page} className="px-2">...</span>;
-                }
-                return null;
-              })}
-            </div>
-            <Button
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
-              variant="outline"
-              className="border-gray-300 hover:bg-gray-50 text-black"
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Add/Edit Bank Transaction Modal */}
       <Dialog open={isModalOpen} onOpenChange={(open) => {
         setIsModalOpen(open);
@@ -2227,7 +2441,7 @@ export default function BankTransaction() {
           setError(null);
         }
       }}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-gray-900">
               {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
@@ -2345,22 +2559,57 @@ export default function BankTransaction() {
                 }}
               />
 
-              {/* Type Field */}
+              {/* Payment type (Cash / Cheque / … / DD) — not the same as Debit vs Credit below */}
+              <FormField
+                control={form.control}
+                name="paymentType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-lg font-medium text-gray-700">
+                      Payment type
+                    </FormLabel>
+                    <FormDescription className="text-base text-gray-600">
+                      Includes <strong>DD</strong> (direct debit). This is separate from Debit/Credit below.
+                    </FormDescription>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select payment type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="z-[100] max-h-72">
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="cheque">Cheque</SelectItem>
+                        <SelectItem value="creditcard">Credit Card</SelectItem>
+                        <SelectItem value="banktransfer">Online</SelectItem>
+                        <SelectItem value="dd">DD (Direct Debit)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Ledger direction: Debit vs Credit (not DD — DD is payment type above) */}
               <FormField
                 control={form.control}
                 name="type"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-lg font-medium text-gray-700">
-                      Type
+                      Debit or Credit
                     </FormLabel>
+                    <FormDescription className="text-base text-gray-600">
+                      Whether this entry increases debit or credit on the ledger. For bank direct debit, pick{' '}
+                      <strong>DD</strong> in <strong>Payment type</strong> above.
+                    </FormDescription>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select type" />
+                          <SelectValue placeholder="Debit or Credit" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className="z-[100]">
                         <SelectItem value="Debit">Debit</SelectItem>
                         <SelectItem value="Credit">Credit</SelectItem>
                       </SelectContent>
@@ -2370,94 +2619,74 @@ export default function BankTransaction() {
                 )}
               />
 
-              {/* Category Field */}
-              <FormField
-                control={form.control}
-                name="categoryId"
-                render={({ field }) => {
-                  // Ensure the field value is properly set when editing
-                  useEffect(() => {
-                    if (editingTransaction && field.value) {
-                      // Force update if value exists but not showing
-                      const currentValue = field.value;
-                      const availableCategories = getAvailableCategories();
-                      const categoryExists = availableCategories.some(cat => String(cat.id) === String(currentValue));
-                      if (!categoryExists && availableCategories.length > 0) {
-                        console.log('[Category Field] Value not found in available categories, clearing:', currentValue);
-                        field.onChange('');
+              {/* Category — not used for DD (direct debit) */}
+              {paymentType !== 'dd' && (
+                <FormField
+                  control={form.control}
+                  name="categoryId"
+                  render={({ field }) => {
+                    useEffect(() => {
+                      if (editingTransaction && field.value) {
+                        const currentValue = field.value;
+                        const availableCategories = getAvailableCategories();
+                        const categoryExists = availableCategories.some(
+                          (cat) => String(cat.id) === String(currentValue)
+                        );
+                        if (!categoryExists && availableCategories.length > 0) {
+                          console.log(
+                            '[Category Field] Value not found in available categories, clearing:',
+                            currentValue
+                          );
+                          field.onChange('');
+                        }
                       }
-                    }
-                    // eslint-disable-next-line react-hooks/exhaustive-deps
-                  }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
-                  
-                  return (
-                    <FormItem>
-                      <FormLabel className="text-lg font-medium text-gray-700">
-                        Category
-                      </FormLabel>
-                      <FormControl>
-                        {loadingCategories ? (
-                          <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-base">
-                            <span className="text-muted-foreground">Loading categories...</span>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          </div>
-                        ) : getAvailableCategories().length === 0 ? (
-                          <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
-                            {transactionType === 'Debit' 
-                              ? 'No payables categories found. Please add categories in Payables List.'
-                              : 'No receivables categories found. Please add categories in Receivables List.'}
-                          </div>
-                        ) : (
-                          <SearchableSelect
-                            value={field.value || ''}
-                            onValueChange={(value) => {
-                              console.log('[Category Field] Value changed:', value);
-                              field.onChange(value);
-                            }}
-                            placeholder={loadingCategories ? "Loading categories..." : "Select category"}
-                            disabled={loadingCategories}
-                            searchPlaceholder="Search category..."
-                          >
-                            {getAvailableCategories().map((category) => (
-                              <SelectItem key={String(category.id)} value={String(category.id)}>
-                                {category.name}
-                              </SelectItem>
-                            ))}
-                          </SearchableSelect>
-                        )}
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
-              />
+                      // eslint-disable-next-line react-hooks/exhaustive-deps
+                    }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
 
-              {/* Payment Type Field */}
-              <FormField
-                control={form.control}
-                name="paymentType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-lg font-medium text-gray-700">
-                      Payment Type
-                    </FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select payment type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="cheque">Cheque</SelectItem>
-                        <SelectItem value="creditcard">Credit Card</SelectItem>
-                        <SelectItem value="banktransfer">Online</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                    return (
+                      <FormItem>
+                        <FormLabel className="text-lg font-medium text-gray-700">
+                          Category
+                        </FormLabel>
+                        <FormControl>
+                          {loadingCategories ? (
+                            <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-base">
+                              <span className="text-muted-foreground">Loading categories...</span>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            </div>
+                          ) : getAvailableCategories().length === 0 ? (
+                            <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
+                              {transactionType === 'Debit'
+                                ? 'No payables categories found. Please add categories in Payables List.'
+                                : 'No receivables categories found. Please add categories in Receivables List.'}
+                            </div>
+                          ) : (
+                            <SearchableSelect
+                              value={field.value || ''}
+                              onValueChange={(value) => {
+                                console.log('[Category Field] Value changed:', value);
+                                field.onChange(value);
+                              }}
+                              placeholder={
+                                loadingCategories ? 'Loading categories...' : 'Select category'
+                              }
+                              disabled={loadingCategories}
+                              searchPlaceholder="Search category..."
+                            >
+                              {getAvailableCategories().map((category) => (
+                                <SelectItem key={String(category.id)} value={String(category.id)}>
+                                  {category.name}
+                                </SelectItem>
+                              ))}
+                            </SearchableSelect>
+                          )}
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }}
+                />
+              )}
 
               {/* Cheque Number Field - Conditional */}
               {paymentType === 'cheque' && (
@@ -2558,6 +2787,17 @@ export default function BankTransaction() {
         isLoading={isDeleting}
       />
 
+      <DeleteConfirmationDialog
+        open={isBulkDeleteModalOpen}
+        onOpenChange={setIsBulkDeleteModalOpen}
+        onConfirm={() => void handleBulkDeleteConfirm()}
+        title="Delete all daily transactions?"
+        description={`This sends POST /transactions/bulk-delete with ${bulkDeletePayload.ids.length} ledger/synthetic id(s) and ${bulkDeletePayload.transactions.length} typed row(s) (PDC / bills include full rows with transactionType). It cannot be undone. Admin or accountant only.`}
+        isLoading={isBulkDeleting}
+        confirmButtonText="Delete all"
+        loadingButtonText="Deleting…"
+      />
+
       <BulkTransactionUploadDialog
         open={bulkUploadOpen}
         onOpenChange={setBulkUploadOpen}
@@ -2607,7 +2847,9 @@ export default function BankTransaction() {
                 ? 'Your account cannot edit transactions directly. Submit this update for an admin to review and apply?'
                 : approvalOffer?.mode === 'pdc_daily_ledger'
                   ? 'Your account cannot approve this PDC for the daily ledger directly. Submit an approval request for an admin to review?'
-                  : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
+                  : approvalOffer?.mode === 'delete_bulk'
+                    ? 'Your account cannot delete all daily transactions directly. Submit a request for an admin to review and apply POST /transactions/bulk-delete?'
+                    : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
             </p>
           )}
           <DialogFooter className="gap-2 sm:gap-0">

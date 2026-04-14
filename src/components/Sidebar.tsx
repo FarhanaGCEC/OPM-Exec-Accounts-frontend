@@ -65,31 +65,7 @@ const menuItems: MenuItem[] = [
   },
   { id: 'category', label: 'Debtors List', icon: ListOrdered, path: '/category', sidebarKey: 'debtors_list' },
 
-  {
-    id: 'credit-card',
-    label: 'Credit Cards ',
-    icon: CreditCard,
-    sidebarKey: 'credit_cards',
-    subMenus: [
-     
-      {
-        id: 'credit-card-statements',
-        label: 'Credit Cards Statements',
-        path: '/credit-card-statements',
-      },
-     
-      {
-        id: 'credit-card-payments',
-        label: 'Credit Cards Payments',
-        path: '/credit-card-statements/payments',
-      },
-      {
-        id: 'credit-card-details',
-        label: 'Credit Cards Details',
-        path: '/credit-card-statements/details',
-      },
-    ],
-  },
+  
   {
     id: 'matching',
     label: 'Customer Credit Card Payments',
@@ -118,6 +94,31 @@ const menuItems: MenuItem[] = [
     icon: CreditCard,
     path: '/fks-transactions',
     sidebarKey: 'fk_emirates_nbd',
+  },
+  {
+    id: 'credit-card',
+    label: 'Credit Cards ',
+    icon: CreditCard,
+    sidebarKey: 'credit_cards',
+    subMenus: [
+     
+      {
+        id: 'credit-card-statements',
+        label: 'Credit Cards Statements',
+        path: '/credit-card-statements',
+      },
+     
+      {
+        id: 'credit-card-payments',
+        label: 'Credit Cards Payments',
+        path: '/credit-card-statements/payments',
+      },
+      {
+        id: 'credit-card-details',
+        label: 'Credit Cards Details',
+        path: '/credit-card-statements/details',
+      },
+    ],
   },
   {
     id: 'user-management',
