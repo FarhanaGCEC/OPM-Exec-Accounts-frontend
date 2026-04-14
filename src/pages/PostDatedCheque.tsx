@@ -16,7 +16,7 @@ export default function PostDatedCheque() {
       </div>
           
           <div className="grid md:grid-cols-2 gap-8 p-8">
-            {/* Customer PDC Card */}
+            {/* Customer PDC in hand card */}
             <Link to="/customer-pdc" className="block">
               <div className="group relative cursor-pointer transition-all duration-200 hover:scale-105">
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-[#f7c46d] to-[#c9a82f] rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>

@@ -228,7 +228,7 @@ export default function Dashboard() {
 
       <div className="flex flex-col md:flex-row gap-6 m-8">
         <DashboardPdcList
-          title="Customer PDC"
+          title="Customer PDC in hand"
           items={customerPdcs}
           loading={loadingPdc}
           viewAllTo="/customer-pdc"

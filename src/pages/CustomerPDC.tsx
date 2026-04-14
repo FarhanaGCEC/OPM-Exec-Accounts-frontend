@@ -546,7 +546,7 @@ export default function CustomerPDC() {
     const excelData: any[] = [];
 
     // Add header
-    excelData.push(['Customer PDC']);
+    excelData.push(['Customer PDC in hand']);
     excelData.push([]);
 
     // Add table headers
@@ -605,10 +605,10 @@ export default function CustomerPDC() {
     }
 
     // Add worksheet to workbook
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Customer PDC');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Customer PDC in hand');
 
     // Generate Excel file and download
-    const fileName = `Customer-PDC-${new Date().toISOString().split('T')[0]}.xlsx`;
+    const fileName = `Customer-PDC-in-hand-${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   }, [filteredCheques]);
 
@@ -622,7 +622,7 @@ export default function CustomerPDC() {
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <h2 className="text-2xl font-bold text-gray-900">Customer PDC</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Customer PDC in hand</h2>
         </div>
         <div className="flex items-center gap-2 mr-4">
           <Button
