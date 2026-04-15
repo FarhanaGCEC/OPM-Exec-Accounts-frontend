@@ -126,7 +126,7 @@ export default function Auth() {
             />
           </div>
           <h2 className="text-2xl font-bold text-center text-black mt-2">
-            LOGIN
+          GMS Accounts Login
           </h2>
         </CardHeader>
         <form onSubmit={onSubmit}>

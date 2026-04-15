@@ -213,6 +213,8 @@ function throwIfResponseBusinessFailure(status: number, responseData: unknown): 
       const err = new Error(String(o.error ?? o.message ?? 'Request failed'));
       (err as any).status = status;
       (err as any).code = typeof o.code === 'string' ? o.code : undefined;
+      const errs = o.errors;
+      if (Array.isArray(errs)) (err as any).errors = errs;
       throw err;
     }
   });

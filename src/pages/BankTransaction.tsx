@@ -70,6 +70,29 @@ import {
   isCustomerPdcRemarksLabel,
 } from '../lib/dailyLedgerRemarksDisplay';
 
+/** Ledger primary key from GET /transactions when `id` is a different surrogate. */
+function readLedgerIdFromApiPayload(row: Record<string, unknown> | undefined): number | undefined {
+  if (!row) return undefined;
+  const tryNum = (v: unknown): number | undefined => {
+    if (v === undefined || v === null || String(v).trim() === '') return undefined;
+    const n = Number(v);
+    return Number.isNaN(n) ? undefined : n;
+  };
+  const keys = [
+    'ledgerId',
+    'ledger_id',
+    'dailyLedgerId',
+    'daily_ledger_id',
+    'ledgerEntryId',
+    'ledger_entry_id',
+  ] as const;
+  for (const k of keys) {
+    const n = tryNum(row[k]);
+    if (n !== undefined) return n;
+  }
+  return undefined;
+}
+
 /** Normalize PDC / ledger fields from GET /transactions (camelCase or snake_case). */
 function readPdcLedgerRowFlags(tx: Record<string, unknown>) {
   const pick = (camel: string, snake: string): unknown => tx[camel] ?? tx[snake];
@@ -109,6 +132,43 @@ function normalizeLedgerPaymentTypeForUi(
     return s;
   }
   return 'cash';
+}
+
+/**
+ * When the API sends only `categoryId` or a numeric `category`, show the payables/receivables name
+ * in the Description column (not the raw id).
+ */
+function resolveCategoryDisplayNameFromApiRow(
+  row: Record<string, unknown>,
+  payables: PayablesCategory[],
+  receivables: ReceivablesCategory[]
+): string {
+  const txTypeRaw = String(row.type ?? '')
+    .trim()
+    .toLowerCase();
+  const primary = txTypeRaw === 'credit' ? receivables : payables;
+  const secondary = txTypeRaw === 'credit' ? payables : receivables;
+  const catId = row.categoryId ?? row.category_id;
+  const rawCat =
+    row.category != null && row.category !== '' ? String(row.category).trim() : '';
+
+  const nameById = (id: string): string | undefined => {
+    const a = primary.find((c) => String(c.id) === id);
+    if (a) return a.name;
+    const b = secondary.find((c) => String(c.id) === id);
+    return b?.name;
+  };
+
+  if (catId != null && String(catId).trim() !== '') {
+    const n = nameById(String(catId));
+    if (n) return n;
+  }
+  if (rawCat && /^\d+$/.test(rawCat)) {
+    const n = nameById(rawCat);
+    if (n) return n;
+  }
+  if (rawCat) return rawCat;
+  return 'N/A';
 }
 
 /** Same detection as ledger grid row background for bounced / returned cheque. */
@@ -393,12 +453,32 @@ function rowMustUseTransactionPayload(t: BankTransaction): boolean {
   return false;
 }
 
+/** Prefer real ledger id from GET /transactions; bulk-delete resolves `ids` against the ledger table. */
+function readLedgerIdForBulkDelete(t: BankTransaction): number | undefined {
+  return (
+    readLedgerIdFromApiPayload(t.bulkDeleteSourceRow) ??
+    readLedgerIdFromApiPayload(t as unknown as Record<string, unknown>)
+  );
+}
+
 /** Plain ledger id (number) or synthetic string id (e.g. pdc-due-123) for `ids` only. */
 function rowIdForBulkDeleteIdsArray(t: BankTransaction): string | number | null {
+  const ledgerId = readLedgerIdForBulkDelete(t);
+  if (ledgerId !== undefined) return ledgerId;
+
   const idStr = String(t.id ?? '').trim();
   if (!idStr) return null;
   if (!/^\d+$/.test(idStr)) return idStr;
   return Number(idStr);
+}
+
+/** DELETE /transactions/:id expects the same id the API uses for the ledger row (often `ledgerId`). */
+function transactionIdForSingleDelete(t: BankTransaction | undefined): string | null {
+  if (!t) return null;
+  const ledger = readLedgerIdForBulkDelete(t);
+  if (ledger !== undefined) return String(ledger);
+  const idStr = String(t.id ?? '').trim();
+  return idStr || null;
 }
 
 function buildBulkDeleteTransactionPayload(t: BankTransaction): Record<string, unknown> {
@@ -424,8 +504,13 @@ function buildBulkDeleteTransactionPayload(t: BankTransaction): Record<string, u
 
   const pdcNumericId = numericPostDatedChequeId(t);
   const isPdcTypedRow = BULK_DELETE_PDC_TRANSACTION_TYPES.has(transactionType);
+  const ledgerForDaily = readLedgerIdForBulkDelete(t);
   const idForApi: string | number =
-    isPdcTypedRow && pdcNumericId != null ? pdcNumericId : (t.id ?? '');
+    isPdcTypedRow && pdcNumericId != null
+      ? pdcNumericId
+      : ledgerForDaily !== undefined
+        ? ledgerForDaily
+        : (t.id ?? '');
 
   const out: Record<string, unknown> = {
     ...src,
@@ -758,6 +843,29 @@ export default function BankTransaction() {
     fetchCategories();
   }, [fetchCategories]);
 
+  /** After categories load, replace numeric Description / category fields with real category names. */
+  useEffect(() => {
+    if (payablesCategories.length === 0 && receivablesCategories.length === 0) return;
+    setTransactions((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        const src = t.bulkDeleteSourceRow;
+        if (!src) return t;
+        const resolved = resolveCategoryDisplayNameFromApiRow(
+          { ...src, type: t.type ?? src.type },
+          payablesCategories,
+          receivablesCategories
+        );
+        if (resolved !== t.categoryName) {
+          changed = true;
+          return { ...t, categoryName: resolved };
+        }
+        return t;
+      });
+      return changed ? next : prev;
+    });
+  }, [payablesCategories, receivablesCategories]);
+
   // Get categories based on transaction type
   const getAvailableCategories = () => {
     if (transactionType === 'Debit') {
@@ -816,9 +924,11 @@ export default function BankTransaction() {
           const remarks =
             remarksRaw === undefined || remarksRaw === null ? undefined : String(remarksRaw);
 
+          const ledgerIdResolved = readLedgerIdFromApiPayload(row as Record<string, unknown>);
           return {
             ...transaction,
             bulkDeleteSourceRow: { ...row },
+            ...(ledgerIdResolved !== undefined ? { ledgerId: ledgerIdResolved } : {}),
             id: String(transaction.id ?? ''),
             date: formattedDate,
             originalDate: isoForEdit,
@@ -971,8 +1081,10 @@ export default function BankTransaction() {
 
       if (editingTransaction) {
         pendingEditPayload = { ...payload };
-        // Update existing transaction
-        response = await transactionService.updateBankTransaction(String(editingTransaction.id), payload);
+        // Update existing transaction (URL id must match ledger row when API separates list id from ledger id)
+        const idForUpdate =
+          transactionIdForSingleDelete(editingTransaction) ?? String(editingTransaction.id);
+        response = await transactionService.updateBankTransaction(idForUpdate, payload);
       } else {
         // Create new transaction
         response = await transactionService.createBankTransaction(payload);
@@ -1281,10 +1393,17 @@ export default function BankTransaction() {
   const handleDeleteConfirm = useCallback(async () => {
     if (!deletingTransactionId) return;
 
+    const row = transactions.find((x) => String(x.id) === deletingTransactionId);
+    const idForApi = transactionIdForSingleDelete(row);
+    if (!idForApi) {
+      setError('Could not resolve transaction id for delete.');
+      return;
+    }
+
     try {
       setIsDeleting(true);
       setError(null);
-      const response: ApiResponse<void> = await transactionService.deleteBankTransaction(deletingTransactionId);
+      const response: ApiResponse<void> = await transactionService.deleteBankTransaction(idForApi);
       
       if (response.success) {
         if (isChangeRequestSubmittedEnvelope(response.data)) {
@@ -1308,8 +1427,8 @@ export default function BankTransaction() {
         setError(response.message || 'Failed to delete transaction');
       }
     } catch (err: unknown) {
-      if (isApprovalRequiredError(err) && deletingTransactionId) {
-        setApprovalOffer({ mode: 'delete', resourceId: deletingTransactionId });
+      if (isApprovalRequiredError(err)) {
+        setApprovalOffer({ mode: 'delete', resourceId: idForApi });
         setDeletingTransactionId(null);
         setIsDeleteModalOpen(false);
         setError(null);
@@ -1321,7 +1440,7 @@ export default function BankTransaction() {
     } finally {
       setIsDeleting(false);
     }
-  }, [deletingTransactionId, fetchTransactions]);
+  }, [deletingTransactionId, fetchTransactions, transactions]);
 
   const bulkDeletePayload = useMemo(
     () => buildBulkDeleteRequestBody(transactions),

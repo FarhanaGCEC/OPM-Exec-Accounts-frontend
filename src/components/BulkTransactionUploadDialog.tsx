@@ -22,6 +22,18 @@ import { Loader2, Upload } from 'lucide-react';
 
 export type ApiBulkRowError = { csvRow: number; message: string };
 
+function previewCategoryLabel(
+  row: BulkApiTransactionRow,
+  payables: PayablesCategory[],
+  receivables: ReceivablesCategory[]
+): string {
+  const id = row.categoryId;
+  if (id == null) return '—';
+  const list = row.type === 'Credit' ? receivables : payables;
+  const hit = list.find((c) => String(c.id) === String(id));
+  return hit?.name ?? `#${id}`;
+}
+
 function normalizeApiErrors(
   raw: unknown,
   batchStartIndex: number,
@@ -162,14 +174,15 @@ export default function BulkTransactionUploadDialog({
           if (Array.isArray(err.errors)) {
             mapped = normalizeApiErrors(err.errors, offset, sourceCsvRows);
           }
-          if (err.status === 400 && mapped.length > 0) {
+          /** Backend may return row-level `errors` with HTTP 400 or with 2xx + success:false (thrown as business failure). */
+          if (mapped.length > 0) {
             setApiErrors(mapped);
             setSubmitError(
               'Validation failed — no rows were inserted. Fix the rows below and try again.'
             );
             return;
           }
-          if (err.status === 400) {
+          if (err.status === 400 || err.status === 422) {
             setSubmitError(
               err.message ||
                 'Validation failed — no rows were inserted (see server message).'
@@ -283,7 +296,7 @@ export default function BulkTransactionUploadDialog({
                       <th className="p-2 border">type</th>
                       <th className="p-2 border">payment</th>
                       <th className="p-2 border">amount</th>
-                      <th className="p-2 border">categoryId</th>
+                      <th className="p-2 border">Category</th>
                       <th className="p-2 border">cheque</th>
                       <th className="p-2 border">remarks</th>
                     </tr>
@@ -296,7 +309,9 @@ export default function BulkTransactionUploadDialog({
                         <td className="p-2 border">{r.type}</td>
                         <td className="p-2 border">{r.paymentType}</td>
                         <td className="p-2 border">{r.amount}</td>
-                        <td className="p-2 border">{r.categoryId}</td>
+                        <td className="p-2 border">
+                          {previewCategoryLabel(r, payablesCategories, receivablesCategories)}
+                        </td>
                         <td className="p-2 border">{r.chequeNumber ?? '—'}</td>
                         <td className="p-2 border">{r.remarks ?? '—'}</td>
                       </tr>

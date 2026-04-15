@@ -5,6 +5,11 @@ import { isChangeRequestSubmittedEnvelope } from '../lib/changeRequestUi';
 
 export interface BankTransaction {
   id?: string | number;
+  /**
+   * Ledger row id for DELETE / bulk-delete when the list `id` is a different surrogate
+   * (GET /transactions may expose both).
+   */
+  ledgerId?: number | string;
   /** ISO date string from API; `null` for synthetic footer duplicate rows */
   date: string | null;
   category?: string; // Category name from API

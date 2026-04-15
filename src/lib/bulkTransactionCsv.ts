@@ -92,15 +92,43 @@ function normKey(s: string): string {
   return s
     .trim()
     .toLowerCase()
+    .replace(/\s*\([^)]*\)\s*/g, '') // "Debit (AED)" → debit
     .replace(/\s+/g, '')
     .replace(/[_-]+/g, '');
 }
 
-/** Accept YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, ISO; return YYYY-MM-DD or null. */
+/** Accept YYYY-MM-DD, D-MMM-YY (e.g. 1-Jan-26), DD/MM/YYYY, DD-MM-YYYY, ISO; return YYYY-MM-DD or null. */
 export function normalizeBulkTransactionDate(raw: string): string | null {
   const s = String(raw ?? '').trim();
   if (!s) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dMonY = /^(\d{1,2})[\s\/\-]+([A-Za-z]{3,})[\s\/\-]+(\d{2}|\d{4})$/i.exec(s);
+  if (dMonY) {
+    const d = parseInt(dMonY[1], 10);
+    const monStr = dMonY[2].toLowerCase().slice(0, 3);
+    const yRaw = dMonY[3];
+    const monthMap: Record<string, number> = {
+      jan: 1,
+      feb: 2,
+      mar: 3,
+      apr: 4,
+      may: 5,
+      jun: 6,
+      jul: 7,
+      aug: 8,
+      sep: 9,
+      oct: 10,
+      nov: 11,
+      dec: 12,
+    };
+    const m = monthMap[monStr];
+    if (!m || d < 1 || d > 31) return null;
+    let y = parseInt(yRaw, 10);
+    if (yRaw.length === 2) y = y >= 70 ? 1900 + y : 2000 + y;
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
   const dmY = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/.exec(s);
   if (dmY) {
     const d = parseInt(dmY[1], 10);
@@ -135,7 +163,17 @@ export function normalizeBulkPaymentType(raw: string): BulkApiTransactionRow['pa
   ) {
     return 'online';
   }
-  if (x === 'dd' || x === 'direct debit' || x === 'directdebit') return 'dd';
+  if (
+    x === 'dd' ||
+    x === 'direct debit' ||
+    x === 'directdebit' ||
+    x === 'standing order'
+  ) {
+    return 'dd';
+  }
+  if (x === 'pos' || x === 'upi' || x === 'neft' || x === 'rtgs' || x === 'imps' || x === 'eft') {
+    return 'online';
+  }
   return null;
 }
 
@@ -218,13 +256,22 @@ const HEADER_ALIASES: Record<string, string[]> = {
     'particulars',
     'narration',
     'narrations',
-    'details',
-    'detail',
     'memo',
     'transactiondetails',
     'transdetails',
     'payee',
     'merchant',
+  ],
+  /** Bank export column: DD / Cash / Online / numeric cheque no (not the main description). */
+  paymentdetail: [
+    'paymentdetail',
+    'paymentdetails',
+    'paydetail',
+    'details',
+    'detail',
+    'channel',
+    'mode',
+    'instrument',
   ],
   chequenumber: ['chequenumber', 'cheque_number', 'cheque', 'checkno', 'checknumber'],
   remarks: ['remarks', 'remark', 'note', 'notes'],
@@ -273,28 +320,97 @@ function sliceTableFromDetectedHeader(table: BulkTableRow[]): BulkTableRow[] | n
 }
 
 function parseMoneyCell(raw: string): number {
-  const s = String(raw ?? '')
-    .trim()
-    .replace(/,/g, '')
-    .replace(/^\((.*)\)$/, '-$1');
-  const n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
+  let s = String(raw ?? '').trim().replace(/,/g, '');
+  let sign = 1;
+  if (/^\(.*\)$/.test(s)) {
+    sign = -1;
+    s = s.slice(1, -1).trim().replace(/,/g, '');
+  }
+  const m = s.match(/-?\d+(?:\.\d+)?/);
+  if (!m) return 0;
+  const n = parseFloat(m[0]);
+  if (isNaN(n)) return 0;
+  return sign * Math.abs(n);
 }
 
-function resolvePaymentTypeOrDefault(get: () => string): BulkApiTransactionRow['paymentType'] | null {
-  const raw = String(get() ?? '').trim();
-  if (!raw) return 'online';
-  return normalizeBulkPaymentType(raw);
+/** Cheque numbers in the Details column (digits only, typical bank export). */
+function looksLikeDetailsChequeNumber(raw: string): boolean {
+  const s = String(raw ?? '').trim();
+  return /^\d{3,20}$/.test(s);
+}
+
+type BulkPaymentResolve =
+  | { ok: true; paymentType: BulkApiTransactionRow['paymentType']; chequeNumber?: string }
+  | { ok: false; error: string };
+
+function resolveBulkPayment(get: (key: string) => string): BulkPaymentResolve {
+  const detailCell = get('paymentdetail').trim();
+  const payCell = get('paymenttype').trim();
+  const chqCell = get('chequenumber').trim();
+
+  if (detailCell) {
+    const fromWord = normalizeBulkPaymentType(detailCell);
+    if (fromWord) {
+      if (fromWord === 'cheque') {
+        if (chqCell) return { ok: true, paymentType: 'cheque', chequeNumber: chqCell };
+        return {
+          ok: false,
+          error:
+            'When Details is "cheque", add a cheque number in the cheque column or use a numeric cheque number in Details.',
+        };
+      }
+      return { ok: true, paymentType: fromWord };
+    }
+    if (looksLikeDetailsChequeNumber(detailCell)) {
+      return { ok: true, paymentType: 'cheque', chequeNumber: detailCell };
+    }
+    // Labels we do not recognise (bank-specific) — still import as online rather than dropping the row
+    return { ok: true, paymentType: 'online' };
+  }
+
+  if (payCell) {
+    const w = normalizeBulkPaymentType(payCell);
+    if (!w) return { ok: false, error: `Invalid paymentType: "${payCell}"` };
+    if (w === 'cheque' && !chqCell) {
+      return { ok: false, error: 'chequeNumber is required when paymentType is cheque' };
+    }
+    if (w === 'cheque') return { ok: true, paymentType: 'cheque', chequeNumber: chqCell };
+    return { ok: true, paymentType: w };
+  }
+
+  return { ok: true, paymentType: 'online' };
 }
 
 export type BulkTableRow = { fileRow: number; cells: string[] };
+
+/** Excel serial day → YYYY-MM-DD (UTC), for cells stored as numbers with date formatting. */
+function tryFormatExcelSerialAsDate(serial: number): string | null {
+  if (!Number.isFinite(serial) || serial <= 0) return null;
+  const utcMs = Math.round((serial - 25569) * 86400 * 1000);
+  const d = new Date(utcMs);
+  if (isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  if (y < 1900 || y > 2100) return null;
+  return `${y}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
 
 function excelCellToString(cell: ExcelJS.Cell): string {
   const text = cell.text;
   if (text != null && String(text).trim() !== '') return String(text).trim();
   const v = cell.value;
   if (v == null || v === '') return '';
-  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (typeof v === 'number') {
+    const fmt = typeof cell.numFmt === 'string' ? cell.numFmt : '';
+    const looksLikeDate =
+      cell.type === ExcelJS.ValueType.Date ||
+      /[dmy]|yyyy|yy|hh:ss|am\/pm|dd\/mm|mm\/dd/i.test(fmt);
+    if (looksLikeDate) {
+      const iso = tryFormatExcelSerialAsDate(v);
+      if (iso) return iso;
+    }
+    return String(v);
+  }
+  if (typeof v === 'string' || typeof v === 'boolean') return String(v);
   if (v instanceof Date) {
     const y = v.getFullYear();
     const m = String(v.getMonth() + 1).padStart(2, '0');
@@ -312,6 +428,16 @@ function excelCellToString(cell: ExcelJS.Cell): string {
         const m = String(r.getMonth() + 1).padStart(2, '0');
         const d = String(r.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
+      }
+      if (typeof r === 'number') {
+        const fmt = typeof cell.numFmt === 'string' ? cell.numFmt : '';
+        const looksLikeDate =
+          cell.type === ExcelJS.ValueType.Date ||
+          /[dmy]|yyyy|yy|hh:ss|am\/pm|dd\/mm|mm\/dd/i.test(fmt);
+        if (looksLikeDate) {
+          const iso = tryFormatExcelSerialAsDate(r);
+          if (iso) return iso;
+        }
       }
       return r == null ? '' : String(r);
     }
@@ -436,7 +562,7 @@ export function parseBulkTransactionTable(
     for (let i = 1; i < workTable.length; i++) {
       const fileRow = workTable[i].fileRow;
       const cells = workTable[i].cells;
-      const get = (key: keyof typeof colMap): string => {
+      const get = (key: string): string => {
         const idx = colMap[key];
         if (idx === undefined) return '';
         return cells[idx] ?? '';
@@ -462,14 +588,15 @@ export function parseBulkTransactionTable(
         continue;
       }
 
-      const ptype = resolvePaymentTypeOrDefault(() => get('paymenttype'));
-      if (!ptype) {
+      const payResolved = resolveBulkPayment(get);
+      if (!payResolved.ok) {
         issues.push({
           csvRow: fileRow,
-          message: `Invalid paymentType: "${get('paymenttype')}" (cash, cheque, creditcard, dd, online, or leave blank for online)`,
+          message: `${payResolved.error} (cash, cheque, creditcard, dd, online; optional paymentType column defaults to online when Details is empty)`,
         });
         continue;
       }
+      const ptype = payResolved.paymentType;
 
       const tryPush = (type: 'Debit' | 'Credit', amount: number): void => {
         const idPart = hasCategoryId ? get('categoryid').trim() : '';
@@ -484,11 +611,11 @@ export function parseBulkTransactionTable(
           return;
         }
         const categoryId = resolved.id;
-        const chequeNumber = get('chequenumber');
-        if (ptype === 'cheque' && !chequeNumber.trim()) {
+        const chequeNumber = (payResolved.chequeNumber ?? '').trim() || get('chequenumber').trim();
+        if (ptype === 'cheque' && !chequeNumber) {
           issues.push({
             csvRow: fileRow,
-            message: 'chequeNumber is required when paymentType is cheque',
+            message: 'chequeNumber is required when payment type is cheque',
           });
           return;
         }
@@ -500,8 +627,8 @@ export function parseBulkTransactionTable(
           amount,
           categoryId,
         };
-        if (ptype === 'cheque' && chequeNumber.trim()) {
-          row.chequeNumber = chequeNumber.trim();
+        if (ptype === 'cheque' && chequeNumber) {
+          row.chequeNumber = chequeNumber;
         }
         if (remarks) row.remarks = remarks;
         rows.push(row);
@@ -518,7 +645,7 @@ export function parseBulkTransactionTable(
   for (let i = 1; i < workTable.length; i++) {
     const fileRow = workTable[i].fileRow;
     const cells = workTable[i].cells;
-    const get = (key: keyof typeof colMap): string => {
+    const get = (key: string): string => {
       const idx = colMap[key];
       if (idx === undefined) return '';
       return cells[idx] ?? '';
@@ -537,18 +664,18 @@ export function parseBulkTransactionTable(
       continue;
     }
 
-    const ptype = resolvePaymentTypeOrDefault(() => get('paymenttype'));
-    if (!ptype) {
+    const payResolved = resolveBulkPayment(get);
+    if (!payResolved.ok) {
       issues.push({
         csvRow: fileRow,
-        message: `Invalid paymentType: "${get('paymenttype')}" (cash, cheque, creditcard, dd, online, or leave blank for online)`,
+        message: `${payResolved.error} (cash, cheque, creditcard, dd, online; optional paymentType defaults to online when Details is empty)`,
       });
       continue;
     }
+    const ptype = payResolved.paymentType;
 
-    const amountStr = get('amount').replace(/,/g, '');
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount) || amount <= 0) {
+    const amount = parseMoneyCell(get('amount'));
+    if (amount <= 0) {
       issues.push({ csvRow: fileRow, message: `Invalid amount: "${get('amount')}"` });
       continue;
     }
@@ -562,9 +689,9 @@ export function parseBulkTransactionTable(
       continue;
     }
 
-    const chequeNumber = get('chequenumber');
-    if (ptype === 'cheque' && !chequeNumber.trim()) {
-      issues.push({ csvRow: fileRow, message: 'chequeNumber is required when paymentType is cheque' });
+    const chequeNumber = (payResolved.chequeNumber ?? '').trim() || get('chequenumber').trim();
+    if (ptype === 'cheque' && !chequeNumber) {
+      issues.push({ csvRow: fileRow, message: 'chequeNumber is required when payment type is cheque' });
       continue;
     }
 
@@ -576,8 +703,8 @@ export function parseBulkTransactionTable(
       amount,
       categoryId,
     };
-    if (ptype === 'cheque' && chequeNumber.trim()) {
-      row.chequeNumber = chequeNumber.trim();
+    if (ptype === 'cheque' && chequeNumber) {
+      row.chequeNumber = chequeNumber;
     }
     if (remarks) row.remarks = remarks;
 
