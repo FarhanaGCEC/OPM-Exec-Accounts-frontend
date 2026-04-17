@@ -41,6 +41,11 @@ import {
     type CreditCardDetail 
 } from '../services/creditCardService';
 import * as XLSX from 'xlsx';
+import {
+  applyXlsxArialToWorkbook,
+  xlsxSheetFontArial,
+  XLSX_WRITE_WITH_STYLES,
+} from '../lib/excelExportFont';
 
 export interface CreditCardPayment {
     id: string;
@@ -543,7 +548,7 @@ export default function CreditCardPaymentsPage() {
                 if (!worksheet[headerCellRef].s) {
                     worksheet[headerCellRef].s = {};
                 }
-                worksheet[headerCellRef].s.font = { bold: true };
+                worksheet[headerCellRef].s.font = xlsxSheetFontArial({ bold: true });
                 worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
             }
         }
@@ -569,7 +574,7 @@ export default function CreditCardPaymentsPage() {
                 if (!worksheet[totalAmountCellRef].s) {
                     worksheet[totalAmountCellRef].s = {};
                 }
-                worksheet[totalAmountCellRef].s.font = { bold: true };
+                worksheet[totalAmountCellRef].s.font = xlsxSheetFontArial({ bold: true });
             }
         }
 
@@ -578,7 +583,8 @@ export default function CreditCardPaymentsPage() {
 
         // Generate Excel file and download
         const fileName = `Credit-Card-Payments-${formatDateForFileName(startDate)}-to-${formatDateForFileName(endDate)}.xlsx`;
-        XLSX.writeFile(workbook, fileName);
+        applyXlsxArialToWorkbook(workbook);
+        XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
 
     }, [creditCards]);
 

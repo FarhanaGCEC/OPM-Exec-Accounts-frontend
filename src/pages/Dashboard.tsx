@@ -24,11 +24,14 @@ function DashboardPdcList({
   items,
   loading,
   viewAllTo,
+  partyKind,
 }: {
   title: string;
   items: PostDatedCheque[];
   loading: boolean;
   viewAllTo: string;
+  /** GCEC issued PDC: creditor; customer PDC in hand: debtor */
+  partyKind?: 'creditor' | 'debtor';
 }) {
   return (
     <Card className="bg-white border border-gray-200 flex-1 flex flex-col min-h-0 max-h-[550px] overflow-hidden shadow-sm">
@@ -56,6 +59,12 @@ function DashboardPdcList({
                       )}
                     </p>
                     <p className="text-xs text-gray-600 truncate mt-0.5">
+                      {partyKind === 'creditor' && (
+                        <span className="text-gray-500">Creditor: </span>
+                      )}
+                      {partyKind === 'debtor' && (
+                        <span className="text-gray-500">Debtor: </span>
+                      )}
                       {c.customerName || '—'}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
@@ -232,12 +241,14 @@ export default function Dashboard() {
           items={customerPdcs}
           loading={loadingPdc}
           viewAllTo="/customer-pdc"
+          partyKind="debtor"
         />
         <DashboardPdcList
           title="GCEC Issued PDC"
           items={gcecPdcs}
           loading={loadingPdc}
           viewAllTo="/gcec-pdc"
+          partyKind="creditor"
         />
       </div>
 

@@ -59,13 +59,17 @@
 }
 
 @layer base {
+  /* Scales all Tailwind rem-based text utilities (text-sm, text-base, etc.) site-wide. */
+  html {
+    font-size: 112.5%;
+  }
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
     font-family: 'Dubai', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 17px;
+    font-size: 1rem;
     font-weight: 400;
   }
 }

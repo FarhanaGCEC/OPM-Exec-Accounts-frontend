@@ -29,6 +29,11 @@ import {
     DialogTitle,
 } from '../components/ui/dialog';
 import * as XLSX from 'xlsx';
+import {
+  applyXlsxArialToWorkbook,
+  xlsxSheetFontArial,
+  XLSX_WRITE_WITH_STYLES,
+} from '../lib/excelExportFont';
 
 type StatementApprovalOffer =
     | {
@@ -658,7 +663,7 @@ export default function CreditCardStatements() {
                             if (!worksheet[headerCellRef].s) {
                                 worksheet[headerCellRef].s = {};
                             }
-                            worksheet[headerCellRef].s.font = { bold: true };
+                            worksheet[headerCellRef].s.font = xlsxSheetFontArial({ bold: true });
                             worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
                         }
                     }
@@ -764,7 +769,7 @@ export default function CreditCardStatements() {
                     if (!worksheet[headerCellRef].s) {
                         worksheet[headerCellRef].s = {};
                     }
-                    worksheet[headerCellRef].s.font = { bold: true };
+                    worksheet[headerCellRef].s.font = xlsxSheetFontArial({ bold: true });
                     worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
                 }
             }
@@ -807,7 +812,8 @@ export default function CreditCardStatements() {
             ? `${months[selectedMonths[0]]}-${selectedYear}`
             : `${selectedMonths.length}-months-${selectedYear}`;
         const fileName = `Credit-Card-Statements-${periodText}.xlsx`;
-        XLSX.writeFile(workbook, fileName);
+        applyXlsxArialToWorkbook(workbook);
+        XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
     }, [creditCards, selectedMonths, selectedYear, groupedStatements, months, fullMonthNames]);
 
     return (

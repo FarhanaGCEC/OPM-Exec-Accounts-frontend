@@ -37,6 +37,7 @@ import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, ChevronLeft, Sea
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
 import { transactionService, type PostDatedCheque as PostDatedChequeType } from '../services/transactionService';
+import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { PdcAttachmentTableCell } from '../components/PdcAttachmentTableCell';
 import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
@@ -162,6 +163,7 @@ export default function CustomerPDC() {
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [pdcAttachmentFile, setPdcAttachmentFile] = useState<File | null>(null);
+  const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
 
   const form = useForm<ChequeFormData>({
     resolver: zodResolver(chequeSchema),
@@ -229,6 +231,24 @@ export default function CustomerPDC() {
   useEffect(() => {
     fetchCheques();
   }, [fetchCheques]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await receivablesService.getReceivables();
+        if (!cancelled && res.success && Array.isArray(res.data)) {
+          setDebtorsList(res.data);
+        }
+      } catch (e) {
+        console.error('[CustomerPDC] Failed to load debtors list', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isModalOpen]);
 
   const submitPdcApproval = useCallback(async () => {
     if (!pdcApproval || pdcApproval.mode === 'success') return;
@@ -978,25 +998,50 @@ export default function CustomerPDC() {
                 )}
               />
 
-              {/* Customer Name Field - Optional */}
+              {/* Customer Name — Debtors List (receivables) */}
               <FormField
                 control={form.control}
                 name="customerName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-base font-medium text-gray-700">
-                      Customer Name
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                     
-                        {...field}
-                        disabled={isSubmitting}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const debtorNames = [
+                    ...new Set(
+                      debtorsList
+                        .map((d) => String(d.name ?? '').trim())
+                        .filter(Boolean)
+                    ),
+                  ].sort((a, b) => a.localeCompare(b));
+                  const current = (field.value ?? '').trim();
+                  const legacyOption =
+                    current && !debtorNames.includes(current) ? current : null;
+                  return (
+                    <FormItem>
+                      <FormLabel className="text-base font-medium text-gray-700">
+                        Customer Name <span className="text-red-500">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <SearchableSelect
+                          value={current || undefined}
+                          onValueChange={field.onChange}
+                          placeholder="Select from Debtors List"
+                          searchPlaceholder="Search debtors..."
+                          disabled={isSubmitting}
+                        >
+                          {legacyOption ? (
+                            <SelectItem value={legacyOption} textValue={legacyOption}>
+                              {legacyOption} (not in list)
+                            </SelectItem>
+                          ) : null}
+                          {debtorNames.map((name) => (
+                            <SelectItem key={name} value={name} textValue={name}>
+                              {name}
+                            </SelectItem>
+                          ))}
+                        </SearchableSelect>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
               {/* Amount Field */}

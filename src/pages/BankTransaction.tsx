@@ -69,6 +69,7 @@ import {
   rowIsGcecPdcHighlight,
   isCustomerPdcRemarksLabel,
 } from '../lib/dailyLedgerRemarksDisplay';
+import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 
 /** Ledger primary key from GET /transactions when `id` is a different surrogate. */
 function readLedgerIdFromApiPayload(row: Record<string, unknown> | undefined): number | undefined {
@@ -1835,21 +1836,30 @@ export default function BankTransaction() {
       const ws = workbook.addWorksheet('Account Statement');
 
       let r = 1;
-      ws.getCell(r++, 1).value = 'GCEC CLOUD SECURITY & SURVEILLANCE';
+      const titleCell = ws.getCell(r++, 1);
+      titleCell.value = 'GCEC CLOUD SECURITY & SURVEILLANCE';
+      titleCell.font = excelExportFont({ bold: true, size: 14 }) as ExcelJS.Font;
       r += 2;
 
-      ws.getCell(r, 1).value = 'Account No.:';
-      ws.getCell(r++, 2).value = '12990685920001 - AED';
-      ws.getCell(r, 1).value = 'IBAN:';
-      ws.getCell(r++, 2).value = 'AE720030012990685920001';
-      ws.getCell(r, 1).value = 'Start Date:';
-      ws.getCell(r++, 2).value = formatDate(startDate);
-      ws.getCell(r, 1).value = 'End Date:';
-      ws.getCell(r++, 2).value = formatDate(endDate);
+      const metaPairs: [string, string | number][] = [
+        ['Account No.:', '12990685920001 - AED'],
+        ['IBAN:', 'AE720030012990685920001'],
+        ['Start Date:', formatDate(startDate)],
+        ['End Date:', formatDate(endDate)],
+      ];
+      for (const [a, b] of metaPairs) {
+        ws.getCell(r, 1).value = a;
+        ws.getCell(r, 1).font = excelExportFont() as ExcelJS.Font;
+        ws.getCell(r, 2).value = b;
+        ws.getCell(r, 2).font = excelExportFont() as ExcelJS.Font;
+        r++;
+      }
       ws.getCell(r, 1).value = 'Closing (Current):';
+      ws.getCell(r, 1).font = excelExportFont() as ExcelJS.Font;
       const closingCell = ws.getCell(r, 2);
       closingCell.value = closingBalanceValue;
       closingCell.numFmt = '#,##0.00';
+      closingCell.font = excelExportFont({ bold: true }) as ExcelJS.Font;
       r++;
       r += 2;
 
@@ -1857,7 +1867,7 @@ export default function BankTransaction() {
       headers.forEach((h, i) => {
         const cell = ws.getCell(r, i + 1);
         cell.value = h;
-        cell.font = { bold: true, color: { argb: 'FF000000' } };
+        cell.font = excelExportFont({ bold: true, color: { argb: 'FF000000' } }) as ExcelJS.Font;
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
@@ -1919,34 +1929,26 @@ export default function BankTransaction() {
           if (fillStyle) {
             cell.fill = fillStyle;
           }
-          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
+          cell.font = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
         }
 
-        row.getCell(4).font = {
-          name: 'Calibri',
-          size: 11,
+        row.getCell(4).font = excelExportFont({
           bold: debitValue > 0,
           color: { argb: debitValue > 0 ? 'FFDC2626' : 'FF9CA3AF' },
-        };
-        row.getCell(5).font = {
-          name: 'Calibri',
-          size: 11,
+        }) as ExcelJS.Font;
+        row.getCell(5).font = excelExportFont({
           bold: creditValue > 0,
           color: { argb: creditValue > 0 ? 'FF16A34A' : 'FF9CA3AF' },
-        };
+        }) as ExcelJS.Font;
         if (!suppressBal) {
-          row.getCell(6).font = {
-            name: 'Calibri',
-            size: 11,
+          row.getCell(6).font = excelExportFont({
             bold: true,
             color: { argb: 'FF000000' },
-          };
+          }) as ExcelJS.Font;
         } else {
-          row.getCell(6).font = {
-            name: 'Calibri',
-            size: 11,
+          row.getCell(6).font = excelExportFont({
             color: { argb: 'FF9CA3AF' },
-          };
+          }) as ExcelJS.Font;
         }
 
         r++;
@@ -1963,6 +1965,7 @@ export default function BankTransaction() {
       ];
 
       const fileName = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.xlsx`;
+      applyArialToExcelJsWorkbook(workbook);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

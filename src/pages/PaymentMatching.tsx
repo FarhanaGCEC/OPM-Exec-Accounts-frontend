@@ -33,6 +33,11 @@ import {
 } from '../components/ui/table';
 import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import {
+  applyXlsxArialToWorkbook,
+  xlsxSheetFontArial,
+  XLSX_WRITE_WITH_STYLES,
+} from '../lib/excelExportFont';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
 import { transactionService, type PaymentMatching as PaymentMatchingType } from '../services/transactionService';
@@ -566,7 +571,7 @@ export default function PaymentMatching() {
         if (!worksheet[headerCellRef].s) {
           worksheet[headerCellRef].s = {};
         }
-        worksheet[headerCellRef].s.font = { bold: true };
+        worksheet[headerCellRef].s.font = xlsxSheetFontArial({ bold: true });
         worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
       }
     }
@@ -594,7 +599,7 @@ export default function PaymentMatching() {
           worksheet[totalCellRef].s = {};
         }
         if (col === 0 || col === 4) { // First and last column
-          worksheet[totalCellRef].s.font = { bold: true };
+          worksheet[totalCellRef].s.font = xlsxSheetFontArial({ bold: true });
         }
         if (col === 4 && typeof worksheet[totalCellRef].v === 'number') {
           worksheet[totalCellRef].t = 'n';
@@ -612,7 +617,8 @@ export default function PaymentMatching() {
     const fileName = `Customer_Credit_Card_Payments_${dateStr}.xlsx`;
 
     // Generate Excel file and download
-    XLSX.writeFile(workbook, fileName);
+    applyXlsxArialToWorkbook(workbook);
+    XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
   }, [payments]);
 
   const handleModalClose = useCallback((open: boolean) => {

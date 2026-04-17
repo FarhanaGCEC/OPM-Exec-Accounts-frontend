@@ -6,6 +6,7 @@ import { FileSpreadsheet, Plus, Edit, Trash2, Loader2 } from 'lucide-react';
 import type { ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
+import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 import {
   Dialog,
   DialogContent,
@@ -317,9 +318,19 @@ export default function GbpTranstion() {
       // Helper function to add a row with optional styling
       const addRow = (values: any[], style?: Partial<ExcelJS.Style>) => {
         const row = worksheet.addRow(values);
+        const font = excelExportFont(
+          style?.font && typeof style.font === 'object'
+            ? (style.font as Partial<ExcelJS.Font>)
+            : {}
+        ) as ExcelJS.Font;
         if (style) {
+          const { font: _omit, ...rest } = style;
           row.eachCell((cell) => {
-            Object.assign(cell, style);
+            Object.assign(cell, { ...rest, font });
+          });
+        } else {
+          row.eachCell((cell) => {
+            cell.font = font;
           });
         }
         currentRow++;
@@ -368,24 +379,21 @@ export default function GbpTranstion() {
 
         // Apply red text based on transaction type
         if (hasBankCharges) {
-          // Rows with bank charges: red text in Date, Description, Details, Bank Charges
-          row.getCell(1).font = { color: { argb: 'FFFF0000' } }; // Date - red
-          row.getCell(2).font = { color: { argb: 'FFFF0000' } }; // Description - red
-          row.getCell(3).font = { color: { argb: 'FFFF0000' } }; // Details - red
-          row.getCell(5).font = { color: { argb: 'FFFF0000' } }; // Bank Charges - red
+          row.getCell(1).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+          row.getCell(2).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+          row.getCell(3).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+          row.getCell(5).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
         }
         
         if (hasDebit) {
-          // Rows with debit: red text in Date, Description, Details, Debit
-          row.getCell(1).font = { color: { argb: 'FFFF0000' } }; // Date - red
-          row.getCell(2).font = { color: { argb: 'FFFF0000' } }; // Description - red
-          row.getCell(3).font = { color: { argb: 'FFFF0000' } }; // Details - red
-          row.getCell(4).font = { color: { argb: 'FFFF0000' } }; // Debit - red
+          row.getCell(1).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+          row.getCell(2).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+          row.getCell(3).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+          row.getCell(4).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
         }
 
-        // Make Balance red if negative, otherwise keep default
         if (balanceValue < 0) {
-          row.getCell(7).font = { color: { argb: 'FFFF0000' } }; // Balance - red if negative
+          row.getCell(7).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
         }
       });
 
@@ -405,6 +413,7 @@ export default function GbpTranstion() {
       const dateStr = today.toISOString().split('T')[0];
       const fileName = `GBP-Transactions-${dateStr}.xlsx`;
 
+      applyArialToExcelJsWorkbook(workbook);
       // Write to buffer and download
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

@@ -42,6 +42,11 @@ import {
     userMessageFromChangeRequestSubmit,
 } from '../lib/changeRequestUi';
 import * as XLSX from 'xlsx';
+import {
+  applyXlsxArialToWorkbook,
+  xlsxSheetFontArial,
+  XLSX_WRITE_WITH_STYLES,
+} from '../lib/excelExportFont';
 
 const RECEIVABLES_RESOURCE_TYPE = 'receivables_category';
 
@@ -369,7 +374,7 @@ export default function ReciveableCategory() {
             if (!worksheet[headerCellRef].s) {
                 worksheet[headerCellRef].s = {};
             }
-            worksheet[headerCellRef].s.font = { bold: true };
+            worksheet[headerCellRef].s.font = xlsxSheetFontArial({ bold: true });
             worksheet[headerCellRef].s.alignment = { horizontal: 'left', vertical: 'center' };
         }
 
@@ -378,7 +383,8 @@ export default function ReciveableCategory() {
 
         // Generate Excel file and download
         const fileName = `Creditors-List-${new Date().toISOString().split('T')[0]}.xlsx`;
-        XLSX.writeFile(workbook, fileName);
+        applyXlsxArialToWorkbook(workbook);
+        XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
     }, [categories]);
 
     return (

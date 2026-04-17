@@ -319,7 +319,7 @@ function sliceTableFromDetectedHeader(table: BulkTableRow[]): BulkTableRow[] | n
   return null;
 }
 
-function parseMoneyCell(raw: string): number {
+export function parseMoneyCell(raw: string): number {
   let s = String(raw ?? '').trim().replace(/,/g, '');
   let sign = 1;
   if (/^\(.*\)$/.test(s)) {

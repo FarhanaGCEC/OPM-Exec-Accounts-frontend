@@ -1,10 +1,11 @@
 import { Button } from '@/components/ui/button';
 import Layout from '../components/Layout';
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileSpreadsheet, Plus, Edit, Trash2, Loader2, Search } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { FileSpreadsheet, Plus, Edit, Trash2, Loader2, Search, Upload } from 'lucide-react';
 import type { ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
+import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
+import BulkFkEmiratesUploadDialog from '../components/BulkFkEmiratesUploadDialog';
 import {
   Table,
   TableBody,
@@ -29,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
+import { Checkbox } from '../components/ui/checkbox';
 
 interface FkEmritsTransaction {
   id?: string | number;
@@ -55,6 +58,12 @@ export default function FkEmrits() {
   const [editingTransaction, setEditingTransaction] = useState<FkEmritsTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<FkEmritsTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   
   // Form state
   const [formData, setFormData] = useState<{
@@ -148,6 +157,63 @@ export default function FkEmrits() {
       return description.includes(searchLower) || details.includes(searchLower) || date.includes(searchLower);
     });
   }, [allTransactions, selectedCurrency, filterText]);
+
+  const selectableInView = useMemo(
+    () =>
+      filteredTransactions.filter((t) => t.id != null && String(t.id).trim() !== ''),
+    [filteredTransactions]
+  );
+
+  useEffect(() => {
+    const allowed = new Set(selectableInView.map((t) => String(t.id)));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => allowed.has(id)));
+      if (next.size === prev.size && [...prev].every((id) => next.has(id))) return prev;
+      return next;
+    });
+  }, [selectableInView]);
+
+  const allInViewSelected =
+    selectableInView.length > 0 &&
+    selectableInView.every((t) => selectedIds.has(String(t.id)));
+  const someInViewSelected = selectableInView.some((t) => selectedIds.has(String(t.id)));
+
+  const toggleRowSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllInView = () => {
+    setSelectedIds(new Set(selectableInView.map((t) => String(t.id))));
+  };
+
+  const clearRowSelection = () => setSelectedIds(new Set());
+
+  const handleBulkDeleteConfirm = async () => {
+    const ids = Array.from(selectedIdsRef.current);
+    if (ids.length === 0) {
+      setIsBulkDeleteDialogOpen(false);
+      return;
+    }
+    try {
+      setBulkDeleting(true);
+      setError(null);
+      await transactionService.bulkDeleteFkEmiratesTransactions(ids);
+      clearRowSelection();
+      setIsBulkDeleteDialogOpen(false);
+      await fetchTransactions();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Bulk delete failed');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const isBusy = loading || bulkDeleting;
 
   // Handle Add New
   const handleAddNew = () => {
@@ -367,9 +433,19 @@ export default function FkEmrits() {
       // Helper function to add a row with optional styling
       const addRow = (values: any[], style?: Partial<ExcelJS.Style>) => {
         const row = worksheet.addRow(values);
+        const font = excelExportFont(
+          style?.font && typeof style.font === 'object'
+            ? (style.font as Partial<ExcelJS.Font>)
+            : {}
+        ) as ExcelJS.Font;
         if (style) {
+          const { font: _omit, ...rest } = style;
           row.eachCell((cell) => {
-            Object.assign(cell, style);
+            Object.assign(cell, { ...rest, font });
+          });
+        } else {
+          row.eachCell((cell) => {
+            cell.font = font;
           });
         }
         currentRow++;
@@ -417,7 +493,11 @@ export default function FkEmrits() {
           console.warn('Could not merge title cells:', e);
         }
         const titleCell = titleRow.getCell(1);
-        titleCell.font = { bold: true, size: 14, color: { argb: 'FF000000' } }; // Black text
+        titleCell.font = excelExportFont({
+          bold: true,
+          size: 14,
+          color: { argb: 'FF000000' },
+        }) as ExcelJS.Font;
         titleCell.fill = {
           type: 'pattern',
           pattern: 'solid',
@@ -449,7 +529,10 @@ export default function FkEmrits() {
         // Table Headers
         const headers = ['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance'];
         const headerRow = addRow(headers);
-        headerRow.font = { bold: true, color: { argb: 'FF000000' } }; // Black text
+        headerRow.font = excelExportFont({
+          bold: true,
+          color: { argb: 'FF000000' },
+        }) as ExcelJS.Font;
         addRow([]);
         // Get currency format - use proper Excel number format
         let currencyFormat: string;
@@ -494,23 +577,20 @@ export default function FkEmrits() {
           balanceCell.numFmt = currencyFormat;
 
           // Debit column: Always red text (even if 0.00)
-          debitCell.font = { color: { argb: 'FFFF0000' } }; // Debit - always red
+          debitCell.font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
           
-          // Apply red text for Date, Description, Details if debit exists
           if (hasDebit) {
-            row.getCell(1).font = { color: { argb: 'FFFF0000' } }; // Date - red
-            row.getCell(2).font = { color: { argb: 'FFFF0000' } }; // Description - red
-            row.getCell(3).font = { color: { argb: 'FFFF0000' } }; // Details - red
+            row.getCell(1).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+            row.getCell(2).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+            row.getCell(3).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
           }
 
-          // Credit: black text (default)
-          creditCell.font = { color: { argb: 'FF000000' } };
+          creditCell.font = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
 
-          // Balance: blue if positive, red if negative
           if (safeBalance < 0) {
-            balanceCell.font = { color: { argb: 'FFFF0000' } }; // Balance - red if negative
+            balanceCell.font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
           } else if (safeBalance > 0) {
-            balanceCell.font = { color: { argb: 'FF0000FF' } }; // Balance - blue if positive
+            balanceCell.font = excelExportFont({ color: { argb: 'FF0000FF' } }) as ExcelJS.Font;
           }
         });
 
@@ -535,6 +615,7 @@ export default function FkEmrits() {
       const fileName = `FK-Emirates-All-Currencies-${dateStr}.xlsx`;
 
       // Write to buffer and download
+      applyArialToExcelJsWorkbook(workbook);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob);
@@ -571,15 +652,40 @@ export default function FkEmrits() {
             onClick={handleDownloadExcel}
             variant="outline"
             className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
-            disabled={loading || allTransactions.length === 0}
+            disabled={isBusy || allTransactions.length === 0}
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>Download Excel</span>
           </Button>
           <Button
+            onClick={() => {
+              setError(null);
+              setBulkUploadOpen(true);
+            }}
+            variant="outline"
+            className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+            disabled={isBusy}
+          >
+            <Upload className="w-4 h-4" />
+            <span>Bulk upload</span>
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setIsBulkDeleteDialogOpen(true);
+            }}
+            variant="outline"
+            className="flex items-center space-x-2 border-red-200 text-red-700 hover:bg-red-50"
+            disabled={isBusy || selectedIds.size === 0}
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Bulk delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}</span>
+          </Button>
+          <Button
             onClick={handleAddNew}
             className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
-            disabled={loading}
+            disabled={isBusy}
           >
             <Plus className="w-4 h-4 text-black" />
             <span>Add New</span>
@@ -627,6 +733,32 @@ export default function FkEmrits() {
         </div>
       )}
 
+      {filteredTransactions.length > 0 && (
+        <div className="mx-8 mb-2 flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="text-white"
+            disabled={selectedIds.size === 0 || isBusy}
+            onClick={() => setIsBulkDeleteDialogOpen(true)}
+          >
+            Delete selected ({selectedIds.size})
+          </Button>
+          {selectedIds.size > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isBusy}
+              onClick={clearRowSelection}
+            >
+              Clear selection
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className="mx-8">
         {loading && allTransactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
@@ -642,6 +774,23 @@ export default function FkEmrits() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-[#f7c46d] border-0">
+                    <TableHead className="w-10 py-3 px-2">
+                      <Checkbox
+                        disabled={selectableInView.length === 0 || isBusy}
+                        checked={
+                          allInViewSelected
+                            ? true
+                            : someInViewSelected
+                              ? 'indeterminate'
+                              : false
+                        }
+                        onCheckedChange={(v) => {
+                          if (v === true) selectAllInView();
+                          else clearRowSelection();
+                        }}
+                        aria-label="Select all visible rows"
+                      />
+                    </TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Date</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Description</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Details</TableHead>
@@ -653,8 +802,21 @@ export default function FkEmrits() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredTransactions.map((transaction) => (
-                    <TableRow key={transaction.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+                  {filteredTransactions.map((transaction) => {
+                    const rowId =
+                      transaction.id != null && String(transaction.id).trim() !== ''
+                        ? String(transaction.id)
+                        : null;
+                    return (
+                    <TableRow key={rowId ?? `${transaction.date}-${transaction.description}-${transaction.balance}`} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+                      <TableCell className="py-3 px-2">
+                        <Checkbox
+                          disabled={!rowId || isBusy}
+                          checked={rowId ? selectedIds.has(rowId) : false}
+                          onCheckedChange={() => rowId && toggleRowSelected(rowId)}
+                          aria-label={`Select row ${transaction.description || ''}`}
+                        />
+                      </TableCell>
                       <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(transaction.date)}</TableCell>
                       <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{transaction.description}</TableCell>
                       <TableCell className="text-gray-600 text-sm py-3 px-4">{transaction.details}</TableCell>
@@ -696,7 +858,7 @@ export default function FkEmrits() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleEdit(transaction)}
-                            disabled={loading}
+                            disabled={isBusy}
                             className="h-8 w-8 p-0"
                           >
                             <Edit className="w-4 h-4" />
@@ -705,7 +867,7 @@ export default function FkEmrits() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDeleteClick(transaction)}
-                            disabled={loading}
+                            disabled={isBusy}
                             className="h-8 w-8 p-0"
                           >
                             <Trash2 className="w-4 h-4 text-red-600" />
@@ -713,7 +875,8 @@ export default function FkEmrits() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -844,6 +1007,16 @@ export default function FkEmrits() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
+      <BulkFkEmiratesUploadDialog
+        open={bulkUploadOpen}
+        onOpenChange={setBulkUploadOpen}
+        currency={selectedCurrency}
+        onSuccess={() => {
+          void fetchTransactions();
+          setError(null);
+        }}
+      />
+
       <DeleteConfirmationDialog
         open={isDeleteDialogOpen}
         onOpenChange={(open) => {
@@ -865,6 +1038,19 @@ export default function FkEmrits() {
           return `transaction dated ${date}${description ? ` for "${description}"` : ''}${amountText ? ` (${amountText})` : ''}`;
         })()}
         isLoading={loading}
+      />
+
+      <DeleteConfirmationDialog
+        open={isBulkDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!bulkDeleting) setIsBulkDeleteDialogOpen(open);
+        }}
+        onConfirm={handleBulkDeleteConfirm}
+        title={`Delete ${selectedIds.size} transaction(s)?`}
+        description={`This will permanently delete ${selectedIds.size} FK Emirates NBD ${selectedCurrency} row(s) using the API. This cannot be undone.`}
+        itemName={undefined}
+        isLoading={bulkDeleting}
+        confirmButtonText="Delete all selected"
       />
     </Layout>
   );

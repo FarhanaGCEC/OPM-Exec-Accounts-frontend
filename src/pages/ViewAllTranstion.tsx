@@ -15,6 +15,7 @@ import {
 } from '../components/ui/table';
 import { Calendar, ChevronDown, Download, X } from 'lucide-react';
 import ExcelJS from 'exceljs';
+import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 
 
 
@@ -328,9 +329,19 @@ export default function ViewAllTranstion() {
     // Helper function to add a row with optional styling
     const addRow = (values: any[], style?: Partial<ExcelJS.Style>) => {
       const row = worksheet.addRow(values);
+      const font = excelExportFont(
+        style?.font && typeof style.font === 'object'
+          ? (style.font as Partial<ExcelJS.Font>)
+          : {}
+      ) as ExcelJS.Font;
       if (style) {
+        const { font: _omit, ...rest } = style;
         row.eachCell((cell) => {
-          Object.assign(cell, style);
+          Object.assign(cell, { ...rest, font });
+        });
+      } else {
+        row.eachCell((cell) => {
+          cell.font = font;
         });
       }
       currentRow++;
@@ -369,13 +380,13 @@ export default function ViewAllTranstion() {
       const typeTransactions = groupedTransactions[type] || [];
       if (typeTransactions.length > 0) {
         const displayName = getTransactionTypeDisplayName(type);
-        addRow([displayName], { 
-          font: { bold: true, size: 12 },
+        addRow([displayName], {
+          font: excelExportFont({ bold: true, size: 12 }) as ExcelJS.Font,
           fill: {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFE5E7EB' }
-          }
+            fgColor: { argb: 'FFE5E7EB' },
+          },
         });
         
         // Headers
@@ -383,9 +394,9 @@ export default function ViewAllTranstion() {
         if (type === 'Daily Transaction') {
           headers = ['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance', 'Remarks'];
         } else if (type === 'GCEC PDC') {
-          headers = ['Date', 'Payee', 'Cheque Number', 'Amount'];
+          headers = ['Date', 'Creditor', 'Cheque Number', 'Amount'];
         } else if (type === 'Customer PDC') {
-          headers = ['Date', 'Customer Name', 'Cheque Number', 'Cheque Type', 'Amount'];
+          headers = ['Date', 'Debtor', 'Cheque Number', 'Cheque Type', 'Amount'];
         } else if (type === 'Purchase Bill') {
           headers = ['Date', 'Vendor Name', 'Invoice Number', 'Payment Method', 'Amount'];
         }
@@ -430,7 +441,7 @@ export default function ViewAllTranstion() {
             // If there's a debit amount, make all text in the row red
             if (debitValue > 0) {
               row.eachCell((cell) => {
-                cell.font = { color: { argb: 'FFFF0000' } }; // Red color for all cells
+                cell.font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
               });
             }
 
@@ -457,7 +468,7 @@ export default function ViewAllTranstion() {
             
             // Make all text red in GCEC PDC rows (background stays white)
             row.eachCell((cell) => {
-              cell.font = { color: { argb: 'FFFF0000' } }; // Red color
+              cell.font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
             });
           } else if (type === 'Customer PDC') {
             const txn = transaction as CustomerPDC;
@@ -521,6 +532,7 @@ export default function ViewAllTranstion() {
     const dateStr = today.toISOString().split('T')[0];
     const fileName = `All-Transactions-${dateStr}.xlsx`;
 
+    applyArialToExcelJsWorkbook(workbook);
     // Write to buffer and download
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -744,7 +756,9 @@ export default function ViewAllTranstion() {
                   <TableHeader>
                     <TableRow className="bg-[#f1f5f9] border-0">
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Date</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Category/Customer/Vendor</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">
+                        Category / Creditor or Debtor / Vendor
+                      </TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Payment Type</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Cheque/Invoice No</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Debit</TableHead>

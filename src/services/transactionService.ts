@@ -977,5 +977,19 @@ export const transactionService = {
   deleteFkEmiratesTransaction: async (id: string): Promise<ApiResponse<void>> => {
     return api.delete<void>(`/fk-emirates/${id}`);
   },
+
+  bulkDeleteFkEmiratesTransactions: async (
+    ids: Array<string | number>
+  ): Promise<ApiResponse<unknown>> => {
+    const numericIds: number[] = [];
+    for (const id of ids) {
+      const n = typeof id === 'number' ? id : Number(String(id).trim());
+      if (!Number.isFinite(n)) {
+        throw new Error(`Invalid transaction id: ${String(id)}`);
+      }
+      numericIds.push(n);
+    }
+    return api.post<unknown>('/fk-emirates/bulk-delete', { ids: numericIds });
+  },
 };
 

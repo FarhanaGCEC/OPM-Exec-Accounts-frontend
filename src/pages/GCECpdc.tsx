@@ -36,6 +36,9 @@
     import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
     import Calendar from '../components/ui/calendar-tailwind';
     import { transactionService, type PostDatedCheque as PostDatedChequeType } from '../services/transactionService';
+    import { payablesService, type PayablesCategory } from '../services/payablesService';
+    import { SelectItem } from '../components/ui/select';
+    import { SearchableSelect } from '../components/ui/searchable-select';
     import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
     import { PdcAttachmentTableCell } from '../components/PdcAttachmentTableCell';
     import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
@@ -69,9 +72,8 @@
         .min(1, 'Cheque number is required')
         .min(3, 'Cheque number must be at least 3 characters'),
     customerName: z.string()
-        .min(1, 'Customer name is required')
-        .min(3, 'Customer name must be at least 3 characters')
-        .optional(),
+        .min(1, 'Payee is required')
+        .min(3, 'Payee must be at least 3 characters'),
     amount: z.string()
         .min(1, 'Amount is required')
         .refine((val) => {
@@ -162,6 +164,7 @@
     const [approvalSubmitting, setApprovalSubmitting] = useState(false);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [pdcAttachmentFile, setPdcAttachmentFile] = useState<File | null>(null);
+    const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
     const form = useForm<ChequeFormData>({
         resolver: zodResolver(chequeSchema),
         defaultValues: {
@@ -230,6 +233,24 @@
     useEffect(() => {
         fetchCheques();
     }, [fetchCheques]);
+
+    useEffect(() => {
+        if (!isModalOpen) return;
+        let cancelled = false;
+        void (async () => {
+        try {
+            const res = await payablesService.getPayables();
+            if (!cancelled && res.success && Array.isArray(res.data)) {
+            setCreditorsList(res.data);
+            }
+        } catch (e) {
+            console.error('[GCECpdc] Failed to load creditors list', e);
+        }
+        })();
+        return () => {
+        cancelled = true;
+        };
+    }, [isModalOpen]);
 
     const submitPdcApproval = useCallback(async () => {
         if (!pdcApproval || pdcApproval.mode === 'success') return;
@@ -938,25 +959,50 @@
                     )}
                 />
 
-                {/* Customer Name Field - Optional */}
+                {/* Payee — Creditors List (payables); stored as customer_name */}
                 <FormField
                     control={form.control}
                     name="customerName"
-                    render={({ field }) => (
-                    <FormItem>
+                    render={({ field }) => {
+                    const creditorNames = [
+                        ...new Set(
+                        creditorsList
+                            .map((c) => String(c.name ?? '').trim())
+                            .filter(Boolean)
+                        ),
+                    ].sort((a, b) => a.localeCompare(b));
+                    const current = (field.value ?? '').trim();
+                    const legacyOption =
+                        current && !creditorNames.includes(current) ? current : null;
+                    return (
+                        <FormItem>
                         <FormLabel className="text-base font-medium text-gray-700">
-                        Customer Name
+                            Payee <span className="text-red-500">*</span>
                         </FormLabel>
                         <FormControl>
-                        <Input
-                            placeholder="e.g., Emirates Trading Co."
-                            {...field}
+                            <SearchableSelect
+                            value={current || undefined}
+                            onValueChange={field.onChange}
+                            placeholder="Select from Creditors List"
+                            searchPlaceholder="Search creditors..."
                             disabled={isSubmitting}
-                        />
+                            >
+                            {legacyOption ? (
+                                <SelectItem value={legacyOption} textValue={legacyOption}>
+                                {legacyOption} (not in list)
+                                </SelectItem>
+                            ) : null}
+                            {creditorNames.map((name) => (
+                                <SelectItem key={name} value={name} textValue={name}>
+                                {name}
+                                </SelectItem>
+                            ))}
+                            </SearchableSelect>
                         </FormControl>
                         <FormMessage />
-                    </FormItem>
-                    )}
+                        </FormItem>
+                    );
+                    }}
                 />
 
                 {/* Amount Field */}
