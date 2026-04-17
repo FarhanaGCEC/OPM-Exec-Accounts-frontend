@@ -3,7 +3,10 @@ import { Card, CardContent } from '../components/ui/card';
 import { transactionService } from '../services/transactionService';
 import type { ApiResponse } from '../lib/api';
 import { formatIsoDateDisplay, formatJsDateDisplay } from '../lib/formatDisplayDate';
-import { remarksForDailyLedgerDisplay } from '../lib/dailyLedgerRemarksDisplay';
+import {
+  remarksForDailyLedgerDisplay,
+  isBouncedChequeRemarks,
+} from '../lib/dailyLedgerRemarksDisplay';
 
 import {
   Table,
@@ -419,9 +422,7 @@ export default function ViewAllTranstion() {
             
             const rawRemarks = txn.remarks || '';
             const remarksCell = remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn));
-            const isBouncedOrReturned =
-              rawRemarks.toLowerCase().includes('bounced cheque') ||
-              rawRemarks.toLowerCase().includes('returned cheque');
+            const isBouncedOrReturned = isBouncedChequeRemarks(rawRemarks);
 
             const row = addRow([
               formatDateForExcel(txn.date),
@@ -548,8 +549,16 @@ export default function ViewAllTranstion() {
   const renderTransactionRow = (transaction: AllTransaction) => {
     if (transaction.transactionType === 'Daily Transaction') {
       const txn = transaction as DailyTransaction;
+      const bounceHighlight = isBouncedChequeRemarks(txn.remarks);
       return (
-        <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+        <TableRow
+          key={txn.id}
+          className={`border-b border-gray-100 transition-colors ${
+            bounceHighlight
+              ? 'bg-[#95dcf7] hover:bg-[#7dd3f0]'
+              : 'hover:bg-blue-50'
+          }`}
+        >
           <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
           <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.category}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.paymentType}</TableCell>

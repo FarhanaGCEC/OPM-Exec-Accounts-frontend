@@ -68,6 +68,7 @@ import {
   remarksForDailyLedgerDisplay,
   rowIsGcecPdcHighlight,
   isCustomerPdcRemarksLabel,
+  isBouncedChequeRemarks,
 } from '../lib/dailyLedgerRemarksDisplay';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 
@@ -170,20 +171,6 @@ function resolveCategoryDisplayNameFromApiRow(
   }
   if (rawCat) return rawCat;
   return 'N/A';
-}
-
-/** Same detection as ledger grid row background for bounced / returned cheque. */
-function isBouncedChequeRemarks(remarks?: string | null): boolean {
-  const remarksLower = String(remarks || '').toLowerCase().trim() || '';
-  return (
-    remarksLower === 'bounced cheque' ||
-    remarksLower === 'bouncedcheque' ||
-    remarksLower === 'bouncedchecq' ||
-    remarksLower === 'returned cheque' ||
-    remarksLower === 'returnedcheque' ||
-    (remarksLower.includes('bounced') && remarksLower.includes('cheque')) ||
-    (remarksLower.includes('returned') && remarksLower.includes('cheque'))
-  );
 }
 
 /** Customer PDC rows — API `pdcType` or short remark label only (not free-form sentences). */

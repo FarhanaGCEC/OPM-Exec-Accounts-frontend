@@ -18,6 +18,27 @@ export function rowIsGcecPdcHighlight(remarks?: string | null, pdcType?: string)
   return false;
 }
 
+/**
+ * Daily ledger row highlight (full-row blue in UI / Excel): bounced or returned cheque,
+ * or remarks that include **Reversed Transaction** (e.g. multi-line with “Bounced cheque”).
+ */
+export function isBouncedChequeRemarks(remarks?: string | null): boolean {
+  const remarksLower = String(remarks || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+  return (
+    remarksLower === 'bounced cheque' ||
+    remarksLower === 'bouncedcheque' ||
+    remarksLower === 'bouncedchecq' ||
+    remarksLower === 'returned cheque' ||
+    remarksLower === 'returnedcheque' ||
+    remarksLower.includes('reversed transaction') ||
+    (remarksLower.includes('bounced') && remarksLower.includes('cheque')) ||
+    (remarksLower.includes('returned') && remarksLower.includes('cheque'))
+  );
+}
+
 export function isCustomerPdcRemarksLabel(remarks?: string | null): boolean {
   const norm = String(remarks || '')
     .toLowerCase()
