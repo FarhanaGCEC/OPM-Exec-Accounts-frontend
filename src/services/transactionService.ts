@@ -901,9 +901,12 @@ export const transactionService = {
   },
 
   // FK Emirates NBD Transactions
-  getFkEmiratesTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
-    // Fetch all transactions - filtering by currency will be done on frontend
-    return api.get<BankTransaction[]>('/fk-emirates');
+  getFkEmiratesTransactions: async (
+    currency: 'AED' | 'USD' | 'GBP'
+  ): Promise<ApiResponse<BankTransaction[]>> => {
+    return api.get<BankTransaction[]>('/fk-emirates', {
+      params: { currency },
+    });
   },
 
   createFkEmiratesTransaction: async (data: {
@@ -974,12 +977,18 @@ export const transactionService = {
     return api.patch<BankTransaction>(`/fk-emirates/${id}`, apiData);
   },
 
-  deleteFkEmiratesTransaction: async (id: string): Promise<ApiResponse<void>> => {
-    return api.delete<void>(`/fk-emirates/${id}`);
+  deleteFkEmiratesTransaction: async (
+    id: string,
+    currency: 'AED' | 'USD' | 'GBP'
+  ): Promise<ApiResponse<void>> => {
+    return api.delete<void>(`/fk-emirates/${id}`, {
+      params: { currency },
+    });
   },
 
   bulkDeleteFkEmiratesTransactions: async (
-    ids: Array<string | number>
+    ids: Array<string | number>,
+    currency: 'AED' | 'USD' | 'GBP'
   ): Promise<ApiResponse<unknown>> => {
     const numericIds: number[] = [];
     for (const id of ids) {
@@ -989,7 +998,31 @@ export const transactionService = {
       }
       numericIds.push(n);
     }
-    return api.post<unknown>('/fk-emirates/bulk-delete', { ids: numericIds });
+    // FK Emirates API does not expose a bulk-delete endpoint; delete rows one by one.
+    const failedIds: number[] = [];
+    for (const id of numericIds) {
+      try {
+        await api.delete<void>(`/fk-emirates/${id}`, {
+          params: { currency },
+        });
+      } catch {
+        failedIds.push(id);
+      }
+    }
+
+    if (failedIds.length > 0) {
+      throw new Error(
+        `Failed to delete ${failedIds.length} row(s) for ${currency}: ${failedIds.join(', ')}`
+      );
+    }
+
+    return {
+      success: true,
+      data: {
+        deleted: numericIds.length,
+      },
+      message: `Deleted ${numericIds.length} row(s).`,
+    };
   },
 };
 

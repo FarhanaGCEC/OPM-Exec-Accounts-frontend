@@ -99,7 +99,9 @@ export default function FkEmrits() {
     try {
       setLoading(true);
       setError(null);
-      const response: ApiResponse<any> = await transactionService.getFkEmiratesTransactions();
+      const response: ApiResponse<any> = await transactionService.getFkEmiratesTransactions(
+        selectedCurrency
+      );
       
       if (response.success && response.data) {
         // API returns all transactions - map to camelCase
@@ -125,7 +127,7 @@ export default function FkEmrits() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedCurrency]);
 
   useEffect(() => {
     fetchTransactions();
@@ -202,7 +204,7 @@ export default function FkEmrits() {
     try {
       setBulkDeleting(true);
       setError(null);
-      await transactionService.bulkDeleteFkEmiratesTransactions(ids);
+      await transactionService.bulkDeleteFkEmiratesTransactions(ids, selectedCurrency);
       clearRowSelection();
       setIsBulkDeleteDialogOpen(false);
       await fetchTransactions();
@@ -284,7 +286,10 @@ export default function FkEmrits() {
     
     try {
       setLoading(true);
-      const response = await transactionService.deleteFkEmiratesTransaction(String(transactionToDelete.id));
+      const response = await transactionService.deleteFkEmiratesTransaction(
+        String(transactionToDelete.id),
+        selectedCurrency
+      );
       
       if (response.success) {
         await fetchTransactions();

@@ -19,6 +19,36 @@ function pdcAmount(c: PostDatedCheque): string {
   return formatAmount(isNaN(n) ? 0 : n);
 }
 
+function parseChequeDate(value: string): Date | null {
+  const d = new Date(value);
+  if (!isNaN(d.getTime())) return d;
+
+  // Fallback for dd/mm/yyyy values.
+  const parts = value.split('/');
+  if (parts.length === 3) {
+    const day = Number(parts[0]);
+    const month = Number(parts[1]) - 1;
+    const year = Number(parts[2]);
+    const parsed = new Date(year, month, day);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+}
+
+function isDueWithinNextMonth(chequeDate: string): boolean {
+  const dueDate = parseChequeDate(chequeDate);
+  if (!dueDate) return false;
+
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const endDate = new Date(startOfToday);
+  endDate.setMonth(endDate.getMonth() + 1);
+
+  const due = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+  return due >= startOfToday && due <= endDate;
+}
+
 function DashboardPdcList({
   title,
   items,
@@ -121,7 +151,9 @@ export default function Dashboard() {
       setLoadingPdc(true);
       const res = await transactionService.getPostDatedCheques();
       if (res.success && res.data) {
-        const list = res.data.filter((c) => c.pdcType !== 'Custom PDC');
+        const list = res.data.filter(
+          (c) => c.pdcType !== 'Custom PDC' && isDueWithinNextMonth(c.chequeDate)
+        );
         setCustomerPdcs(list.filter((c) => c.pdcType === 'Customer PDC'));
         setGcecPdcs(list.filter((c) => c.pdcType === 'GCEC PDC'));
       } else {

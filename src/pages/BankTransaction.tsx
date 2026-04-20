@@ -16,7 +16,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -51,7 +50,6 @@ import { receivablesService, type ReceivablesCategory } from '../services/receiv
 import {
   transactionService,
   type BankTransaction as BankTransactionType,
-  type BulkDeleteTransactionsResult,
   normalizePdcTypeFromApi,
 } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
@@ -68,32 +66,7 @@ import {
   remarksForDailyLedgerDisplay,
   rowIsGcecPdcHighlight,
   isCustomerPdcRemarksLabel,
-  isBouncedChequeRemarks,
 } from '../lib/dailyLedgerRemarksDisplay';
-import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
-
-/** Ledger primary key from GET /transactions when `id` is a different surrogate. */
-function readLedgerIdFromApiPayload(row: Record<string, unknown> | undefined): number | undefined {
-  if (!row) return undefined;
-  const tryNum = (v: unknown): number | undefined => {
-    if (v === undefined || v === null || String(v).trim() === '') return undefined;
-    const n = Number(v);
-    return Number.isNaN(n) ? undefined : n;
-  };
-  const keys = [
-    'ledgerId',
-    'ledger_id',
-    'dailyLedgerId',
-    'daily_ledger_id',
-    'ledgerEntryId',
-    'ledger_entry_id',
-  ] as const;
-  for (const k of keys) {
-    const n = tryNum(row[k]);
-    if (n !== undefined) return n;
-  }
-  return undefined;
-}
 
 /** Normalize PDC / ledger fields from GET /transactions (camelCase or snake_case). */
 function readPdcLedgerRowFlags(tx: Record<string, unknown>) {
@@ -120,57 +93,18 @@ function readPdcLedgerRowFlags(tx: Record<string, unknown>) {
   };
 }
 
-/** Map GET /transactions paymentType to UI form values (online → banktransfer, DD variants → dd). */
-function normalizeLedgerPaymentTypeForUi(
-  pt: unknown
-): 'creditcard' | 'cheque' | 'cash' | 'banktransfer' | 'dd' {
-  const s = String(pt ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, '');
-  if (s === 'online') return 'banktransfer';
-  if (s === 'dd' || s === 'directdebit') return 'dd';
-  if (s === 'creditcard' || s === 'cheque' || s === 'cash' || s === 'banktransfer') {
-    return s;
-  }
-  return 'cash';
-}
-
-/**
- * When the API sends only `categoryId` or a numeric `category`, show the payables/receivables name
- * in the Description column (not the raw id).
- */
-function resolveCategoryDisplayNameFromApiRow(
-  row: Record<string, unknown>,
-  payables: PayablesCategory[],
-  receivables: ReceivablesCategory[]
-): string {
-  const txTypeRaw = String(row.type ?? '')
-    .trim()
-    .toLowerCase();
-  const primary = txTypeRaw === 'credit' ? receivables : payables;
-  const secondary = txTypeRaw === 'credit' ? payables : receivables;
-  const catId = row.categoryId ?? row.category_id;
-  const rawCat =
-    row.category != null && row.category !== '' ? String(row.category).trim() : '';
-
-  const nameById = (id: string): string | undefined => {
-    const a = primary.find((c) => String(c.id) === id);
-    if (a) return a.name;
-    const b = secondary.find((c) => String(c.id) === id);
-    return b?.name;
-  };
-
-  if (catId != null && String(catId).trim() !== '') {
-    const n = nameById(String(catId));
-    if (n) return n;
-  }
-  if (rawCat && /^\d+$/.test(rawCat)) {
-    const n = nameById(rawCat);
-    if (n) return n;
-  }
-  if (rawCat) return rawCat;
-  return 'N/A';
+/** Same detection as ledger grid row background for bounced / returned cheque. */
+function isBouncedChequeRemarks(remarks?: string | null): boolean {
+  const remarksLower = String(remarks || '').toLowerCase().trim() || '';
+  return (
+    remarksLower === 'bounced cheque' ||
+    remarksLower === 'bouncedcheque' ||
+    remarksLower === 'bouncedchecq' ||
+    remarksLower === 'returned cheque' ||
+    remarksLower === 'returnedcheque' ||
+    (remarksLower.includes('bounced') && remarksLower.includes('cheque')) ||
+    (remarksLower.includes('returned') && remarksLower.includes('cheque'))
+  );
 }
 
 /** Customer PDC rows — API `pdcType` or short remark label only (not free-form sentences). */
@@ -393,189 +327,8 @@ interface BankTransaction extends BankTransactionType {
   debitFormatted?: string | null; // Formatted debit amount
   creditFormatted?: string | null; // Formatted credit amount
   remarks?: string | null; // Remarks for the transaction
-  /** Raw GET /transactions row for bulk-delete `transactions` payload (typed rows). */
-  bulkDeleteSourceRow?: Record<string, unknown>;
-
+  
   originalDate?: string; // Store original ISO date for editing
-}
-
-const BULK_DELETE_ENTITY_TYPES = new Set([
-  'GCEC PDC',
-  'Customer PDC',
-  'Custom PDC',
-  'Purchase Bill',
-]);
-
-/** PDC rows in bulk-delete must use numeric post_dated_cheques id, not synthetic ledger keys like pdc-due-20. */
-const BULK_DELETE_PDC_TRANSACTION_TYPES = new Set([
-  'GCEC PDC',
-  'Customer PDC',
-  'Custom PDC',
-]);
-
-function numericPostDatedChequeId(t: BankTransaction): number | undefined {
-  if (t.pdcId != null && String(t.pdcId).trim() !== '') {
-    const n = Number(t.pdcId);
-    if (!Number.isNaN(n)) return n;
-  }
-  const raw = t.bulkDeleteSourceRow?.pdcId ?? t.bulkDeleteSourceRow?.pdc_id;
-  if (raw != null && String(raw).trim() !== '') {
-    const n = Number(raw);
-    if (!Number.isNaN(n)) return n;
-  }
-  const m = /^pdc-due-(\d+)$/i.exec(String(t.id ?? '').trim());
-  if (m) return Number(m[1]);
-  return undefined;
-}
-
-/** PDC / purchase-bill rows must use `transactions[]` with transactionType — not bare numeric `ids`. */
-function rowMustUseTransactionPayload(t: BankTransaction): boolean {
-  const raw = t.bulkDeleteSourceRow;
-  const apiT = String(raw?.transactionType ?? raw?.transaction_type ?? '').trim();
-  if (BULK_DELETE_ENTITY_TYPES.has(apiT)) return true;
-  if (apiT.toLowerCase().includes('purchase')) return true;
-  if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) return true;
-  if (rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) return true;
-  if (t.syntheticFromPdc) return true;
-  if (raw?.vendorName != null || raw?.vendor_name != null) return true;
-  return false;
-}
-
-/** Prefer real ledger id from GET /transactions; bulk-delete resolves `ids` against the ledger table. */
-function readLedgerIdForBulkDelete(t: BankTransaction): number | undefined {
-  return (
-    readLedgerIdFromApiPayload(t.bulkDeleteSourceRow) ??
-    readLedgerIdFromApiPayload(t as unknown as Record<string, unknown>)
-  );
-}
-
-/** Plain ledger id (number) or synthetic string id (e.g. pdc-due-123) for `ids` only. */
-function rowIdForBulkDeleteIdsArray(t: BankTransaction): string | number | null {
-  const ledgerId = readLedgerIdForBulkDelete(t);
-  if (ledgerId !== undefined) return ledgerId;
-
-  const idStr = String(t.id ?? '').trim();
-  if (!idStr) return null;
-  if (!/^\d+$/.test(idStr)) return idStr;
-  return Number(idStr);
-}
-
-/** DELETE /transactions/:id expects the same id the API uses for the ledger row (often `ledgerId`). */
-function transactionIdForSingleDelete(t: BankTransaction | undefined): string | null {
-  if (!t) return null;
-  const ledger = readLedgerIdForBulkDelete(t);
-  if (ledger !== undefined) return String(ledger);
-  const idStr = String(t.id ?? '').trim();
-  return idStr || null;
-}
-
-function buildBulkDeleteTransactionPayload(t: BankTransaction): Record<string, unknown> {
-  const src =
-    t.bulkDeleteSourceRow != null
-      ? ({ ...t.bulkDeleteSourceRow } as Record<string, unknown>)
-      : ({} as Record<string, unknown>);
-  let transactionType = String(src.transactionType ?? src.transaction_type ?? '').trim();
-  if (!transactionType) {
-    if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) transactionType = 'GCEC PDC';
-    else if (rowIsCustomerPdcHighlight(t.remarks, t.pdcType))
-      transactionType = 'Customer PDC';
-    else if (t.syntheticFromPdc) transactionType = normalizePdcTypeFromApi(t.pdcType);
-    else if (
-      src.vendorName != null ||
-      src.vendor_name != null ||
-      src.invoiceNumber != null ||
-      src.invoice_number != null
-    )
-      transactionType = 'Purchase Bill';
-  }
-  if (!transactionType) transactionType = 'Daily Transaction';
-
-  const pdcNumericId = numericPostDatedChequeId(t);
-  const isPdcTypedRow = BULK_DELETE_PDC_TRANSACTION_TYPES.has(transactionType);
-  const ledgerForDaily = readLedgerIdForBulkDelete(t);
-  const idForApi: string | number =
-    isPdcTypedRow && pdcNumericId != null
-      ? pdcNumericId
-      : ledgerForDaily !== undefined
-        ? ledgerForDaily
-        : (t.id ?? '');
-
-  const out: Record<string, unknown> = {
-    ...src,
-    transactionType,
-    id: idForApi,
-    pdcId: pdcNumericId ?? t.pdcId ?? src.pdcId ?? src.pdc_id,
-    pdcType: t.pdcType ?? src.pdcType ?? src.pdc_type,
-    syntheticFromPdc:
-      t.syntheticFromPdc ?? src.syntheticFromPdc ?? src.synthetic_from_pdc,
-  };
-  if (isPdcTypedRow && pdcNumericId != null) {
-    out.post_dated_cheque_id = pdcNumericId;
-    out.post_dated_cheques_id = pdcNumericId;
-  }
-  return out;
-}
-
-function buildBulkDeleteRequestBody(list: BankTransaction[]): {
-  ids: (string | number)[];
-  transactions: Record<string, unknown>[];
-} {
-  const ids: (string | number)[] = [];
-  const transactions: Record<string, unknown>[] = [];
-  const idKeys = new Set<string>();
-  const txnKeys = new Set<string>();
-
-  for (const t of list) {
-    if (t.approvalPendingFooterDuplicate) continue;
-
-    if (rowMustUseTransactionPayload(t)) {
-      const payload = buildBulkDeleteTransactionPayload(t);
-      const tt = String(payload.transactionType ?? '');
-      const key = `${tt}:${String(payload.id)}:${String(payload.pdcId ?? '')}`;
-      if (txnKeys.has(key)) continue;
-      txnKeys.add(key);
-      transactions.push(payload);
-    } else {
-      const id = rowIdForBulkDeleteIdsArray(t);
-      if (id == null) continue;
-      const k = `${typeof id}:${id}`;
-      if (idKeys.has(k)) continue;
-      idKeys.add(k);
-      ids.push(id);
-    }
-  }
-  return { ids, transactions };
-}
-
-function unwrapBulkDeleteResult(raw: unknown): BulkDeleteTransactionsResult | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const o = raw as Record<string, unknown>;
-  if (o.data && typeof o.data === 'object' && !Array.isArray(o.data)) {
-    return o.data as BulkDeleteTransactionsResult;
-  }
-  return o as BulkDeleteTransactionsResult;
-}
-
-function formatBulkDeleteSuccessMessage(raw: unknown, fallback: string): string {
-  const d = unwrapBulkDeleteResult(raw);
-  if (!d) return fallback;
-  const parts: string[] = [];
-  if (typeof d.deletedLedger === 'number') parts.push(`${d.deletedLedger} ledger`);
-  if (typeof d.deletedPdc === 'number') parts.push(`${d.deletedPdc} PDC`);
-  if (typeof d.deletedPurchaseBills === 'number')
-    parts.push(`${d.deletedPurchaseBills} purchase bill(s)`);
-  const notes: string[] = [];
-  if (Array.isArray(d.missingIds) && d.missingIds.length)
-    notes.push(`missing ledger ids: ${d.missingIds.length}`);
-  if (Array.isArray(d.missingLedgerIds) && d.missingLedgerIds.length)
-    notes.push(`missing ledger ids (detail): ${d.missingLedgerIds.length}`);
-  if (Array.isArray(d.missingPdcIds) && d.missingPdcIds.length)
-    notes.push(`missing PDC ids: ${d.missingPdcIds.length}`);
-  if (Array.isArray(d.missingPurchaseBillIds) && d.missingPurchaseBillIds.length)
-    notes.push(`missing purchase bill ids: ${d.missingPurchaseBillIds.length}`);
-  let msg = parts.length ? `Deleted ${parts.join(', ')}.` : fallback;
-  if (notes.length) msg += ` ${notes.join('; ')}.`;
-  return msg;
 }
 
 function parseTransactionDateForSort(t: BankTransaction): Date | null {
@@ -659,7 +412,6 @@ function ledgerExportDetailsColumn(t: BankTransaction): string {
   if (t.paymentType === 'cash') return 'Cash';
   if (t.paymentType === 'creditcard') return 'Credit Card';
   if (t.paymentType === 'banktransfer') return 'Online';
-  if (t.paymentType === 'dd') return 'DD';
   if (t.paymentType) return t.paymentType;
   return '';
 }
@@ -672,8 +424,9 @@ const transactionSchema = z.object({
   type: z.enum(['Debit', 'Credit'], {
     required_error: 'Please select a type',
   }),
-  categoryId: z.string(),
-  paymentType: z.enum(['creditcard', 'cheque', 'cash', 'banktransfer', 'dd'], {
+  categoryId: z.string()
+    .min(1, 'Category is required'),
+  paymentType: z.enum(['creditcard', 'cheque', 'cash', 'banktransfer'], {
     required_error: 'Please select a payment type',
   }),
   chequeNumber: z.string().optional(),
@@ -684,12 +437,6 @@ const transactionSchema = z.object({
       const num = parseFloat(val.replace(/,/g, ''));
       return !isNaN(num) && num > 0;
     }, 'Amount must be greater than 0'),
-}).refine((data) => {
-  if (data.paymentType === 'dd') return true;
-  return data.categoryId.trim().length > 0;
-}, {
-  message: 'Category is required',
-  path: ['categoryId'],
 }).refine((data) => {
   // If payment type is cheque, chequeNumber is required
   if (data.paymentType === 'cheque') {
@@ -744,11 +491,6 @@ export default function BankTransaction() {
   type ApprovalOffer =
     | { mode: 'edit'; resourceId: string; payload: Record<string, unknown> }
     | { mode: 'delete'; resourceId: string }
-    | {
-        mode: 'delete_bulk';
-        ids: (string | number)[];
-        transactions: Record<string, unknown>[];
-      }
     | { mode: 'pdc_daily_ledger'; resourceId: string; payload: Record<string, unknown> }
     | { mode: 'success'; message: string };
   const [approvalOffer, setApprovalOffer] = useState<ApprovalOffer | null>(null);
@@ -758,8 +500,6 @@ export default function BankTransaction() {
   const [pdcApproveDialogOpen, setPdcApproveDialogOpen] = useState(false);
   const [pdcApprovePdcId, setPdcApprovePdcId] = useState<number | null>(null);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
-  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
-  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const form = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
@@ -788,13 +528,6 @@ export default function BankTransaction() {
   useEffect(() => {
     form.setValue('categoryId', '');
   }, [transactionType, form]);
-
-  // DD (direct debit) does not use a payables/receivables category
-  useEffect(() => {
-    if (paymentType === 'dd') {
-      form.setValue('categoryId', '');
-    }
-  }, [paymentType, form]);
 
   // Fetch both payables and receivables categories
   const fetchCategories = useCallback(async () => {
@@ -831,29 +564,6 @@ export default function BankTransaction() {
     fetchCategories();
   }, [fetchCategories]);
 
-  /** After categories load, replace numeric Description / category fields with real category names. */
-  useEffect(() => {
-    if (payablesCategories.length === 0 && receivablesCategories.length === 0) return;
-    setTransactions((prev) => {
-      let changed = false;
-      const next = prev.map((t) => {
-        const src = t.bulkDeleteSourceRow;
-        if (!src) return t;
-        const resolved = resolveCategoryDisplayNameFromApiRow(
-          { ...src, type: t.type ?? src.type },
-          payablesCategories,
-          receivablesCategories
-        );
-        if (resolved !== t.categoryName) {
-          changed = true;
-          return { ...t, categoryName: resolved };
-        }
-        return t;
-      });
-      return changed ? next : prev;
-    });
-  }, [payablesCategories, receivablesCategories]);
-
   // Get categories based on transaction type
   const getAvailableCategories = () => {
     if (transactionType === 'Debit') {
@@ -883,16 +593,14 @@ export default function BankTransaction() {
           const formattedDate =
             apiDate && !isFooterDup ? formatDate(String(apiDate)) : '';
 
-          const debitNum = parseLedgerAmount(transaction.debit);
-          const creditNum = parseLedgerAmount(transaction.credit);
-          const debitAmount = debitNum
-            ? debitNum.toLocaleString('en-US', {
+          const debitAmount = transaction.debit
+            ? transaction.debit.toLocaleString('en-US', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })
             : null;
-          const creditAmount = creditNum
-            ? creditNum.toLocaleString('en-US', {
+          const creditAmount = transaction.credit
+            ? transaction.credit.toLocaleString('en-US', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })
@@ -906,17 +614,15 @@ export default function BankTransaction() {
                 })
               : String(transaction.balance || '0');
 
-          const frontendPaymentType = normalizeLedgerPaymentTypeForUi(transaction.paymentType);
+          const frontendPaymentType =
+            transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
 
           const remarksRaw = row.remarks;
           const remarks =
             remarksRaw === undefined || remarksRaw === null ? undefined : String(remarksRaw);
 
-          const ledgerIdResolved = readLedgerIdFromApiPayload(row as Record<string, unknown>);
           return {
             ...transaction,
-            bulkDeleteSourceRow: { ...row },
-            ...(ledgerIdResolved !== undefined ? { ledgerId: ledgerIdResolved } : {}),
             id: String(transaction.id ?? ''),
             date: formattedDate,
             originalDate: isoForEdit,
@@ -926,8 +632,7 @@ export default function BankTransaction() {
               | 'creditcard'
               | 'cheque'
               | 'cash'
-              | 'banktransfer'
-              | 'dd',
+              | 'banktransfer',
             debit: transaction.debit,
             credit: transaction.credit,
             debitFormatted: debitAmount,
@@ -1027,31 +732,24 @@ export default function BankTransaction() {
       const amountNumber = parseFloat(data.amount.replace(/,/g, ''));
 
       // Prepare payload for API
-      // Convert 'banktransfer' to 'online' for API; DD stays `dd`
-      const apiPaymentType =
-        data.paymentType === 'banktransfer'
-          ? 'online'
-          : data.paymentType === 'dd'
-            ? 'dd'
-            : data.paymentType;
+      // Convert 'banktransfer' to 'online' for API
+      const apiPaymentType = data.paymentType === 'banktransfer' ? 'online' : data.paymentType;
       
       const payload: {
         date: string;
         type: 'Debit' | 'Credit';
-        categoryId?: string | number;
-        paymentType: 'creditcard' | 'cheque' | 'cash' | 'online' | 'dd';
+        categoryId: string | number;
+        paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
         chequeNumber?: string;
         remarks?: string;
         amount: number;
       } = {
         date: data.date, // Format: dd/mm/yyyy
         type: data.type,
-        paymentType: apiPaymentType as 'creditcard' | 'cheque' | 'cash' | 'online' | 'dd',
+        categoryId: data.categoryId,
+        paymentType: apiPaymentType as 'creditcard' | 'cheque' | 'cash' | 'online',
         amount: amountNumber,
       };
-      if (data.paymentType !== 'dd' && data.categoryId.trim() !== '') {
-        payload.categoryId = data.categoryId;
-      }
 
       // Only include chequeNumber if payment type is cheque
       if (data.paymentType === 'cheque' && data.chequeNumber) {
@@ -1069,10 +767,8 @@ export default function BankTransaction() {
 
       if (editingTransaction) {
         pendingEditPayload = { ...payload };
-        // Update existing transaction (URL id must match ledger row when API separates list id from ledger id)
-        const idForUpdate =
-          transactionIdForSingleDelete(editingTransaction) ?? String(editingTransaction.id);
-        response = await transactionService.updateBankTransaction(idForUpdate, payload);
+        // Update existing transaction
+        response = await transactionService.updateBankTransaction(String(editingTransaction.id), payload);
       } else {
         // Create new transaction
         response = await transactionService.createBankTransaction(payload);
@@ -1081,10 +777,7 @@ export default function BankTransaction() {
       if (response.success && response.data) {
         // Find category name for display based on transaction type
         const categoryList = data.type === 'Debit' ? payablesCategories : receivablesCategories;
-        const selectedCategory =
-          data.paymentType === 'dd'
-            ? undefined
-            : categoryList.find((cat) => String(cat.id) === data.categoryId);
+        const selectedCategory = categoryList.find(cat => String(cat.id) === data.categoryId);
         
         // Format amount with commas for display
         const amountValue = typeof response.data.amount === 'number' 
@@ -1106,7 +799,7 @@ export default function BankTransaction() {
           const updatedTransaction: BankTransaction = {
             ...response.data,
             id: String(response.data.id || editingTransaction.id),
-            categoryName: selectedCategory?.name ?? response.data.category ?? 'N/A',
+            categoryName: selectedCategory?.name,
             amount: formattedAmount,
             balance: formattedBalance,
           };
@@ -1126,7 +819,7 @@ export default function BankTransaction() {
           const newTransaction: BankTransaction = {
             ...response.data,
             id: String(response.data.id || Date.now()),
-            categoryName: selectedCategory?.name ?? response.data.category ?? 'N/A',
+            categoryName: selectedCategory?.name,
             amount: formattedAmount,
             balance: formattedBalance,
           };
@@ -1198,19 +891,12 @@ export default function BankTransaction() {
               resourceId: offer.resourceId,
               payload: offer.payload,
             })
-          : mode === 'delete_bulk'
-            ? await changeRequestService.submit({
-                action: 'delete',
-                resourceType: 'transaction',
-                resourceId: 'bulk',
-                payload: { ids: offer.ids, transactions: offer.transactions },
-              })
-            : await changeRequestService.submit({
-                action: mode === 'edit' ? 'edit' : 'delete',
-                resourceType: 'transaction',
-                resourceId: offer.resourceId,
-                ...(mode === 'edit' ? { payload: offer.payload } : {}),
-              });
+          : await changeRequestService.submit({
+              action: mode === 'edit' ? 'edit' : 'delete',
+              resourceType: 'transaction',
+              resourceId: offer.resourceId,
+              ...(mode === 'edit' ? { payload: offer.payload } : {}),
+            });
       const apiMessage = userMessageFromChangeRequestSubmit(res);
       if (mode === 'edit') {
         setIsModalOpen(false);
@@ -1227,7 +913,7 @@ export default function BankTransaction() {
       }
       setSuccessMessage(apiMessage);
       setApprovalOffer({ mode: 'success', message: apiMessage });
-      if (mode === 'pdc_daily_ledger' || mode === 'delete_bulk') {
+      if (mode === 'pdc_daily_ledger') {
         await fetchTransactions();
       }
     } catch (e: unknown) {
@@ -1338,26 +1024,24 @@ export default function BankTransaction() {
       }
     }
     
-    const formPaymentType = normalizeLedgerPaymentTypeForUi(transaction.paymentType);
-    if (formPaymentType === 'dd') {
-      categoryId = '';
-    }
-
     console.log('[handleEdit] Final categoryId:', categoryId);
-
+    
+    // Ensure paymentType is 'banktransfer' not 'online' for form
+    const formPaymentType = transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
+    
     // Reset form with all values
     form.reset({
       date: dateValue,
       type: transactionType as 'Debit' | 'Credit',
       categoryId: categoryId,
-      paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer' | 'dd',
+      paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
       chequeNumber: transaction.chequeNumber && transaction.chequeNumber !== '-' ? transaction.chequeNumber : '' ,
       remarks: transaction.remarks || '',
       amount: amountValue,
     });
     
-    // Force set categoryId after a small delay to ensure form is ready (not for DD)
-    if (categoryId && formPaymentType !== 'dd') {
+    // Force set categoryId after a small delay to ensure form is ready
+    if (categoryId) {
       setTimeout(() => {
         form.setValue('categoryId', categoryId, { shouldValidate: false });
         console.log('[handleEdit] Force set categoryId after reset:', categoryId);
@@ -1381,17 +1065,10 @@ export default function BankTransaction() {
   const handleDeleteConfirm = useCallback(async () => {
     if (!deletingTransactionId) return;
 
-    const row = transactions.find((x) => String(x.id) === deletingTransactionId);
-    const idForApi = transactionIdForSingleDelete(row);
-    if (!idForApi) {
-      setError('Could not resolve transaction id for delete.');
-      return;
-    }
-
     try {
       setIsDeleting(true);
       setError(null);
-      const response: ApiResponse<void> = await transactionService.deleteBankTransaction(idForApi);
+      const response: ApiResponse<void> = await transactionService.deleteBankTransaction(deletingTransactionId);
       
       if (response.success) {
         if (isChangeRequestSubmittedEnvelope(response.data)) {
@@ -1415,8 +1092,8 @@ export default function BankTransaction() {
         setError(response.message || 'Failed to delete transaction');
       }
     } catch (err: unknown) {
-      if (isApprovalRequiredError(err)) {
-        setApprovalOffer({ mode: 'delete', resourceId: idForApi });
+      if (isApprovalRequiredError(err) && deletingTransactionId) {
+        setApprovalOffer({ mode: 'delete', resourceId: deletingTransactionId });
         setDeletingTransactionId(null);
         setIsDeleteModalOpen(false);
         setError(null);
@@ -1428,69 +1105,7 @@ export default function BankTransaction() {
     } finally {
       setIsDeleting(false);
     }
-  }, [deletingTransactionId, fetchTransactions, transactions]);
-
-  const bulkDeletePayload = useMemo(
-    () => buildBulkDeleteRequestBody(transactions),
-    [transactions]
-  );
-
-  const handleBulkDeleteConfirm = useCallback(async () => {
-    if (
-      bulkDeletePayload.ids.length === 0 &&
-      bulkDeletePayload.transactions.length === 0
-    ) {
-      setError('No rows to bulk-delete.');
-      return;
-    }
-    try {
-      setIsBulkDeleting(true);
-      setError(null);
-      const response = await transactionService.deleteBankTransactionsBulk(bulkDeletePayload);
-
-      if (response.success) {
-        if (isChangeRequestSubmittedEnvelope(response.data)) {
-          const apiMessage = userMessageFromChangeRequestSubmit(
-            response as ApiResponse<unknown>
-          );
-          setSuccessMessage(apiMessage);
-          setApprovalOffer({ mode: 'success', message: apiMessage });
-          setIsBulkDeleteModalOpen(false);
-        } else {
-          setTransactions([]);
-          setIsBulkDeleteModalOpen(false);
-          setSuccessMessage(
-            formatBulkDeleteSuccessMessage(
-              response.data,
-              response.message || 'Bulk delete completed.'
-            )
-          );
-          await fetchTransactions();
-        }
-      } else {
-        setError(
-          response.error || response.message || 'Failed to delete all transactions'
-        );
-      }
-    } catch (err: unknown) {
-      if (isApprovalRequiredError(err)) {
-        setApprovalOffer({
-          mode: 'delete_bulk',
-          ids: bulkDeletePayload.ids,
-          transactions: bulkDeletePayload.transactions,
-        });
-        setIsBulkDeleteModalOpen(false);
-        setError(null);
-      } else {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to delete all transactions';
-        console.error('[BankTransaction] Bulk delete error:', err);
-        setError(errorMessage);
-      }
-    } finally {
-      setIsBulkDeleting(false);
-    }
-  }, [bulkDeletePayload, fetchTransactions]);
+  }, [deletingTransactionId, fetchTransactions]);
 
   const handleAddNew = useCallback(() => {
     setEditingTransaction(null);
@@ -1514,6 +1129,10 @@ export default function BankTransaction() {
     const amount = transaction.debitFormatted || transaction.creditFormatted || '0';
     return `${transaction.categoryName || 'Transaction'} - ${amount} AED`;
   }, [deletingTransactionId, transactions]);
+
+
+
+
 
   // Helper function to parse date from DD-MMM-YYYY format
   const parseDateForFilter = useCallback((dateString: string): Date | null => {
@@ -1543,13 +1162,7 @@ export default function BankTransaction() {
 
     // Filter by payment type
     // 'online' tab shows both creditcard and banktransfer (which comes as 'online' from API)
-    if (
-      activeTab === 'online' &&
-      transaction.paymentType !== 'creditcard' &&
-      transaction.paymentType !== 'banktransfer' &&
-      transaction.paymentType !== 'dd'
-    )
-      return false;
+    if (activeTab === 'online' && transaction.paymentType !== 'creditcard' && transaction.paymentType !== 'banktransfer') return false;
     if (activeTab === 'cheque' && transaction.paymentType !== 'cheque') return false;
     if (activeTab === 'cash' && transaction.paymentType !== 'cash') return false;
     
@@ -1583,8 +1196,6 @@ export default function BankTransaction() {
         ? 'Credit Card'
         : transaction.paymentType === 'banktransfer'
         ? 'Online'
-        : transaction.paymentType === 'dd'
-        ? 'DD'
         : transaction.paymentType || '';
       
       if (!details.toLowerCase().includes(searchDetails.toLowerCase().trim())) return false;
@@ -1624,16 +1235,16 @@ export default function BankTransaction() {
     [filteredTransactions]
   );
 
-  // Full table: all body rows, then **frontend-only** copies of unapproved PDC at the end (no date).
+  // No pagination: render all rows; append frontend-only copies of unapproved PDC (no date) at end.
   const bodyTransactions = filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t));
   const pdcPendingBottomRows = bodyTransactions.filter((t) => isUnapprovedPdcPinBottom(t));
 
-  type LedgerTableRow = {
+  type PaginatedLedgerRow = {
     transaction: BankTransaction;
     clientPendingBottomDup?: boolean;
   };
 
-  const ledgerTableRows: LedgerTableRow[] = [
+  const paginatedRows: PaginatedLedgerRow[] = [
     ...bodyTransactions.map((t) => ({ transaction: t })),
     ...pdcPendingBottomRows.map((t) => ({
       transaction: t,
@@ -1823,30 +1434,21 @@ export default function BankTransaction() {
       const ws = workbook.addWorksheet('Account Statement');
 
       let r = 1;
-      const titleCell = ws.getCell(r++, 1);
-      titleCell.value = 'GCEC CLOUD SECURITY & SURVEILLANCE';
-      titleCell.font = excelExportFont({ bold: true, size: 14 }) as ExcelJS.Font;
+      ws.getCell(r++, 1).value = 'GCEC CLOUD SECURITY & SURVEILLANCE';
       r += 2;
 
-      const metaPairs: [string, string | number][] = [
-        ['Account No.:', '12990685920001 - AED'],
-        ['IBAN:', 'AE720030012990685920001'],
-        ['Start Date:', formatDate(startDate)],
-        ['End Date:', formatDate(endDate)],
-      ];
-      for (const [a, b] of metaPairs) {
-        ws.getCell(r, 1).value = a;
-        ws.getCell(r, 1).font = excelExportFont() as ExcelJS.Font;
-        ws.getCell(r, 2).value = b;
-        ws.getCell(r, 2).font = excelExportFont() as ExcelJS.Font;
-        r++;
-      }
+      ws.getCell(r, 1).value = 'Account No.:';
+      ws.getCell(r++, 2).value = '12990685920001 - AED';
+      ws.getCell(r, 1).value = 'IBAN:';
+      ws.getCell(r++, 2).value = 'AE720030012990685920001';
+      ws.getCell(r, 1).value = 'Start Date:';
+      ws.getCell(r++, 2).value = formatDate(startDate);
+      ws.getCell(r, 1).value = 'End Date:';
+      ws.getCell(r++, 2).value = formatDate(endDate);
       ws.getCell(r, 1).value = 'Closing (Current):';
-      ws.getCell(r, 1).font = excelExportFont() as ExcelJS.Font;
       const closingCell = ws.getCell(r, 2);
       closingCell.value = closingBalanceValue;
       closingCell.numFmt = '#,##0.00';
-      closingCell.font = excelExportFont({ bold: true }) as ExcelJS.Font;
       r++;
       r += 2;
 
@@ -1854,7 +1456,7 @@ export default function BankTransaction() {
       headers.forEach((h, i) => {
         const cell = ws.getCell(r, i + 1);
         cell.value = h;
-        cell.font = excelExportFont({ bold: true, color: { argb: 'FF000000' } }) as ExcelJS.Font;
+        cell.font = { bold: true, color: { argb: 'FF000000' } };
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
@@ -1916,26 +1518,34 @@ export default function BankTransaction() {
           if (fillStyle) {
             cell.fill = fillStyle;
           }
-          cell.font = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
+          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
         }
 
-        row.getCell(4).font = excelExportFont({
+        row.getCell(4).font = {
+          name: 'Calibri',
+          size: 11,
           bold: debitValue > 0,
           color: { argb: debitValue > 0 ? 'FFDC2626' : 'FF9CA3AF' },
-        }) as ExcelJS.Font;
-        row.getCell(5).font = excelExportFont({
+        };
+        row.getCell(5).font = {
+          name: 'Calibri',
+          size: 11,
           bold: creditValue > 0,
           color: { argb: creditValue > 0 ? 'FF16A34A' : 'FF9CA3AF' },
-        }) as ExcelJS.Font;
+        };
         if (!suppressBal) {
-          row.getCell(6).font = excelExportFont({
+          row.getCell(6).font = {
+            name: 'Calibri',
+            size: 11,
             bold: true,
             color: { argb: 'FF000000' },
-          }) as ExcelJS.Font;
+          };
         } else {
-          row.getCell(6).font = excelExportFont({
+          row.getCell(6).font = {
+            name: 'Calibri',
+            size: 11,
             color: { argb: 'FF9CA3AF' },
-          }) as ExcelJS.Font;
+          };
         }
 
         r++;
@@ -1952,7 +1562,6 @@ export default function BankTransaction() {
       ];
 
       const fileName = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.xlsx`;
-      applyArialToExcelJsWorkbook(workbook);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -2251,24 +1860,6 @@ export default function BankTransaction() {
           <span>Bulk upload</span>
         </Button>
         <Button
-          type="button"
-          onClick={() => {
-            setError(null);
-            setIsBulkDeleteModalOpen(true);
-          }}
-          variant="outline"
-          className="flex items-center space-x-2 border-red-200 text-red-700 hover:bg-red-50"
-          disabled={
-            loading ||
-            loadingCategories ||
-            (bulkDeletePayload.ids.length === 0 &&
-              bulkDeletePayload.transactions.length === 0)
-          }
-        >
-          <Trash2 className="w-4 h-4" />
-          <span>Delete all</span>
-        </Button>
-        <Button
           onClick={handleDownloadCSV}
           variant="outline"
           className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
@@ -2352,7 +1943,7 @@ export default function BankTransaction() {
                     </td>
                   </tr>
                 ) : (
-                  ledgerTableRows.map(({ transaction, clientPendingBottomDup }) => {
+                  paginatedRows.map(({ transaction, clientPendingBottomDup }) => {
                     const isBouncedCheque = isBouncedChequeRemarks(transaction.remarks);
                     const isGcecPdc = rowIsGcecPdcHighlight(
                       transaction.remarks,
@@ -2396,8 +1987,6 @@ export default function BankTransaction() {
                           ? 'Credit Card'
                           : transaction.paymentType === 'banktransfer'
                           ? 'Online'
-                          : transaction.paymentType === 'dd'
-                          ? 'DD'
                           : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
                       </td>
                       <td className="text-sm py-2 text-left p-2 align-middle">
@@ -2550,7 +2139,7 @@ export default function BankTransaction() {
           setError(null);
         }
       }}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-gray-900">
               {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
@@ -2668,57 +2257,22 @@ export default function BankTransaction() {
                 }}
               />
 
-              {/* Payment type (Cash / Cheque / … / DD) — not the same as Debit vs Credit below */}
-              <FormField
-                control={form.control}
-                name="paymentType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-lg font-medium text-gray-700">
-                      Payment type
-                    </FormLabel>
-                    <FormDescription className="text-base text-gray-600">
-                      Includes <strong>DD</strong> (direct debit). This is separate from Debit/Credit below.
-                    </FormDescription>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select payment type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent className="z-[100] max-h-72">
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="cheque">Cheque</SelectItem>
-                        <SelectItem value="creditcard">Credit Card</SelectItem>
-                        <SelectItem value="banktransfer">Online</SelectItem>
-                        <SelectItem value="dd">DD (Direct Debit)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Ledger direction: Debit vs Credit (not DD — DD is payment type above) */}
+              {/* Type Field */}
               <FormField
                 control={form.control}
                 name="type"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-lg font-medium text-gray-700">
-                      Debit or Credit
+                      Type
                     </FormLabel>
-                    <FormDescription className="text-base text-gray-600">
-                      Whether this entry increases debit or credit on the ledger. For bank direct debit, pick{' '}
-                      <strong>DD</strong> in <strong>Payment type</strong> above.
-                    </FormDescription>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Debit or Credit" />
+                          <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent className="z-[100]">
+                      <SelectContent>
                         <SelectItem value="Debit">Debit</SelectItem>
                         <SelectItem value="Credit">Credit</SelectItem>
                       </SelectContent>
@@ -2728,74 +2282,97 @@ export default function BankTransaction() {
                 )}
               />
 
-              {/* Category — not used for DD (direct debit) */}
-              {paymentType !== 'dd' && (
-                <FormField
-                  control={form.control}
-                  name="categoryId"
-                  render={({ field }) => {
-                    useEffect(() => {
-                      if (editingTransaction && field.value) {
-                        const currentValue = field.value;
-                        const availableCategories = getAvailableCategories();
-                        const categoryExists = availableCategories.some(
-                          (cat) => String(cat.id) === String(currentValue)
-                        );
-                        if (!categoryExists && availableCategories.length > 0) {
-                          console.log(
-                            '[Category Field] Value not found in available categories, clearing:',
-                            currentValue
-                          );
-                          field.onChange('');
-                        }
+              {/* Category Field */}
+              <FormField
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => {
+                  // Ensure the field value is properly set when editing
+                  useEffect(() => {
+                    if (editingTransaction && field.value) {
+                      // Force update if value exists but not showing
+                      const currentValue = field.value;
+                      const availableCategories = getAvailableCategories();
+                      const categoryExists = availableCategories.some(cat => String(cat.id) === String(currentValue));
+                      if (!categoryExists && availableCategories.length > 0) {
+                        console.log('[Category Field] Value not found in available categories, clearing:', currentValue);
+                        field.onChange('');
                       }
-                      // eslint-disable-next-line react-hooks/exhaustive-deps
-                    }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
+                    }
+                    // eslint-disable-next-line react-hooks/exhaustive-deps
+                  }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
+                  
+                  return (
+                    <FormItem>
+                      <FormLabel className="text-lg font-medium text-gray-700">
+                        Category
+                      </FormLabel>
+                      <FormControl>
+                        {loadingCategories ? (
+                          <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-base">
+                            <span className="text-muted-foreground">Loading categories...</span>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          </div>
+                        ) : getAvailableCategories().length === 0 ? (
+                          <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
+                            {transactionType === 'Debit' 
+                              ? 'No payables categories found. Please add categories in Payables List.'
+                              : 'No receivables categories found. Please add categories in Receivables List.'}
+                          </div>
+                        ) : (
+                          <SearchableSelect
+                            value={field.value || ''}
+                            onValueChange={(value) => {
+                              console.log('[Category Field] Value changed:', value);
+                              field.onChange(value);
+                            }}
+                            placeholder={loadingCategories ? "Loading categories..." : "Select category"}
+                            disabled={loadingCategories}
+                            searchPlaceholder="Search category..."
+                          >
+                            {getAvailableCategories().map((category) => (
+                              <SelectItem key={String(category.id)} value={String(category.id)}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SearchableSelect>
+                        )}
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
+              />
 
-                    return (
-                      <FormItem>
-                        <FormLabel className="text-lg font-medium text-gray-700">
-                          Category
-                        </FormLabel>
-                        <FormControl>
-                          {loadingCategories ? (
-                            <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-base">
-                              <span className="text-muted-foreground">Loading categories...</span>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            </div>
-                          ) : getAvailableCategories().length === 0 ? (
-                            <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
-                              {transactionType === 'Debit'
-                                ? 'No payables categories found. Please add categories in Payables List.'
-                                : 'No receivables categories found. Please add categories in Receivables List.'}
-                            </div>
-                          ) : (
-                            <SearchableSelect
-                              value={field.value || ''}
-                              onValueChange={(value) => {
-                                console.log('[Category Field] Value changed:', value);
-                                field.onChange(value);
-                              }}
-                              placeholder={
-                                loadingCategories ? 'Loading categories...' : 'Select category'
-                              }
-                              disabled={loadingCategories}
-                              searchPlaceholder="Search category..."
-                            >
-                              {getAvailableCategories().map((category) => (
-                                <SelectItem key={String(category.id)} value={String(category.id)}>
-                                  {category.name}
-                                </SelectItem>
-                              ))}
-                            </SearchableSelect>
-                          )}
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    );
-                  }}
-                />
-              )}
+              {/* Payment Type Field */}
+              <FormField
+                control={form.control}
+                name="paymentType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-lg font-medium text-gray-700">
+                      Payment Type
+                    </FormLabel>
+                    <Select
+                      onValueChange={(value) => field.onChange(value === 'blank' ? '' : value)}
+                      value={field.value || 'blank'}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select payment type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="cheque">Cheque</SelectItem>
+                        <SelectItem value="blank">Blank</SelectItem>
+                        <SelectItem value="banktransfer">Online</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               {/* Cheque Number Field - Conditional */}
               {paymentType === 'cheque' && (
@@ -2896,17 +2473,6 @@ export default function BankTransaction() {
         isLoading={isDeleting}
       />
 
-      <DeleteConfirmationDialog
-        open={isBulkDeleteModalOpen}
-        onOpenChange={setIsBulkDeleteModalOpen}
-        onConfirm={() => void handleBulkDeleteConfirm()}
-        title="Delete all daily transactions?"
-        description={`This sends POST /transactions/bulk-delete with ${bulkDeletePayload.ids.length} ledger/synthetic id(s) and ${bulkDeletePayload.transactions.length} typed row(s) (PDC / bills include full rows with transactionType). It cannot be undone. Admin or accountant only.`}
-        isLoading={isBulkDeleting}
-        confirmButtonText="Delete all"
-        loadingButtonText="Deleting…"
-      />
-
       <BulkTransactionUploadDialog
         open={bulkUploadOpen}
         onOpenChange={setBulkUploadOpen}
@@ -2956,9 +2522,7 @@ export default function BankTransaction() {
                 ? 'Your account cannot edit transactions directly. Submit this update for an admin to review and apply?'
                 : approvalOffer?.mode === 'pdc_daily_ledger'
                   ? 'Your account cannot approve this PDC for the daily ledger directly. Submit an approval request for an admin to review?'
-                  : approvalOffer?.mode === 'delete_bulk'
-                    ? 'Your account cannot delete all daily transactions directly. Submit a request for an admin to review and apply POST /transactions/bulk-delete?'
-                    : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
+                  : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
             </p>
           )}
           <DialogFooter className="gap-2 sm:gap-0">

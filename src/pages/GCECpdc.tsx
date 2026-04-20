@@ -37,6 +37,7 @@
     import Calendar from '../components/ui/calendar-tailwind';
     import { transactionService, type PostDatedCheque as PostDatedChequeType } from '../services/transactionService';
     import { payablesService, type PayablesCategory } from '../services/payablesService';
+    import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
     import { SelectItem } from '../components/ui/select';
     import { SearchableSelect } from '../components/ui/searchable-select';
     import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
@@ -70,7 +71,8 @@
         .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
     chequeNumber: z.string()
         .min(1, 'Cheque number is required')
-        .min(3, 'Cheque number must be at least 3 characters'),
+        .min(3, 'Cheque number must be at least 3 digits')
+        .regex(/^\d+$/, 'Cheque number must contain digits only'),
     customerName: z.string()
         .min(1, 'Payee is required')
         .min(3, 'Payee must be at least 3 characters'),
@@ -165,6 +167,7 @@
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [pdcAttachmentFile, setPdcAttachmentFile] = useState<File | null>(null);
     const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
+    const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
     const form = useForm<ChequeFormData>({
         resolver: zodResolver(chequeSchema),
         defaultValues: {
@@ -239,12 +242,18 @@
         let cancelled = false;
         void (async () => {
         try {
-            const res = await payablesService.getPayables();
-            if (!cancelled && res.success && Array.isArray(res.data)) {
-            setCreditorsList(res.data);
+            const [creditorsRes, debtorsRes] = await Promise.all([
+            payablesService.getPayables(),
+            receivablesService.getReceivables(),
+            ]);
+            if (!cancelled && creditorsRes.success && Array.isArray(creditorsRes.data)) {
+            setCreditorsList(creditorsRes.data);
+            }
+            if (!cancelled && debtorsRes.success && Array.isArray(debtorsRes.data)) {
+            setDebtorsList(debtorsRes.data);
             }
         } catch (e) {
-            console.error('[GCECpdc] Failed to load creditors list', e);
+            console.error('[GCECpdc] Failed to load debtors/creditors list', e);
         }
         })();
         return () => {
@@ -949,8 +958,11 @@
                         </FormLabel>
                         <FormControl>
                         <Input
-                            placeholder="CHQ-2401"
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="2401"
                             {...field}
+                            onChange={(e) => field.onChange(e.target.value.replace(/\D/g, ''))}
                             disabled={isSubmitting}
                         />
                         </FormControl>
@@ -964,16 +976,20 @@
                     control={form.control}
                     name="customerName"
                     render={({ field }) => {
-                    const creditorNames = [
+                    const creditorNames = creditorsList
+                        .map((c) => String(c.name ?? '').trim())
+                        .filter(Boolean);
+                    const debtorNames = debtorsList
+                        .map((d) => String(d.name ?? '').trim())
+                        .filter(Boolean);
+                    const customerNames = [
                         ...new Set(
-                        creditorsList
-                            .map((c) => String(c.name ?? '').trim())
-                            .filter(Boolean)
+                        [...creditorNames, ...debtorNames]
                         ),
                     ].sort((a, b) => a.localeCompare(b));
                     const current = (field.value ?? '').trim();
                     const legacyOption =
-                        current && !creditorNames.includes(current) ? current : null;
+                        current && !customerNames.includes(current) ? current : null;
                     return (
                         <FormItem>
                         <FormLabel className="text-base font-medium text-gray-700">
@@ -983,8 +999,8 @@
                             <SearchableSelect
                             value={current || undefined}
                             onValueChange={field.onChange}
-                            placeholder="Select from Creditors List"
-                            searchPlaceholder="Search creditors..."
+                            placeholder="Select customer name"
+                            searchPlaceholder="Search debtors or creditors..."
                             disabled={isSubmitting}
                             >
                             {legacyOption ? (
@@ -992,7 +1008,7 @@
                                 {legacyOption} (not in list)
                                 </SelectItem>
                             ) : null}
-                            {creditorNames.map((name) => (
+                            {customerNames.map((name) => (
                                 <SelectItem key={name} value={name} textValue={name}>
                                 {name}
                                 </SelectItem>

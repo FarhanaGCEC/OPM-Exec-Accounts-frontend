@@ -38,6 +38,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import Calendar from '../components/ui/calendar-tailwind';
 import { transactionService, type PostDatedCheque as PostDatedChequeType } from '../services/transactionService';
 import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
+import { payablesService, type PayablesCategory } from '../services/payablesService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { PdcAttachmentTableCell } from '../components/PdcAttachmentTableCell';
 import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
@@ -69,7 +70,8 @@ const chequeSchema = z.object({
     .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
   chequeNumber: z.string()
     .min(1, 'Cheque number is required')
-    .min(3, 'Cheque number must be at least 3 characters'),
+    .min(3, 'Cheque number must be at least 3 digits')
+    .regex(/^\d+$/, 'Cheque number must contain digits only'),
   customerName: z.string()
     .min(1, 'Customer name is required')
     .min(3, 'Customer name must be at least 3 characters'),
@@ -164,6 +166,7 @@ export default function CustomerPDC() {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [pdcAttachmentFile, setPdcAttachmentFile] = useState<File | null>(null);
   const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
+  const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
 
   const form = useForm<ChequeFormData>({
     resolver: zodResolver(chequeSchema),
@@ -237,12 +240,18 @@ export default function CustomerPDC() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await receivablesService.getReceivables();
-        if (!cancelled && res.success && Array.isArray(res.data)) {
-          setDebtorsList(res.data);
+        const [debtorsRes, creditorsRes] = await Promise.all([
+          receivablesService.getReceivables(),
+          payablesService.getPayables(),
+        ]);
+        if (!cancelled && debtorsRes.success && Array.isArray(debtorsRes.data)) {
+          setDebtorsList(debtorsRes.data);
+        }
+        if (!cancelled && creditorsRes.success && Array.isArray(creditorsRes.data)) {
+          setCreditorsList(creditorsRes.data);
         }
       } catch (e) {
-        console.error('[CustomerPDC] Failed to load debtors list', e);
+        console.error('[CustomerPDC] Failed to load debtors/creditors list', e);
       }
     })();
     return () => {
@@ -988,8 +997,11 @@ export default function CustomerPDC() {
                     </FormLabel>
                     <FormControl>
                       <Input
-                   
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="2401"
                         {...field}
+                        onChange={(e) => field.onChange(e.target.value.replace(/\D/g, ''))}
                         disabled={isSubmitting}
                       />
                     </FormControl>
@@ -1003,16 +1015,20 @@ export default function CustomerPDC() {
                 control={form.control}
                 name="customerName"
                 render={({ field }) => {
-                  const debtorNames = [
+                  const debtorNames = debtorsList
+                    .map((d) => String(d.name ?? '').trim())
+                    .filter(Boolean);
+                  const creditorNames = creditorsList
+                    .map((c) => String(c.name ?? '').trim())
+                    .filter(Boolean);
+                  const customerNames = [
                     ...new Set(
-                      debtorsList
-                        .map((d) => String(d.name ?? '').trim())
-                        .filter(Boolean)
+                      [...debtorNames, ...creditorNames]
                     ),
                   ].sort((a, b) => a.localeCompare(b));
                   const current = (field.value ?? '').trim();
                   const legacyOption =
-                    current && !debtorNames.includes(current) ? current : null;
+                    current && !customerNames.includes(current) ? current : null;
                   return (
                     <FormItem>
                       <FormLabel className="text-base font-medium text-gray-700">
@@ -1022,8 +1038,8 @@ export default function CustomerPDC() {
                         <SearchableSelect
                           value={current || undefined}
                           onValueChange={field.onChange}
-                          placeholder="Select from Debtors List"
-                          searchPlaceholder="Search debtors..."
+                          placeholder="Select customer name"
+                          searchPlaceholder="Search debtors or creditors..."
                           disabled={isSubmitting}
                         >
                           {legacyOption ? (
@@ -1031,7 +1047,7 @@ export default function CustomerPDC() {
                               {legacyOption} (not in list)
                             </SelectItem>
                           ) : null}
-                          {debtorNames.map((name) => (
+                          {customerNames.map((name) => (
                             <SelectItem key={name} value={name} textValue={name}>
                               {name}
                             </SelectItem>
