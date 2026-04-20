@@ -649,7 +649,7 @@ export default function UsdTranstion() {
                 value={formData.description || undefined}
                 onValueChange={(value) => setFormData({ ...formData, description: value })}
                 placeholder="Select description"
-                searchPlaceholder="Search debtors or creditors..."
+                searchPlaceholder="Search Description..."
               >
                 {(() => {
                   const debtorNames = debtorsList

@@ -648,7 +648,7 @@ export default function GbpTranstion() {
                 value={formData.description || undefined}
                 onValueChange={(value) => setFormData({ ...formData, description: value })}
                 placeholder="Select description"
-                searchPlaceholder="Search debtors or creditors..."
+                searchPlaceholder="Search Description..."
               >
                 {(() => {
                   const debtorNames = debtorsList
