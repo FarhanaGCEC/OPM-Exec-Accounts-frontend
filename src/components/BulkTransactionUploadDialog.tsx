@@ -211,16 +211,7 @@ export default function BulkTransactionUploadDialog({
           <DialogTitle className="text-xl font-bold text-gray-900">
             Bulk upload — Daily Transaction
           </DialogTitle>
-          <p className="text-sm text-gray-600 pt-1">
-            Upload a CSV or Excel (.xlsx) file; Excel uses the first worksheet only. Rows above the
-            real column headers (e.g. statement titles) are skipped automatically. Use either the
-            bulk template (date, type, amount, category; paymentType optional) or a bank-style layout
-            (Date, Debit, Credit, Description) — description text is matched to payables/receivables
-            category names like the category column. Max{' '}
-            {BULK_TX_MAX_ROWS} rows per API request — larger files are split automatically. Dates:
-            YYYY-MM-DD or DD/MM/YYYY. Payment types: cash, cheque, creditcard, online (bank
-            transfer).
-          </p>
+     
         </DialogHeader>
 
         <div className="space-y-3 overflow-y-auto flex-1 min-h-0">

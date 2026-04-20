@@ -147,13 +147,7 @@ export default function BulkFkEmiratesUploadDialog({
           <DialogTitle className="text-xl font-bold text-gray-900">
             Bulk upload — FK Emirates NBD ({currency})
           </DialogTitle>
-          <p className="text-sm text-gray-600 pt-1">
-            CSV or Excel (.xlsx) with columns: <strong>Date</strong>, <strong>Description</strong>,{' '}
-            <strong>Debit</strong>, <strong>Credit</strong>. Optional: <strong>Details</strong>{' '}
-            (Online, Cash, Cheque number, etc.), <strong>Bank charges</strong>. Rows above the real
-            header are skipped when possible. Dates: YYYY-MM-DD, DD/MM/YYYY, or 31-Dec-25. Amounts
-            can include AED or commas. Imports use the <strong>{currency}</strong> tab you selected.
-          </p>
+         
         </DialogHeader>
 
         <div className="space-y-3 overflow-y-auto flex-1 min-h-0">
