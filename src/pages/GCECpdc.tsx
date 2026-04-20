@@ -999,8 +999,8 @@
                             <SearchableSelect
                             value={current || undefined}
                             onValueChange={field.onChange}
-                            placeholder="Select customer name"
-                            searchPlaceholder="Search debtors or creditors..."
+                            placeholder="Select Payee"
+                            searchPlaceholder="Search Payee"
                             disabled={isSubmitting}
                             >
                             {legacyOption ? (

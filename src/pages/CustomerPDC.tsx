@@ -1039,7 +1039,7 @@ export default function CustomerPDC() {
                           value={current || undefined}
                           onValueChange={field.onChange}
                           placeholder="Select customer name"
-                          searchPlaceholder="Search debtors or creditors..."
+                          searchPlaceholder="Search Customer Name..."
                           disabled={isSubmitting}
                         >
                           {legacyOption ? (

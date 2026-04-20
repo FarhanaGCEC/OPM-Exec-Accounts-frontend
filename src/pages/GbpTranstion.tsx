@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { SearchableSelect } from '../components/ui/searchable-select';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import {
   Table,
@@ -31,6 +32,8 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
+import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
+import { payablesService, type PayablesCategory } from '../services/payablesService';
 
 interface GbpTransaction {
   id?: string | number;
@@ -51,6 +54,8 @@ export default function GbpTranstion() {
   const [editingTransaction, setEditingTransaction] = useState<GbpTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<GbpTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
+  const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
   
   // Form state
   const [formData, setFormData] = useState<{
@@ -105,6 +110,54 @@ export default function GbpTranstion() {
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    let cancelled = false;
+
+    const toArray = (value: unknown): Array<Record<string, unknown>> => {
+      if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+      if (value && typeof value === 'object') {
+        const nested = value as Record<string, unknown>;
+        if (Array.isArray(nested.data)) return nested.data as Array<Record<string, unknown>>;
+        if (Array.isArray(nested.items)) return nested.items as Array<Record<string, unknown>>;
+      }
+      return [];
+    };
+
+    void (async () => {
+      try {
+        const [debtorsRes, creditorsRes] = await Promise.all([
+          receivablesService.getReceivables(),
+          payablesService.getPayables(),
+        ]);
+        if (!cancelled && debtorsRes.success) {
+          const debtors = toArray(debtorsRes.data)
+            .map((item, index) => ({
+              id: String(item.id ?? item.value ?? `debtor-${index}`),
+              name: String(item.name ?? item.customerName ?? item.customer_name ?? '').trim(),
+            }))
+            .filter((item) => item.name.length > 0);
+          setDebtorsList(debtors);
+        }
+        if (!cancelled && creditorsRes.success) {
+          const creditors = toArray(creditorsRes.data)
+            .map((item, index) => ({
+              id: String(item.id ?? item.value ?? `creditor-${index}`),
+              name: String(item.name ?? item.vendorName ?? item.vendor_name ?? '').trim(),
+            }))
+            .filter((item) => item.name.length > 0);
+          setCreditorsList(creditors);
+        }
+      } catch (e) {
+        console.error('[GbpTranstion] Failed to load debtors/creditors list', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isModalOpen]);
 
   // Handle Add New
   const handleAddNew = () => {
@@ -591,12 +644,53 @@ export default function GbpTranstion() {
             </div>
             <div>
               <Label htmlFor="description">Description</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="e.g., ABC Co."
-              />
+              <SearchableSelect
+                value={formData.description || undefined}
+                onValueChange={(value) => setFormData({ ...formData, description: value })}
+                placeholder="Select description"
+                searchPlaceholder="Search debtors or creditors..."
+              >
+                {(() => {
+                  const debtorNames = debtorsList
+                    .map((d) =>
+                      String(
+                        (d as unknown as Record<string, unknown>).name ??
+                          (d as unknown as Record<string, unknown>).customerName ??
+                          (d as unknown as Record<string, unknown>).customer_name ??
+                          ''
+                      ).trim()
+                    )
+                    .filter(Boolean);
+                  const creditorNames = creditorsList
+                    .map((c) =>
+                      String(
+                        (c as unknown as Record<string, unknown>).name ??
+                          (c as unknown as Record<string, unknown>).vendorName ??
+                          (c as unknown as Record<string, unknown>).vendor_name ??
+                          ''
+                      ).trim()
+                    )
+                    .filter(Boolean);
+                  const descriptionOptions = [...new Set([...debtorNames, ...creditorNames])]
+                    .sort((a, b) => a.localeCompare(b));
+                  const current = formData.description.trim();
+                  const legacyOption =
+                    current && !descriptionOptions.includes(current) ? current : null;
+
+                  return [
+                    legacyOption ? (
+                      <SelectItem key={`legacy-${legacyOption}`} value={legacyOption} textValue={legacyOption}>
+                        {legacyOption} (not in list)
+                      </SelectItem>
+                    ) : null,
+                    ...descriptionOptions.map((name) => (
+                      <SelectItem key={name} value={name} textValue={name}>
+                        {name}
+                      </SelectItem>
+                    )),
+                  ];
+                })()}
+              </SearchableSelect>
             </div>
             <div>
               <Label htmlFor="type">Type</Label>

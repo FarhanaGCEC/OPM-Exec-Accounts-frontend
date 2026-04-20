@@ -41,6 +41,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
 import { transactionService, type PaymentMatching as PaymentMatchingType } from '../services/transactionService';
+import { receivablesService } from '../services/receivablesService';
+import { payablesService } from '../services/payablesService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import type { ApiResponse } from '../lib/api';
 import { isApprovalRequiredError } from '../lib/approvalError';
@@ -145,6 +147,7 @@ export default function PaymentMatching() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [purchaseBillApproval, setPurchaseBillApproval] = useState<PurchaseBillApprovalOffer | null>(null);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const [customerOptions, setCustomerOptions] = useState<string[]>([]);
 
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema),
@@ -210,6 +213,60 @@ export default function PaymentMatching() {
   useEffect(() => {
     fetchPayments();
   }, [fetchPayments]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    let cancelled = false;
+
+    const toArray = (value: unknown): Array<Record<string, unknown>> => {
+      if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+      if (value && typeof value === 'object') {
+        const nested = value as Record<string, unknown>;
+        if (Array.isArray(nested.data)) return nested.data as Array<Record<string, unknown>>;
+        if (Array.isArray(nested.items)) return nested.items as Array<Record<string, unknown>>;
+      }
+      return [];
+    };
+
+    void (async () => {
+      try {
+        const [debtorsRes, creditorsRes] = await Promise.all([
+          receivablesService.getReceivables(),
+          payablesService.getPayables(),
+        ]);
+
+        const debtorNames = debtorsRes.success
+          ? toArray(debtorsRes.data)
+              .map((item) =>
+                String(item.name ?? item.customerName ?? item.customer_name ?? '').trim()
+              )
+              .filter(Boolean)
+          : [];
+        const creditorNames = creditorsRes.success
+          ? toArray(creditorsRes.data)
+              .map((item) =>
+                String(item.name ?? item.vendorName ?? item.vendor_name ?? '').trim()
+              )
+              .filter(Boolean)
+          : [];
+
+        if (!cancelled) {
+          setCustomerOptions(
+            [...new Set([...debtorNames, ...creditorNames])].sort((a, b) =>
+              a.localeCompare(b)
+            )
+          );
+        }
+      } catch (e) {
+        console.error('[PaymentMatching] Failed to load debtors/creditors list', e);
+        if (!cancelled) setCustomerOptions([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isModalOpen]);
 
   const submitPurchaseBillApproval = useCallback(async () => {
     if (!purchaseBillApproval || purchaseBillApproval.mode === 'success') return;
@@ -920,21 +977,41 @@ export default function PaymentMatching() {
               <FormField
                 control={form.control}
                 name="customerName"
-                render={({ field }) => (
+                render={({ field }) => {
+                  const current = (field.value ?? '').trim();
+                  const legacyOption =
+                    current && !customerOptions.includes(current) ? current : null;
+                  return (
                   <FormItem>
                     <FormLabel className="text-base font-medium text-gray-700">
                       Customer Name <span className="text-red-500">*</span>
                     </FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder="e.g., Ahmed Trading LLC"
-                        {...field}
+                      <SearchableSelect
+                        value={current || undefined}
+                        onValueChange={field.onChange}
+                        placeholder="Select customer name"
+                        searchPlaceholder="Search debtors or creditors..."
                         disabled={isSubmitting}
-                      />
+                      >
+                        {[
+                          legacyOption ? (
+                            <SelectItem key={`legacy-${legacyOption}`} value={legacyOption} textValue={legacyOption}>
+                              {legacyOption} (not in list)
+                            </SelectItem>
+                          ) : null,
+                          ...customerOptions.map((name) => (
+                            <SelectItem key={name} value={name} textValue={name}>
+                              {name}
+                            </SelectItem>
+                          )),
+                        ]}
+                      </SearchableSelect>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
-                )}
+                );
+                }}
               />
 
               {/* Payment Method Field */}
