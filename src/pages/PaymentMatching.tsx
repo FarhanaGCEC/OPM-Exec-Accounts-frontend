@@ -953,25 +953,7 @@ export default function PaymentMatching() {
               />
 
               {/* Invoice Number Field */}
-              <FormField
-                control={form.control}
-                name="invoiceNumber"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-base font-medium text-gray-700">
-                      Invoice Number
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="INV-001"
-                        {...field}
-                        disabled={isSubmitting}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            
 
               {/* Customer Name Field */}
               <FormField
