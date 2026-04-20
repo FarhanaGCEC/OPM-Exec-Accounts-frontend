@@ -6,6 +6,7 @@ import { formatIsoDateDisplay, formatJsDateDisplay } from '../lib/formatDisplayD
 import {
   remarksForDailyLedgerDisplay,
   isBouncedChequeRemarks,
+  rowIsGcecPdcHighlight,
 } from '../lib/dailyLedgerRemarksDisplay';
 
 import {
@@ -96,6 +97,39 @@ interface TransactionSummary {
   total: number;
 }
 
+const parseTransactionDate = (value: string): Date | null => {
+  const parsed = new Date(value);
+  if (!isNaN(parsed.getTime())) return parsed;
+
+  // Fallback for dd/mm/yyyy values.
+  const parts = value.split('/');
+  if (parts.length === 3) {
+    const day = Number(parts[0]);
+    const month = Number(parts[1]) - 1;
+    const year = Number(parts[2]);
+    const fallback = new Date(year, month, day);
+    if (!isNaN(fallback.getTime())) return fallback;
+  }
+
+  return null;
+};
+
+const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] => {
+  return [...items].sort((a, b) => {
+    const aDate = parseTransactionDate(a.date);
+    const bDate = parseTransactionDate(b.date);
+
+    if (!aDate && !bDate) return b.id - a.id;
+    if (!aDate) return 1;
+    if (!bDate) return -1;
+
+    const byDate = bDate.getTime() - aDate.getTime();
+    if (byDate !== 0) return byDate;
+
+    return b.id - a.id;
+  });
+};
+
 // Helper function to format amounts
 const formatAmount = (value: string | number | null | undefined): string => {
   if (value === null || value === undefined) return '-';
@@ -118,6 +152,23 @@ function dailyTxnPdcType(txn: DailyTransaction): string | undefined {
   return txn.pdcType ?? txn.pdc_type;
 }
 
+const toTitleCaseWords = (value: string): string =>
+  value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+
+const getDailyPaymentTypeDisplay = (txn: DailyTransaction): string => {
+  const normalizedPaymentType = (txn.paymentType || '').trim().toLowerCase();
+
+  if (normalizedPaymentType === 'cheque') {
+    return txn.chequeNumber?.trim() || 'Cheque';
+  }
+
+  return toTitleCaseWords(txn.paymentType || '');
+};
+
 // Helper function to get display name for transaction type
 const getTransactionTypeDisplayName = (type: string): string => {
   if (type === 'GCEC PDC') {
@@ -138,7 +189,7 @@ export default function ViewAllTranstion() {
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
-  const itemsPerPage = 5;
+  const itemsPerPage = 10;
 
   // Group transactions by type
   const groupedTransactions = transactions.reduce((acc, transaction) => {
@@ -275,7 +326,7 @@ export default function ViewAllTranstion() {
           summaryData = responseData.summary || null;
         }
         
-        setTransactions(transactionsData);
+        setTransactions(sortTransactionsByDateDesc(transactionsData));
         setSummary(summaryData);
         setCurrentPage(1); // Reset to first page when filters change
       } else {
@@ -550,36 +601,41 @@ export default function ViewAllTranstion() {
     if (transaction.transactionType === 'Daily Transaction') {
       const txn = transaction as DailyTransaction;
       const bounceHighlight = isBouncedChequeRemarks(txn.remarks);
+      const gcecPdcHighlight = rowIsGcecPdcHighlight(txn.remarks, dailyTxnPdcType(txn));
       return (
         <TableRow
           key={txn.id}
           className={`border-b border-gray-100 transition-colors ${
             bounceHighlight
               ? 'bg-[#95dcf7] hover:bg-[#7dd3f0]'
+              : gcecPdcHighlight
+              ? 'bg-yellow-100 hover:bg-yellow-200'
               : 'hover:bg-blue-50'
           }`}
         >
           <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.category}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.paymentType}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.chequeNumber || '-'}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-3 px-4">{txn.category}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-3 px-4">
+            {getDailyPaymentTypeDisplay(txn)}
+          </TableCell>
+
           <TableCell className="text-sm py-3 px-4">
             {txn.debit ? (
-              <span className="text-red-600 font-semibold">AED{formatAmount(txn.debit)}</span>
+              <span className="text-red-600">AED{formatAmount(txn.debit)}</span>
             ) : (
-              <span className="text-gray-400">-</span>
+              <span className="text-black">AED 0.00</span>
             )}
           </TableCell>
           <TableCell className="text-sm py-3 px-4">
             {txn.credit ? (
-              <span className="text-black font-semibold">AED{formatAmount(txn.credit)}</span>
+              <span className="text-black">AED{formatAmount(txn.credit)}</span>
             ) : (
-              <span className="text-gray-400">-</span>
+              <span className="text-black">AED 0.00</span>
             )}
           </TableCell>
           <TableCell className="text-gray-700 font-semibold text-sm py-3 px-4">AED{formatAmount(txn.balance)}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">
-            {remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn)) || '-'}
+            {remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn)) || ''}
           </TableCell>
         </TableRow>
       );
@@ -588,17 +644,17 @@ export default function ViewAllTranstion() {
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
           <TableCell className="text-red-600 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-red-600 font-medium text-sm py-3 px-4">{txn.customerName}</TableCell>
+          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.customerName}</TableCell>
           <TableCell className="text-red-600 text-sm py-3 px-4">-</TableCell>
           <TableCell className="text-red-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-red-600">-</span>
+            <span className="text-black">AED 0.00</span>
           </TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-red-600 font-semibold">AED{formatAmount(txn.amount)}</span>
+            <span className="text-red-600">AED{formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-red-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.description || '-'}</TableCell>
+          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.description || ''}</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Customer PDC') {
@@ -606,17 +662,17 @@ export default function ViewAllTranstion() {
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
           <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.customerName}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-3 px-4">{txn.customerName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-gray-400">-</span>
+            <span className="text-black">AED 0.00</span>
           </TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className=" text-black font-semibold">AED{formatAmount(txn.amount)}</span>
+            <span className=" text-black">AED{formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || '-'}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || ''}</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Purchase Bill') {
@@ -624,18 +680,18 @@ export default function ViewAllTranstion() {
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
           <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{txn.vendorName}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-3 px-4">{txn.vendorName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.paymentMethod}</TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.invoiceNumber || '-'}</TableCell>
          
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-gray-400">-</span>
+            <span className="text-black">AED 0.00</span>
           </TableCell>
           <TableCell className="text-sm py-3 px-4">
-            <span className="text-black font-semibold">AED{formatAmount(txn.amount)}</span>
+            <span className="text-black">AED{formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || '-'}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || ''}</TableCell>
         </TableRow>
       );
     }
@@ -766,14 +822,14 @@ export default function ViewAllTranstion() {
                     <TableRow className="bg-[#f1f5f9] border-0">
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Date</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">
-                        Category / Creditor or Debtor / Vendor
+                        Description
                       </TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Payment Type</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Cheque/Invoice No</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Details</TableHead>
+
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Debit</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Credit</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Balance</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Remarks/Description</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Remarks</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

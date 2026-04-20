@@ -26,7 +26,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Sidebar - Fixed position */}
       <div
         className={`${
-          isSidebarOpen ? 'w-64 pointer-events-auto' : 'w-0 pointer-events-none'
+          isSidebarOpen ? 'w-60 pointer-events-auto' : 'w-0 pointer-events-none'
         } transition-all duration-300 ease-in-out overflow-hidden flex-shrink-0 fixed left-0 top-0 h-screen z-40`}
       >
         <Sidebar />
@@ -34,7 +34,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Main Content */}
       <div className={`flex-1 flex flex-col relative transition-all duration-300 ${
-        isSidebarOpen ? 'ml-64' : 'ml-0'
+        isSidebarOpen ? 'ml-60' : 'ml-0'
       }`}>
         {/* Toggle Button - Always visible on the left */}
         <button
@@ -44,7 +44,7 @@ export default function Layout({ children }: LayoutProps) {
             toggleSidebar();
           }}
           className={`fixed top-4 z-[60] p-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-all duration-200 shadow-md cursor-pointer ${
-            isSidebarOpen ? 'left-[268px]' : 'left-4'
+            isSidebarOpen ? 'left-[252px]' : 'left-4'
           }`}
           aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
           title={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}

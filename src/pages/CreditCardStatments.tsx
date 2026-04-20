@@ -52,6 +52,13 @@ interface GroupedStatements {
     [monthKey: string]: CreditCardStatement[];
 }
 
+interface StatementTotals {
+    totalPaymentDue: number;
+    paid: number;
+    epp: number;
+    amountPending: number;
+}
+
 export default function CreditCardStatements() {
     const [creditCards, setCreditCards] = useState<CreditCardStatement[]>([]);
     const [groupedStatements, setGroupedStatements] = useState<GroupedStatements>({});
@@ -216,6 +223,23 @@ export default function CreditCardStatements() {
 
     const formatCurrency = (value: number) => {
         return `AED ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const getStatementTotals = (statements: CreditCardStatement[]): StatementTotals => {
+        return statements.reduce(
+            (totals, card) => ({
+                totalPaymentDue: totals.totalPaymentDue + (Number(card.totalPaymentDue) || 0),
+                paid: totals.paid + (Number(card.paid) || 0),
+                epp: totals.epp + (Number(card.epp) || 0),
+                amountPending: totals.amountPending + (Number(card.amountPending) || 0),
+            }),
+            {
+                totalPaymentDue: 0,
+                paid: 0,
+                epp: 0,
+                amountPending: 0,
+            }
+        );
     };
 
     const formatDate = (dateString: string) => {
@@ -947,6 +971,7 @@ export default function CreditCardStatements() {
                         const monthIndex = parseInt(monthNum, 10) - 1;
                         const monthName = fullMonthNames[monthIndex];
                         const statements = groupedStatements[monthKey];
+                        const monthlyTotals = getStatementTotals(statements);
                         
                         return (
                             <Card key={monthKey} className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
@@ -1006,151 +1031,177 @@ export default function CreditCardStatements() {
                                                         </TableCell>
                                                     </TableRow>
                                                 ) : (
-                                                    statements.map((card) => {
-                                                        return (
-                                                            <TableRow
-                                                                key={card.id}
-                                                                className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                                                            >
-                                                                <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                                    {card.issuingBank}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {card.card_number || ''}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {formatDate(card.statement_date || '')}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {formatDate(card.due_date || '')}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {formatMonth(card.due_month || '')}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
-                                                                    {editingId && String(editingId) === String(card.id) && editValues ? (
-                                                                        <input
-                                                                            type="number"
-                                                                            step="0.01"
-                                                                            value={editValues.totalPaymentDue}
-                                                                            onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
-                                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                                        />
-                                                                    ) : (
-                                                                        formatCurrency(card.totalPaymentDue)
-                                                                    )}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {editingId && String(editingId) === String(card.id) && editValues ? (
-                                                                        <input
-                                                                            type="number"
-                                                                            step="0.01"
-                                                                            value={editValues.paid}
-                                                                            onChange={(e) => handleEditValueChange('paid', e.target.value)}
-                                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                                        />
-                                                                    ) : (
-                                                                        formatCurrency(card.paid)
-                                                                    )}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {editingId && String(editingId) === String(card.id) && editValues ? (
-                                                                        <input
-                                                                            type="number"
-                                                                            step="0.01"
-                                                                            value={editValues.epp}
-                                                                            onChange={(e) => handleEditValueChange('epp', e.target.value)}
-                                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                                        />
-                                                                    ) : (
-                                                                        formatCurrency(card.epp)
-                                                                    )}
-                                                                </TableCell>
-                                                                <TableCell className={`text-sm py-2 text-left font-semibold ${
-                                                                    card.amountPending > 0 ? 'text-red-600' : 'text-green-600'
-                                                                }`}>
-                                                                    {formatCurrency(card.amountPending)}
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
-                                                                    <StatementAttachmentTableCell
-                                                                        card={card}
-                                                                        isEditing={Boolean(
-                                                                            editingId &&
-                                                                                String(editingId) ===
-                                                                                    String(card.id) &&
-                                                                                editValues
+                                                    <>
+                                                        {statements.map((card) => {
+                                                            return (
+                                                                <TableRow
+                                                                    key={card.id}
+                                                                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                                                                >
+                                                                    <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
+                                                                        {card.issuingBank}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {card.card_number || ''}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {formatDate(card.statement_date || '')}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {formatDate(card.due_date || '')}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {formatMonth(card.due_month || '')}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                                            <input
+                                                                                type="number"
+                                                                                step="0.01"
+                                                                                value={editValues.totalPaymentDue}
+                                                                                onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
+                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                            />
+                                                                        ) : (
+                                                                            formatCurrency(card.totalPaymentDue)
                                                                         )}
-                                                                        statementAttachmentFile={
-                                                                            statementAttachmentFile
-                                                                        }
-                                                                        onAttachmentFileChange={
-                                                                            setStatementAttachmentFile
-                                                                        }
-                                                                        onDeleteAttachment={
-                                                                            card.id
-                                                                                ? () =>
-                                                                                      void handleDeleteStatementAttachment(
-                                                                                          String(card.id)
-                                                                                      )
-                                                                                : undefined
-                                                                        }
-                                                                        deleteAttachmentBusy={deletingAttachment}
-                                                                        onEditClick={() => handleEdit(card)}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                    {editingId && String(editingId) === String(card.id) ? (
-                                                                        <div className="flex gap-2">
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                                            <input
+                                                                                type="number"
+                                                                                step="0.01"
+                                                                                value={editValues.paid}
+                                                                                onChange={(e) => handleEditValueChange('paid', e.target.value)}
+                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                            />
+                                                                        ) : (
+                                                                            formatCurrency(card.paid)
+                                                                        )}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                                            <input
+                                                                                type="number"
+                                                                                step="0.01"
+                                                                                value={editValues.epp}
+                                                                                onChange={(e) => handleEditValueChange('epp', e.target.value)}
+                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                            />
+                                                                        ) : (
+                                                                            formatCurrency(card.epp)
+                                                                        )}
+                                                                    </TableCell>
+                                                                    <TableCell className={`text-sm py-2 text-left font-semibold ${
+                                                                        card.amountPending > 0 ? 'text-red-600' : 'text-green-600'
+                                                                    }`}>
+                                                                        {formatCurrency(card.amountPending)}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
+                                                                        <StatementAttachmentTableCell
+                                                                            card={card}
+                                                                            isEditing={Boolean(
+                                                                                editingId &&
+                                                                                    String(editingId) ===
+                                                                                        String(card.id) &&
+                                                                                    editValues
+                                                                            )}
+                                                                            statementAttachmentFile={
+                                                                                statementAttachmentFile
+                                                                            }
+                                                                            onAttachmentFileChange={
+                                                                                setStatementAttachmentFile
+                                                                            }
+                                                                            onDeleteAttachment={
+                                                                                card.id
+                                                                                    ? () =>
+                                                                                          void handleDeleteStatementAttachment(
+                                                                                              String(card.id)
+                                                                                          )
+                                                                                    : undefined
+                                                                            }
+                                                                            deleteAttachmentBusy={deletingAttachment}
+                                                                            onEditClick={() => handleEdit(card)}
+                                                                        />
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                        {editingId && String(editingId) === String(card.id) ? (
+                                                                            <div className="flex gap-2">
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    onClick={() => {
+                                                                                        if (card.id) {
+                                                                                            handleSave(String(card.id));
+                                                                                        }
+                                                                                    }}
+                                                                                    disabled={
+                                                                                        saving ||
+                                                                                        deletingAttachment ||
+                                                                                        !card.id
+                                                                                    }
+                                                                                    className="bg-green-500 hover:bg-green-600 text-white border-0"
+                                                                                >
+                                                                                    <Check className="w-4 h-4" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    onClick={handleCancelEdit}
+                                                                                    disabled={saving || deletingAttachment}
+                                                                                    className="bg-red-500 hover:bg-red-600 text-white border-0"
+                                                                                >
+                                                                                    <X className="w-4 h-4" />
+                                                                                </Button>
+                                                                            </div>
+                                                                        ) : (
                                                                             <Button
                                                                                 variant="outline"
-                                                                                size="sm"
-                                                                                onClick={() => {
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
                                                                                     if (card.id) {
-                                                                                        handleSave(String(card.id));
+                                                                                        handleEdit(card);
                                                                                     }
                                                                                 }}
-                                                                                disabled={
-                                                                                    saving ||
-                                                                                    deletingAttachment ||
-                                                                                    !card.id
-                                                                                }
-                                                                                className="bg-green-500 hover:bg-green-600 text-white border-0"
+                                                                                disabled={!card.id}
+                                                                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                                                             >
-                                                                                <Check className="w-4 h-4" />
+                                                                                <Pencil className="w-4 h-4 text-black" />
+                                                                                Edit
                                                                             </Button>
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                onClick={handleCancelEdit}
-                                                                                disabled={saving || deletingAttachment}
-                                                                                className="bg-red-500 hover:bg-red-600 text-white border-0"
-                                                                            >
-                                                                                <X className="w-4 h-4" />
-                                                                            </Button>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                if (card.id) {
-                                                                                    handleEdit(card);
-                                                                                }
-                                                                            }}
-                                                                            disabled={!card.id}
-                                                                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                                                                        >
-                                                                            <Pencil className="w-4 h-4 text-black" />
-                                                                            Edit
-                                                                        </Button>
-                                                                    )}
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        );
-                                                    })
+                                                                        )}
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            );
+                                                        })}
+                                                        <TableRow className="bg-slate-100 border-t-2 border-slate-300">
+                                                            <TableCell colSpan={6} className="font-bold text-gray-900 py-2 text-right">
+                                                                Total
+                                                            </TableCell>
+                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                                {formatCurrency(monthlyTotals.totalPaymentDue)}
+                                                            </TableCell>
+                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                                {formatCurrency(monthlyTotals.paid)}
+                                                            </TableCell>
+                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                                {formatCurrency(monthlyTotals.epp)}
+                                                            </TableCell>
+                                                            <TableCell
+                                                                className={`font-bold py-2 text-left ${
+                                                                    monthlyTotals.amountPending > 0
+                                                                        ? 'text-red-600'
+                                                                        : 'text-green-600'
+                                                                }`}
+                                                            >
+                                                                {formatCurrency(monthlyTotals.amountPending)}
+                                                            </TableCell>
+                                                            <TableCell colSpan={2} />
+                                                        </TableRow>
+                                                    </>
                                                 )}
                                             </TableBody>
                                         </Table>
@@ -1161,6 +1212,9 @@ export default function CreditCardStatements() {
                     })
             ) : (
                 // Single month: show single table
+                (() => {
+                    const monthlyTotals = getStatementTotals(creditCards);
+                    return (
                 <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
                     <CardContent className="p-0">
                         <div className="overflow-x-auto rounded-lg">
@@ -1221,154 +1275,182 @@ export default function CreditCardStatements() {
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        creditCards.map((card) => {
-                                            return (
-                                            <TableRow
-                                                key={card.id}
-                                                className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                                            >
-                                                <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                    {card.issuingBank}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {card.card_number || ''}
-                                                </TableCell>
-                                             
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {formatDate(card.statement_date || '')}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {formatDate(card.due_date || '')}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {formatMonth(card.due_month || '')}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
-                                                    {editingId && String(editingId) === String(card.id) && editValues ? (
-                                                        <input
-                                                            type="number"
-                                                            step="0.01"
-                                                            value={editValues.totalPaymentDue}
-                                                            onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
-                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                        />
-                                                    ) : (
-                                                        formatCurrency(card.totalPaymentDue)
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {editingId && String(editingId) === String(card.id) && editValues ? (
-                                                        <input
-                                                            type="number"
-                                                            step="0.01"
-                                                            value={editValues.paid}
-                                                            onChange={(e) => handleEditValueChange('paid', e.target.value)}
-                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                        />
-                                                    ) : (
-                                                        formatCurrency(card.paid)
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {editingId && String(editingId) === String(card.id) && editValues ? (
-                                                        <input
-                                                            type="number"
-                                                            step="0.01"
-                                                            value={editValues.epp}
-                                                            onChange={(e) => handleEditValueChange('epp', e.target.value)}
-                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                        />
-                                                    ) : (
-                                                        formatCurrency(card.epp)
-                                                    )}
-                                                </TableCell>
-                                               
-                                                <TableCell className={`text-sm py-2 text-left font-semibold ${
-                                                    card.amountPending > 0 ? 'text-red-600' : 'text-green-600'
-                                                }`}>
-                                                    {/* amountPending is auto-calculated, so it's read-only */}
-                                                    {formatCurrency(card.amountPending)}
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
-                                                    <StatementAttachmentTableCell
-                                                        card={card}
-                                                        isEditing={Boolean(
-                                                            editingId &&
-                                                                String(editingId) === String(card.id) &&
-                                                                editValues
+                                        <>
+                                            {creditCards.map((card) => {
+                                                return (
+                                                <TableRow
+                                                    key={card.id}
+                                                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                                                >
+                                                    <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
+                                                        {card.issuingBank}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                        {card.card_number || ''}
+                                                    </TableCell>
+                                                
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                        {formatDate(card.statement_date || '')}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                        {formatDate(card.due_date || '')}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                        {formatMonth(card.due_month || '')}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                            <input
+                                                                type="number"
+                                                                step="0.01"
+                                                                value={editValues.totalPaymentDue}
+                                                                onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
+                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                            />
+                                                        ) : (
+                                                            formatCurrency(card.totalPaymentDue)
                                                         )}
-                                                        statementAttachmentFile={statementAttachmentFile}
-                                                        onAttachmentFileChange={setStatementAttachmentFile}
-                                                        onDeleteAttachment={
-                                                            card.id
-                                                                ? () =>
-                                                                      void handleDeleteStatementAttachment(
-                                                                          String(card.id)
-                                                                      )
-                                                                : undefined
-                                                        }
-                                                        deleteAttachmentBusy={deletingAttachment}
-                                                        onEditClick={() => handleEdit(card)}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {editingId && String(editingId) === String(card.id) ? (
-                                                        <div className="flex gap-2">
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                            <input
+                                                                type="number"
+                                                                step="0.01"
+                                                                value={editValues.paid}
+                                                                onChange={(e) => handleEditValueChange('paid', e.target.value)}
+                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                            />
+                                                        ) : (
+                                                            formatCurrency(card.paid)
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                            <input
+                                                                type="number"
+                                                                step="0.01"
+                                                                value={editValues.epp}
+                                                                onChange={(e) => handleEditValueChange('epp', e.target.value)}
+                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                            />
+                                                        ) : (
+                                                            formatCurrency(card.epp)
+                                                        )}
+                                                    </TableCell>
+                                                
+                                                    <TableCell className={`text-sm py-2 text-left font-semibold ${
+                                                        card.amountPending > 0 ? 'text-red-600' : 'text-green-600'
+                                                    }`}>
+                                                        {/* amountPending is auto-calculated, so it's read-only */}
+                                                        {formatCurrency(card.amountPending)}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
+                                                        <StatementAttachmentTableCell
+                                                            card={card}
+                                                            isEditing={Boolean(
+                                                                editingId &&
+                                                                    String(editingId) === String(card.id) &&
+                                                                    editValues
+                                                            )}
+                                                            statementAttachmentFile={statementAttachmentFile}
+                                                            onAttachmentFileChange={setStatementAttachmentFile}
+                                                            onDeleteAttachment={
+                                                                card.id
+                                                                    ? () =>
+                                                                          void handleDeleteStatementAttachment(
+                                                                              String(card.id)
+                                                                          )
+                                                                    : undefined
+                                                            }
+                                                            deleteAttachmentBusy={deletingAttachment}
+                                                            onEditClick={() => handleEdit(card)}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                        {editingId && String(editingId) === String(card.id) ? (
+                                                            <div className="flex gap-2">
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => {
+                                                                        if (card.id) {
+                                                                            handleSave(String(card.id));
+                                                                        }
+                                                                    }}
+                                                                    disabled={
+                                                                        saving || deletingAttachment || !card.id
+                                                                    }
+                                                                    className="bg-green-500 hover:bg-green-600 text-white border-0"
+                                                                >
+                                                                    <Check className="w-4 h-4" />
+                                                                </Button>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={handleCancelEdit}
+                                                                    disabled={saving || deletingAttachment}
+                                                                    className="bg-red-500 hover:bg-red-600 text-white border-0"
+                                                                >
+                                                                    <X className="w-4 h-4" />
+                                                                </Button>
+                                                            </div>
+                                                        ) : (
                                                             <Button
                                                                 variant="outline"
-                                                                size="sm"
-                                                                onClick={() => {
+                                                                onClick={(e) => {
+                                                                
+                                                                    e.stopPropagation();
                                                                     if (card.id) {
-                                                                        handleSave(String(card.id));
+                                                                        handleEdit(card);
                                                                     }
                                                                 }}
-                                                                disabled={
-                                                                    saving || deletingAttachment || !card.id
-                                                                }
-                                                                className="bg-green-500 hover:bg-green-600 text-white border-0"
+                                                                disabled={!card.id}
+                                                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                                             >
-                                                                <Check className="w-4 h-4" />
+                                                                <Pencil className="w-4 h-4 text-black" />
+                                                                Edit
                                                             </Button>
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={handleCancelEdit}
-                                                                disabled={saving || deletingAttachment}
-                                                                className="bg-red-500 hover:bg-red-600 text-white border-0"
-                                                            >
-                                                                <X className="w-4 h-4" />
-                                                            </Button>
-                                                        </div>
-                                                    ) : (
-                                                        <Button
-                                                            variant="outline"
-                                                            onClick={(e) => {
-                                                               
-                                                                e.stopPropagation();
-                                                                if (card.id) {
-                                                                    handleEdit(card);
-                                                                }
-                                                            }}
-                                                            disabled={!card.id}
-                                                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                                                        >
-                                                            <Pencil className="w-4 h-4 text-black" />
-                                                            Edit
-                                                        </Button>
-                                                    )}
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                                );
+                                            })}
+                                            <TableRow className="bg-slate-100 border-t-2 border-slate-300">
+                                                <TableCell colSpan={6} className="font-bold text-gray-900 py-2 text-right">
+                                                    Total
                                                 </TableCell>
+                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                    {formatCurrency(monthlyTotals.totalPaymentDue)}
+                                                </TableCell>
+                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                    {formatCurrency(monthlyTotals.paid)}
+                                                </TableCell>
+                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                    {formatCurrency(monthlyTotals.epp)}
+                                                </TableCell>
+                                                <TableCell
+                                                    className={`font-bold py-2 text-left ${
+                                                        monthlyTotals.amountPending > 0
+                                                            ? 'text-red-600'
+                                                            : 'text-green-600'
+                                                    }`}
+                                                >
+                                                    {formatCurrency(monthlyTotals.amountPending)}
+                                                </TableCell>
+                                                <TableCell colSpan={2} />
                                             </TableRow>
-                                            );
-                                        })
+                                        </>
                                     )}
                                 </TableBody>
                             </Table>
                         </div>
                     </CardContent>
                 </Card>
+                    );
+                })()
             )}
 
             <Dialog

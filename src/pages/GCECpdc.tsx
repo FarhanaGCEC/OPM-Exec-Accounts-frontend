@@ -568,6 +568,15 @@
         
         return true;
     });
+    const totalAmount = filteredCheques.reduce((sum, cheque) => {
+        const amount =
+            typeof cheque.amount === 'number'
+                ? cheque.amount
+                : typeof cheque.amount === 'string'
+                    ? parseFloat(cheque.amount.replace(/,/g, '')) || 0
+                    : 0;
+        return sum + amount;
+    }, 0);
 
     const handleDownloadExcel = useCallback(() => {
         if (filteredCheques.length === 0) {
@@ -694,15 +703,30 @@
 
       {/* Search Bar */}
       <div className="mb-4 px-8">
-        <div className="relative max-w-md ">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <Input
-            type="text"
-            placeholder="Search by Payee..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-12 pr-4 py-6 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#f7c46d] focus:border-transparent"
-          />
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="relative w-full md:max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Input
+              type="text"
+              placeholder="Search by Payee..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-12 pr-4 py-6 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#f7c46d] focus:border-transparent"
+            />
+          </div>
+
+          <Card className="border border-gray-200 shadow-sm md:min-w-[240px]">
+            <CardContent className="py-3 px-4">
+              <p className="text-xs text-gray-500">Total Amount</p>
+              <p className="text-2xl font-bold text-gray-900">
+                AED{' '}
+                {totalAmount.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
@@ -762,13 +786,13 @@
                             key={cheque.id}
                           
                         >
-                            <TableCell className={`text-sm py-2 text-left text-red-600`}>
+                            <TableCell className={`text-sm py-2 text-left text-black`}>
                             {cheque.date || formatDateForDisplay(cheque.chequeDate)}
                             </TableCell>
-                            <TableCell className={`text-sm py-2 text-left text-red-600`}>
+                            <TableCell className={`text-sm py-2 text-left text-black`}>
                             {cheque.customerName || '-'}
                             </TableCell>
-                            <TableCell className={`font-medium text-sm py-2 text-left text-red-600`}>
+                            <TableCell className={`font-medium text-sm py-2 text-left text-black`}>
                             {cheque.chequeNumber}
                             </TableCell>
                             <TableCell className={`font-semibold text-sm py-2 text-left text-red-600`}>
@@ -780,7 +804,7 @@
                                     ? `AED ${parseFloat(cheque.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                     : 'AED 0.00'}
                             </TableCell>
-                            <TableCell className="text-sm py-2 text-left align-middle text-red-600">
+                            <TableCell className="text-sm py-2 text-left align-middle text-black">
                             <PdcAttachmentTableCell
                                 attachmentUrl={cheque.attachmentUrl}
                                 attachmentName={cheque.attachmentName}
@@ -821,7 +845,6 @@
             </div>
             </CardContent>
         </Card>
-
         {/* Add/Edit Post-Dated Cheque Modal */}
         <Dialog open={isModalOpen} onOpenChange={handleModalClose}>
             <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">

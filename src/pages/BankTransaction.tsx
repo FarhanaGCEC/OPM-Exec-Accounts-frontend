@@ -96,6 +96,21 @@ function readPdcLedgerRowFlags(tx: Record<string, unknown>) {
 /** Same detection as ledger grid row background for bounced / returned cheque. */
 function isBouncedChequeRemarks(remarks?: string | null): boolean {
   const remarksLower = String(remarks || '').toLowerCase().trim() || '';
+  const compact = remarksLower.replace(/[^a-z]/g, '');
+  const hasBounceOrReturn =
+    compact.includes('bounce') ||
+    compact.includes('bounced') ||
+    compact.includes('return') ||
+    compact.includes('returned');
+  const hasChequeWord =
+    compact.includes('cheque') ||
+    compact.includes('check') ||
+    compact.includes('chq') ||
+    compact.includes('cheq');
+  const isReversedTransaction =
+    remarksLower.includes('reversed transaction') ||
+    compact.includes('reversedtransaction');
+
   return (
     remarksLower === 'bounced cheque' ||
     remarksLower === 'bouncedcheque' ||
@@ -103,7 +118,9 @@ function isBouncedChequeRemarks(remarks?: string | null): boolean {
     remarksLower === 'returned cheque' ||
     remarksLower === 'returnedcheque' ||
     (remarksLower.includes('bounced') && remarksLower.includes('cheque')) ||
-    (remarksLower.includes('returned') && remarksLower.includes('cheque'))
+    (remarksLower.includes('returned') && remarksLower.includes('cheque')) ||
+    isReversedTransaction ||
+    (hasBounceOrReturn && hasChequeWord)
   );
 }
 
@@ -132,6 +149,20 @@ function isPdcLedgerFooterRow(t: BankTransaction): boolean {
   return !!t.approvalPendingFooterDuplicate;
 }
 
+function hasLedgerTransactionDatePassed(t: BankTransaction): boolean {
+  const parsedDate = parseTransactionDateForSort(t);
+  if (!parsedDate) return true;
+
+  const transactionDay = new Date(parsedDate);
+  transactionDay.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Duplicate only after the transaction date has fully passed.
+  return transactionDay.getTime() < today.getTime();
+}
+
 /**
  * GCEC / Customer PDC not yet ledger-approved: duplicated at table bottom (until approved).
  * Original row stays in chronological place with date; bottom copy has no date (purely client render).
@@ -139,6 +170,7 @@ function isPdcLedgerFooterRow(t: BankTransaction): boolean {
 function isUnapprovedPdcPinBottom(t: BankTransaction): boolean {
   if (isPdcLedgerFooterRow(t)) return false;
   if (t.ledgerApproved) return false;
+  if (!hasLedgerTransactionDatePassed(t)) return false;
   if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) return true;
   if (rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) return true;
   return false;
@@ -380,21 +412,52 @@ function sortTransactionsOldestFirst(transactions: BankTransaction[]): BankTrans
   });
 }
 
+function sortTransactionsNewestFirst(transactions: BankTransaction[]): BankTransaction[] {
+  return [...transactions].sort((a, b) => {
+    const dateA = parseTransactionDateForSort(a);
+    const dateB = parseTransactionDateForSort(b);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const isFutureA = !!dateA && dateA.getTime() > today.getTime();
+    const isFutureB = !!dateB && dateB.getTime() > today.getTime();
+
+    // Keep future ("coming soon") rows at the start of the table.
+    if (isFutureA !== isFutureB) return isFutureA ? -1 : 1;
+
+    if (!dateA && !dateB) {
+      return (
+        parseInt(String(b.id || '0'), 10) - parseInt(String(a.id || '0'), 10)
+      );
+    }
+    if (!dateA) return 1;
+    if (!dateB) return -1;
+    // Always keep newest date at top, including future-dated rows.
+    const cmp = dateB.getTime() - dateA.getTime();
+    if (cmp !== 0) return cmp;
+    return (
+      parseInt(String(b.id || '0'), 10) - parseInt(String(a.id || '0'), 10)
+    );
+  });
+}
+
 type LedgerExportRowSpec = {
   transaction: BankTransaction;
   clientPendingBottomDup: boolean;
 };
 
 /**
- * Rows for CSV/Excel: chronological body, then pinned copies of unapproved PDC (until approved),
- * then API footer reminder rows — mirrors the table’s last-page tail.
+ * Rows for CSV/Excel in chronological order:
+ * 1) oldest to newest by date,
+ * 2) unapproved no-date duplicate rows at the end.
  */
 function buildLedgerExportRows(filteredTransactions: BankTransaction[]): LedgerExportRowSpec[] {
   const bodyTransactions = filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t));
-  const pdcPendingBottomRows = bodyTransactions.filter((t) => isUnapprovedPdcPinBottom(t));
+  const sortedBody = sortTransactionsOldestFirst(bodyTransactions);
+  const pdcPendingBottomRows = sortedBody.filter((t) => isUnapprovedPdcPinBottom(t));
 
   return [
-    ...sortTransactionsOldestFirst(bodyTransactions).map((t) => ({
+    ...sortedBody.map((t) => ({
       transaction: t,
       clientPendingBottomDup: false,
     })),
@@ -1235,8 +1298,21 @@ export default function BankTransaction() {
     [filteredTransactions]
   );
 
-  // No pagination: render all rows; append frontend-only copies of unapproved PDC (no date) at end.
-  const bodyTransactions = filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t));
+  // No pagination: render all rows in explicit UX order:
+  // 1) future dated rows, 2) frontend-only unapproved copies, 3) normal dated rows.
+  const bodyTransactions = sortTransactionsNewestFirst(
+    filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t))
+  );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const futureDatedRows = bodyTransactions.filter((t) => {
+    const d = parseTransactionDateForSort(t);
+    return !!d && d.getTime() > today.getTime();
+  });
+  const normalDatedRows = bodyTransactions.filter((t) => {
+    const d = parseTransactionDateForSort(t);
+    return !d || d.getTime() <= today.getTime();
+  });
   const pdcPendingBottomRows = bodyTransactions.filter((t) => isUnapprovedPdcPinBottom(t));
 
   type PaginatedLedgerRow = {
@@ -1245,11 +1321,12 @@ export default function BankTransaction() {
   };
 
   const paginatedRows: PaginatedLedgerRow[] = [
-    ...bodyTransactions.map((t) => ({ transaction: t })),
+    ...futureDatedRows.map((t) => ({ transaction: t })),
     ...pdcPendingBottomRows.map((t) => ({
       transaction: t,
       clientPendingBottomDup: true as const,
     })),
+    ...normalDatedRows.map((t) => ({ transaction: t })),
   ];
 
   // Clear all filters
@@ -1287,8 +1364,9 @@ export default function BankTransaction() {
     };
   
     const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
-    const startDate = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
-    const endDate = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
+    const exportYear = dates.length ? dates[0].getFullYear() : new Date().getFullYear();
+    const startDate = new Date(exportYear, 0, 1);
+    const endDate = new Date(exportYear, 11, 31);
   
     const formatDate = (d: Date) => {
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1404,8 +1482,9 @@ export default function BankTransaction() {
     };
 
     const dates = filteredTransactions.map(parseDateForRange).filter(Boolean) as Date[];
-    const startDate = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : new Date();
-    const endDate = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : new Date();
+    const exportYear = dates.length ? dates[0].getFullYear() : new Date().getFullYear();
+    const startDate = new Date(exportYear, 0, 1);
+    const endDate = new Date(exportYear, 11, 31);
 
     const formatDate = (d: Date) => {
       const months = [
@@ -1524,14 +1603,14 @@ export default function BankTransaction() {
         row.getCell(4).font = {
           name: 'Calibri',
           size: 11,
-          bold: debitValue > 0,
-          color: { argb: debitValue > 0 ? 'FFDC2626' : 'FF9CA3AF' },
+          bold: false,
+          color: { argb: debitValue > 0 ? 'FFDC2626' : 'FF000000' },
         };
         row.getCell(5).font = {
           name: 'Calibri',
           size: 11,
-          bold: creditValue > 0,
-          color: { argb: creditValue > 0 ? 'FF16A34A' : 'FF9CA3AF' },
+          bold: false,
+          color: { argb: 'FF000000' },
         };
         if (!suppressBal) {
           row.getCell(6).font = {
@@ -1944,7 +2023,9 @@ export default function BankTransaction() {
                   </tr>
                 ) : (
                   paginatedRows.map(({ transaction, clientPendingBottomDup }) => {
-                    const isBouncedCheque = isBouncedChequeRemarks(transaction.remarks);
+                    const isBouncedCheque = isBouncedChequeRemarks(
+                      remarksForTableDisplay(transaction.remarks, transaction.pdcType)
+                    );
                     const isGcecPdc = rowIsGcecPdcHighlight(
                       transaction.remarks,
                       transaction.pdcType
@@ -1966,7 +2047,7 @@ export default function BankTransaction() {
                       data-row-bg={rowTone}
                       className={`border-b border-gray-100 transition-colors ${
                         isBouncedCheque
-                          ? 'hover:bg-[#7dd3f0]'
+                          ? 'bg-[#7dd3f0] hover:bg-[#67c6ea]'
                           : isGcecPdc
                           ? 'hover:bg-yellow-200/70'
                           : 'hover:bg-gray-50'
@@ -1975,7 +2056,7 @@ export default function BankTransaction() {
                       <td className="text-gray-700 text-sm py-2 text-left p-2 align-middle">
                         {displayTransactionDate(transaction, !!clientPendingBottomDup)}
                       </td>
-                      <td className="text-gray-700 font-medium text-sm py-2 text-left p-2 align-middle">
+                      <td className="text-gray-700 text-sm py-2 text-left p-2 align-middle">
                         {transaction.categoryName || 'N/A'}
                       </td>
                       <td className="text-gray-600 text-sm py-2 text-left p-2 align-middle">
@@ -1991,20 +2072,20 @@ export default function BankTransaction() {
                       </td>
                       <td className="text-sm py-2 text-left p-2 align-middle">
                         {debitShown ? (
-                          <span className="text-red-600 font-semibold">
+                          <span className="text-red-600">
                             AED {debitShown}
                           </span>
                         ) : (
-                          <span className="text-gray-400">AED 0.00</span>
+                          <span className="text-black">AED 0.00</span>
                         )}
                       </td>
                       <td className="text-sm py-2 text-left p-2 align-middle">
                         {creditShown ? (
-                          <span className="text-green-600 font-semibold">
+                          <span className="text-black">
                             AED {creditShown}
                           </span>
                         ) : (
-                          <span className="text-gray-400">AED 0.00</span>
+                          <span className="text-black">AED 0.00</span>
                         )}
                       </td>
                       <td className="text-sm py-2 text-left p-2 align-middle">
@@ -2021,20 +2102,13 @@ export default function BankTransaction() {
                               ledgerBalanceMaps.bodyAfterById,
                               ledgerBalanceMaps.pendingDupAfterById
                             );
-                            const isNegative = balanceValue < 0;
                             const formattedBalance =
                               balanceValue.toLocaleString('en-US', {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                               });
                             return (
-                              <span
-                                className={
-                                  isNegative
-                                    ? 'text-red-600 font-bold'
-                                    : 'text-gray-700 font-semibold'
-                                }
-                              >
+                              <span className="text-black font-bold">
                                 AED {formattedBalance}
                               </span>
                             );

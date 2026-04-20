@@ -49,6 +49,19 @@ function isDueWithinNextMonth(chequeDate: string): boolean {
   return due >= startOfToday && due <= endDate;
 }
 
+function sortByChequeDateDesc(items: PostDatedCheque[]): PostDatedCheque[] {
+  return [...items].sort((a, b) => {
+    const aDate = parseChequeDate(a.chequeDate);
+    const bDate = parseChequeDate(b.chequeDate);
+
+    if (!aDate && !bDate) return 0;
+    if (!aDate) return 1;
+    if (!bDate) return -1;
+
+    return bDate.getTime() - aDate.getTime();
+  });
+}
+
 function DashboardPdcList({
   title,
   items,
@@ -64,7 +77,7 @@ function DashboardPdcList({
   partyKind?: 'creditor' | 'debtor';
 }) {
   return (
-    <Card className="bg-white border border-gray-200 flex-1 flex flex-col min-h-0 max-h-[550px] overflow-hidden shadow-sm">
+    <Card className="bg-white border border-gray-200 flex-1 flex flex-col min-h-0 max-h-[260px] overflow-hidden shadow-sm">
       <div className="bg-[#f7c46d] px-4 py-3 shrink-0 border-b border-[#c9a82f]/30">
         <h3 className="text-lg font-semibold text-black">{title}</h3>
       </div>
@@ -82,22 +95,22 @@ function DashboardPdcList({
               <li key={String(c.id)} className="px-4 py-3 hover:bg-gray-50/80 transition-colors">
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">
+                    <p className="text-base font-semibold text-gray-900 truncate">
                       {c.chequeNumber}
                       {c.chequeType === 'Security Cheque' && (
                         <span className="ml-2 text-xs font-normal text-red-600">(Security)</span>
                       )}
                     </p>
-                    <p className="text-xs text-gray-600 truncate mt-0.5">
+                    <p className="text-sm text-gray-600 truncate mt-0.5">
                       {partyKind === 'creditor' && (
-                        <span className="text-gray-500">Creditor: </span>
+                        <span className="text-black">Payee: </span>
                       )}
                       {partyKind === 'debtor' && (
-                        <span className="text-gray-500">Debtor: </span>
+                        <span className="text-black">Customer Name: </span>
                       )}
                       {c.customerName || '—'}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-sm text-black mt-1">
                       Due {formatIsoDateDisplay(c.chequeDate)}
                     </p>
                   </div>
@@ -121,7 +134,6 @@ function DashboardPdcList({
 }
 
 export default function Dashboard() {
-  const userName = localStorage.getItem('userName') || 'Admin';
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
   const [customerPdcs, setCustomerPdcs] = useState<PostDatedCheque[]>([]);
@@ -154,8 +166,8 @@ export default function Dashboard() {
         const list = res.data.filter(
           (c) => c.pdcType !== 'Custom PDC' && isDueWithinNextMonth(c.chequeDate)
         );
-        setCustomerPdcs(list.filter((c) => c.pdcType === 'Customer PDC'));
-        setGcecPdcs(list.filter((c) => c.pdcType === 'GCEC PDC'));
+        setCustomerPdcs(sortByChequeDateDesc(list.filter((c) => c.pdcType === 'Customer PDC')));
+        setGcecPdcs(sortByChequeDateDesc(list.filter((c) => c.pdcType === 'GCEC PDC')));
       } else {
         setCustomerPdcs([]);
         setGcecPdcs([]);
@@ -176,10 +188,10 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="mb-6 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-4 ml-4">
-          <h2 className="text-2xl font-bold text-gray-900 pl-12 py-4">
-            Welcome Back, {userName}!
+      <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
+        <div className="flex items-center gap-4 ml-16">
+          <h2 className="text-2xl font-bold text-gray-900">
+            Daily Transaction
           </h2>
         </div>
       </div>

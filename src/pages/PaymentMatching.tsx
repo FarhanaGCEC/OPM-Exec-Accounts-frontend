@@ -700,6 +700,22 @@ export default function PaymentMatching() {
     return payment ? `${payment.customerName} - ${payment.date || payment.paymentDate}` : '';
   }, [deletingPaymentId, payments]);
 
+  const totalAmount = payments.reduce((sum, payment) => {
+    if (typeof payment.amount === 'number') {
+      return sum + payment.amount;
+    }
+    if (typeof payment.amount === 'string') {
+      const parsed = parseFloat(payment.amount.replace(/,/g, ''));
+      return sum + (isNaN(parsed) ? 0 : parsed);
+    }
+    return sum;
+  }, 0);
+
+  const formattedTotalAmount = `AED ${totalAmount.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
   return (
     <Layout>
      <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
@@ -780,51 +796,62 @@ export default function PaymentMatching() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  payments.map((payment) => (
-                    <TableRow
-                      key={payment.id}
-                      className="border-b border-gray-100 hover:bg-gray-50"
-                    >
-                      <TableCell className="text-sm py-2 text-left text-gray-700">
-                        {payment.date || formatDateForDisplay(payment.paymentDate)}
+                  <>
+                    {payments.map((payment) => (
+                      <TableRow
+                        key={payment.id}
+                        className="border-b border-gray-100 hover:bg-gray-50"
+                      >
+                        <TableCell className="text-sm py-2 text-left text-gray-700">
+                          {payment.date || formatDateForDisplay(payment.paymentDate)}
+                        </TableCell>
+                        <TableCell className="text-sm py-2 text-left text-gray-700">
+                          {payment.customerName}
+                        </TableCell>
+                        <TableCell className="text-gray-600 text-sm py-2 text-left">
+                          {payment.paymentMethod}
+                        </TableCell>
+                        <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                          {payment.amountFormatted 
+                            ? `AED ${payment.amountFormatted}`
+                            : typeof payment.amount === 'number' 
+                              ? `AED ${payment.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : typeof payment.amount === 'string'
+                                ? `AED ${parseFloat(payment.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : 'AED 0.00'}
+                        </TableCell>
+                        <TableCell className="text-sm py-2 text-left">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handleEdit(payment)}
+                              className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+                              title="Edit payment"
+                              aria-label={`Edit ${payment.customerName}`}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(String(payment.id))}
+                              className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+                              title="Delete payment"
+                              aria-label={`Delete ${payment.customerName}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="bg-slate-100 border-t-2 border-slate-300">
+                      <TableCell colSpan={3} className="text-right font-bold text-gray-900 py-2">
+                        Total
                       </TableCell>
-                      <TableCell className="text-sm py-2 text-left text-gray-700">
-                        {payment.customerName}
+                      <TableCell className="font-bold text-gray-900 text-sm py-2 text-left">
+                        {formattedTotalAmount}
                       </TableCell>
-                      <TableCell className="text-gray-600 text-sm py-2 text-left">
-                        {payment.paymentMethod}
-                      </TableCell>
-                      <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
-                        {payment.amountFormatted 
-                          ? `AED ${payment.amountFormatted}`
-                          : typeof payment.amount === 'number' 
-                            ? `AED ${payment.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                            : typeof payment.amount === 'string'
-                              ? `AED ${parseFloat(payment.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                              : 'AED 0.00'}
-                      </TableCell>
-                      <TableCell className="text-sm py-2 text-left">
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleEdit(payment)}
-                            className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-                            title="Edit payment"
-                            aria-label={`Edit ${payment.customerName}`}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClick(String(payment.id))}
-                            className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-                            title="Delete payment"
-                            aria-label={`Delete ${payment.customerName}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </TableCell>
+                      <TableCell />
                     </TableRow>
-                  ))
+                  </>
                 )}
               </TableBody>
             </Table>

@@ -223,9 +223,9 @@ export default function Sidebar() {
   const username = userName.toUpperCase();
 
   return (
-    <aside className="w-64 bg-gray-900 flex-shrink-0 flex flex-col h-screen">
+    <aside className="w-60 bg-gray-900 flex-shrink-0 flex flex-col h-screen">
       {/* Logo */}
-      <div className="p-6 border-b border-gray-800">
+      <div className="p-4 border-b border-gray-800">
         <img
           src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1767004411/gcec-logo-removebg-preview_dtdfbt.png"
           alt="GCEC Cloud Logo"
@@ -234,14 +234,14 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-2 space-y-2 overflow-y-auto">
+      <nav className="flex-1 px-2 py-2 space-y-1 overflow-y-auto">
         {visibleMenuItems.map((item) => {
           const active = item.path ? isActive(item.path) : isSubMenuActive(item.subMenus);
           const isExpanded = item.subMenus && expandedMenus.has(item.id);
           const hasSubMenus = item.subMenus && item.subMenus.length > 0;
 
           return (
-            <div key={item.id} className="space-y-1">
+            <div key={item.id} className="space-y-0.5">
               <button
                 onClick={() => {
                   if (hasSubMenus) {
@@ -250,7 +250,7 @@ export default function Sidebar() {
                     navigate(item.path);
                   }
                 }}
-                className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors
+                className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors
                   ${
                     active
                       ? 'bg-[#f7c46d] text-gray-900'
@@ -259,7 +259,7 @@ export default function Sidebar() {
                 `}
               >
                 <span
-                  className={`text-sm font-medium whitespace-nowrap flex-1 text-left inline-flex items-center ${
+                  className={`text-xs font-medium whitespace-nowrap flex-1 text-left inline-flex items-center ${
                     active ? 'text-gray-900' : 'text-gray-400'
                   }`}
                 >
@@ -276,7 +276,7 @@ export default function Sidebar() {
                   )}
                 </span>
                 {hasSubMenus && (
-                  <span className="ml-2">
+                    <span className="ml-1.5">
                     {isExpanded ? (
                       <ChevronDown className="w-4 h-4" />
                     ) : (
@@ -288,14 +288,14 @@ export default function Sidebar() {
               
               {/* Sub-menu items */}
               {hasSubMenus && isExpanded && (
-                <div className="ml-4 space-y-1">
+                <div className="ml-3 space-y-0.5">
                   {item.subMenus!.map((subMenu) => {
                     const subActive = isActive(subMenu.path);
                     return (
                       <button
                         key={subMenu.id}
                         onClick={() => navigate(subMenu.path)}
-                        className={`w-full flex items-center px-4 py-2 rounded-lg transition-colors text-sm
+                        className={`w-full flex items-center px-3 py-1.5 rounded-md transition-colors text-xs
                           ${
                             subActive
                               ? 'bg-[#edd06a] text-gray-900 font-medium'
