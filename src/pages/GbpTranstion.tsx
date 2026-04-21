@@ -1,8 +1,8 @@
 
 import { Button } from '@/components/ui/button';
 import Layout from '../components/Layout';
-import { useState, useEffect, useCallback } from 'react';
-import { FileSpreadsheet, Plus, Edit, Trash2, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { FileSpreadsheet, Plus, Edit, Trash2, Loader2, Search } from 'lucide-react';
 import type { ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
@@ -46,6 +46,22 @@ interface GbpTransaction {
   balance?: number | string;
 }
 
+const parseGbpTransactionDate = (value: string): Date | null => {
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  const parts = String(value).split('/');
+  if (parts.length === 3) {
+    const day = Number(parts[0]);
+    const month = Number(parts[1]) - 1;
+    const year = Number(parts[2]);
+    const fallback = new Date(year, month, day);
+    if (!Number.isNaN(fallback.getTime())) return fallback;
+  }
+
+  return null;
+};
+
 export default function GbpTranstion() {
   const [loading, setLoading] = useState(false);
   const [transactions, setTransactions] = useState<GbpTransaction[]>([]);
@@ -54,6 +70,7 @@ export default function GbpTranstion() {
   const [editingTransaction, setEditingTransaction] = useState<GbpTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<GbpTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filterText, setFilterText] = useState('');
   const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
   const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
   
@@ -110,6 +127,34 @@ export default function GbpTranstion() {
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
+
+  const sortedTransactions = useMemo(
+    () =>
+      [...transactions].sort((a, b) => {
+        const aDate = parseGbpTransactionDate(a.date);
+        const bDate = parseGbpTransactionDate(b.date);
+        if (!aDate && !bDate) return Number(b.id || 0) - Number(a.id || 0);
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        const byDate = bDate.getTime() - aDate.getTime();
+        if (byDate !== 0) return byDate;
+        return Number(b.id || 0) - Number(a.id || 0);
+      }),
+    [transactions]
+  );
+
+  const filteredTransactions = useMemo(
+    () =>
+      sortedTransactions.filter((transaction) => {
+        if (filterText.trim()) {
+          const needle = filterText.toLowerCase().trim();
+          const haystack = `${transaction.description} ${transaction.details} ${transaction.date}`.toLowerCase();
+          if (!haystack.includes(needle)) return false;
+        }
+        return true;
+      }),
+    [sortedTransactions, filterText]
+  );
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -359,7 +404,7 @@ export default function GbpTranstion() {
   };
 
   const handleDownloadExcel = async () => {
-    if (transactions.length === 0) {
+    if (filteredTransactions.length === 0) {
       return;
     }
 
@@ -401,7 +446,7 @@ export default function GbpTranstion() {
       addRow([], { font: { bold: true } });
 
       // Transaction rows
-      transactions.forEach((transaction) => {
+      filteredTransactions.forEach((transaction) => {
         const debitValue = transaction.debit ? parseFloat(String(transaction.debit).replace(/,/g, '')) : 0;
         const bankChargesValue = transaction.bankCharges ? parseFloat(String(transaction.bankCharges).replace(/,/g, '')) : 0;
         const creditValue = transaction.credit ? parseFloat(String(transaction.credit).replace(/,/g, '')) : 0;
@@ -482,6 +527,8 @@ export default function GbpTranstion() {
     }
   };
 
+  const clearFilters = () => setFilterText('');
+
   const formatAmount = (value: number | string | null | undefined): string => {
     if (value === null || value === undefined) return '-';
     const numValue = typeof value === 'number' ? value : parseFloat(String(value || 0));
@@ -491,7 +538,11 @@ export default function GbpTranstion() {
   const formatDate = (dateString: string): string => {
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      if (Number.isNaN(date.getTime())) return dateString;
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = date.toLocaleString('en-US', { month: 'short' });
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
     } catch {
       return dateString;
     }
@@ -508,7 +559,7 @@ export default function GbpTranstion() {
             onClick={handleDownloadExcel}
             variant="outline"
             className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
-            disabled={loading || transactions.length === 0}
+            disabled={loading || filteredTransactions.length === 0}
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>Download Excel</span>
@@ -531,13 +582,30 @@ export default function GbpTranstion() {
       )}
 
       <div className="mx-8">
+        <div className="mb-4 bg-white rounded-lg border border-gray-200 p-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+            <div className="relative md:col-span-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                type="text"
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                placeholder="Filter by description, details, or date..."
+                className="pl-10"
+              />
+            </div>
+            <Button variant="outline" onClick={clearFilters} className="text-black md:col-span-1">
+              Clear Filters
+            </Button>
+          </div>
+        </div>
         {loading && transactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="w-8 h-8 animate-spin text-[#f7c46d]" />
           </div>
-        ) : transactions.length === 0 ? (
+        ) : filteredTransactions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            No transactions found. Click "Add New" to create one.
+            No transactions found for selected filters.
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -556,7 +624,7 @@ export default function GbpTranstion() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.map((transaction) => (
+                  {filteredTransactions.map((transaction) => (
                     <TableRow key={transaction.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
                       <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(transaction.date)}</TableCell>
                       <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{transaction.description}</TableCell>

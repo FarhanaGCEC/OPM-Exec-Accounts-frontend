@@ -226,10 +226,9 @@ export default function UserManagement() {
               <table className="w-full caption-bottom text-base border rounded-lg">
                 <thead className="sticky top-0 z-20 bg-[#f7c46d] shadow-sm">
                   <tr className="bg-[#f7c46d] border-0">
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">ID</th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">Username</th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">Role</th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle w-[120px]">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">Username</th>
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">Role</th>
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle w-[120px]">
                       Actions
                     </th>
                   </tr>
@@ -237,14 +236,14 @@ export default function UserManagement() {
                 <tbody className="[&_tr:last-child]:border-0">
                   {loading ? (
                     <tr>
-                      <td colSpan={4} className="text-center py-8 p-2 align-middle">
+                      <td colSpan={3} className="text-center py-4 px-4 align-middle">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                         <p className="text-sm text-gray-500">Loading users...</p>
                       </td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="text-center py-8 p-2 align-middle">
+                      <td colSpan={3} className="text-center py-4 px-4 align-middle">
                         <p className="text-sm text-gray-500 mb-1">No users found.</p>
                         <p className="text-sm text-gray-400">Click &quot;Add New User&quot; to create an account.</p>
                       </td>
@@ -260,12 +259,11 @@ export default function UserManagement() {
                             : 'text-gray-800 capitalize';
                       return (
                         <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                          <td className="p-3 align-middle text-sm text-gray-800">{u.id}</td>
-                          <td className="p-3 align-middle text-sm font-medium text-gray-900">{u.username}</td>
-                          <td className="p-3 align-middle text-sm">
+                          <td className="px-4 py-2 align-middle text-sm font-medium text-gray-900">{u.username}</td>
+                          <td className="px-4 py-2 align-middle text-sm">
                             <span className={roleClass}>{String(u.role)}</span>
                           </td>
-                          <td className="p-3 align-middle">
+                          <td className="px-4 py-2 align-middle">
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"

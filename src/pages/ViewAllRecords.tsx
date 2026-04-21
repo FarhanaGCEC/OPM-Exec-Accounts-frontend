@@ -201,14 +201,9 @@ export default function ViewAllRecords() {
                     {card.title}
                   </p>
                   <div className="flex items-baseline space-x-1">
-                    <p className={`text-2xl font-bold ${card.textColor}`}>
-                      {card.value}
+                    <p className={`text-xl font-bold ${card.textColor}`}>
+                      {card.currency ? `${card.currency} ${card.value}` : card.value}
                     </p>
-                    {card.currency && (
-                      <span className={`text-lg font-semibold ${card.textColor} opacity-80`}>
-                        {card.currency}
-                      </span>
-                    )}
                   </div>
                 </div>
               </CardContent>
@@ -313,7 +308,7 @@ export default function ViewAllRecords() {
                     <TableCell className="text-sm py-2 text-left">
                       {transaction.debit ? (
                         <span className="text-red-600 font-semibold">
-                          {transaction.debit} AED
+                          AED {transaction.debit}
                         </span>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -322,14 +317,14 @@ export default function ViewAllRecords() {
                     <TableCell className="text-sm py-2 text-left">
                       {transaction.credit ? (
                         <span className="text-green-600 font-semibold">
-                          {transaction.credit} AED
+                          AED {transaction.credit}
                         </span>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
-                      {transaction.balance} AED
+                      AED {transaction.balance}
                     </TableCell>
                   </TableRow>
                 ))}

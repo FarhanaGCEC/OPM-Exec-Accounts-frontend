@@ -44,6 +44,12 @@ import {
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../components/ui/tooltip';
 import Calendar from '../components/ui/calendar-tailwind';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
 import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
@@ -475,6 +481,7 @@ function ledgerExportDetailsColumn(t: BankTransaction): string {
   if (t.paymentType === 'cash') return 'Cash';
   if (t.paymentType === 'creditcard') return 'Credit Card';
   if (t.paymentType === 'banktransfer') return 'Online';
+  if (t.paymentType?.toLowerCase() === 'dd') return 'DD';
   if (t.paymentType) return t.paymentType;
   return '';
 }
@@ -1259,6 +1266,8 @@ export default function BankTransaction() {
         ? 'Credit Card'
         : transaction.paymentType === 'banktransfer'
         ? 'Online'
+        : transaction.paymentType?.toLowerCase() === 'dd'
+        ? 'DD'
         : transaction.paymentType || '';
       
       if (!details.toLowerCase().includes(searchDetails.toLowerCase().trim())) return false;
@@ -1364,9 +1373,9 @@ export default function BankTransaction() {
     };
   
     const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
-    const exportYear = dates.length ? dates[0].getFullYear() : new Date().getFullYear();
-    const startDate = new Date(exportYear, 0, 1);
-    const endDate = new Date(exportYear, 11, 31);
+    const dateTimes = dates.map((d) => d.getTime());
+    const startDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
+    const endDate = dateTimes.length ? new Date(Math.max(...dateTimes)) : new Date();
   
     const formatDate = (d: Date) => {
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1384,7 +1393,7 @@ export default function BankTransaction() {
     const csvRows: string[] = [];
   
     // ----- HEADER -----
-    csvRows.push(rowCsv('GCEC CLOUD SECURITY & SURVEILLANCE'));
+    csvRows.push(rowCsv('GCEC CLOUD SECURITY & SURVEILLANCE L.L.C'));
     csvRows.push(rowCsv());
     csvRows.push(rowCsv());
 
@@ -1482,9 +1491,9 @@ export default function BankTransaction() {
     };
 
     const dates = filteredTransactions.map(parseDateForRange).filter(Boolean) as Date[];
-    const exportYear = dates.length ? dates[0].getFullYear() : new Date().getFullYear();
-    const startDate = new Date(exportYear, 0, 1);
-    const endDate = new Date(exportYear, 11, 31);
+    const dateTimes = dates.map((d) => d.getTime());
+    const startDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
+    const endDate = dateTimes.length ? new Date(Math.max(...dateTimes)) : new Date();
 
     const formatDate = (d: Date) => {
       const months = [
@@ -1513,7 +1522,7 @@ export default function BankTransaction() {
       const ws = workbook.addWorksheet('Account Statement');
 
       let r = 1;
-      ws.getCell(r++, 1).value = 'GCEC CLOUD SECURITY & SURVEILLANCE';
+      ws.getCell(r++, 1).value = 'GCEC CLOUD SECURITY & SURVEILLANCE L.L.C';
       r += 2;
 
       ws.getCell(r, 1).value = 'Account No.:';
@@ -1526,8 +1535,10 @@ export default function BankTransaction() {
       ws.getCell(r++, 2).value = formatDate(endDate);
       ws.getCell(r, 1).value = 'Closing (Current):';
       const closingCell = ws.getCell(r, 2);
-      closingCell.value = closingBalanceValue;
-      closingCell.numFmt = '#,##0.00';
+      closingCell.value = `AED ${closingBalanceValue.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
       r++;
       r += 2;
 
@@ -1604,8 +1615,14 @@ export default function BankTransaction() {
           name: 'Calibri',
           size: 11,
           bold: false,
-          color: { argb: debitValue > 0 ? 'FFDC2626' : 'FF000000' },
+          color: { argb: 'FFDC2626' },
         };
+        if (debitValue > 0) {
+          const debitRowRed = { name: 'Calibri', size: 11, color: { argb: 'FFDC2626' } };
+          row.getCell(1).font = debitRowRed;
+          row.getCell(2).font = debitRowRed;
+          row.getCell(3).font = debitRowRed;
+        }
         row.getCell(5).font = {
           name: 'Calibri',
           size: 11,
@@ -1617,7 +1634,7 @@ export default function BankTransaction() {
             name: 'Calibri',
             size: 11,
             bold: true,
-            color: { argb: 'FF000000' },
+            color: { argb: balanceValue < 0 ? 'FFDC2626' : 'FF0003EB' },
           };
         } else {
           row.getCell(6).font = {
@@ -1665,7 +1682,7 @@ export default function BankTransaction() {
        <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
         <div className="flex items-center gap-4 ml-16">
       
-          <h2 className="text-2xl font-bold text-gray-900"> Daily Transaction</h2>
+          <h2 className="text-2xl font-bold text-gray-900"> Daily Transactions Details</h2>
        </div>
             <Button
             onClick={handleAddNew}
@@ -1783,7 +1800,7 @@ export default function BankTransaction() {
           
             value={searchDetails}
             onChange={(e) => setSearchDetails(e.target.value)}
-            className="w-full pl-10 pr-10 h-10"
+            className="w-full pl-3 pr-10 h-10"
           />
           {searchDetails && (
             <button
@@ -1806,7 +1823,7 @@ export default function BankTransaction() {
            
             value={searchAmount}
             onChange={(e) => setSearchAmount(e.target.value)}
-            className="w-full pl-10 pr-10 h-10"
+            className="w-full pl-3 pr-10 h-10"
           />
           {searchAmount && (
             <button
@@ -1829,7 +1846,7 @@ export default function BankTransaction() {
            
             value={searchDescription}
             onChange={(e) => setSearchDescription(e.target.value)}
-            className="w-full pl-10 pr-10 h-10"
+            className="w-full pl-3 pr-10 h-10"
           />
           {searchDescription && (
             <button
@@ -1852,7 +1869,7 @@ export default function BankTransaction() {
            
             value={searchRemarks}
             onChange={(e) => setSearchRemarks(e.target.value)}
-            className="w-full pl-10 pr-10 h-10"
+            className="w-full pl-3 pr-10 h-10"
           />
           {searchRemarks && (
             <button
@@ -1977,31 +1994,31 @@ export default function BankTransaction() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <div className="max-h-[600px] overflow-y-auto relative">
-              <table className="bank-tx-ledger w-full caption-bottom text-base border rounded-lg">
+              <table className="bank-tx-ledger w-full caption-bottom text-base border rounded-lg [&_th]:!py-1 [&_td]:!py-1">
                 <thead className="sticky top-0 z-20 bg-[#f7c46d] shadow-sm">
                   <tr className="bg-[#f7c46d] border-0">
-                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
+                    <th className=" text-black text-sm text-left py-2 px-4 align-middle">
                       Date
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
+                    <th className="text-black text-sm text-left py-2 px-4 align-middle">
                       Description
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
+                    <th className=" text-black text-sm text-left py-2 px-4 align-middle">
                       Details
                     </th>
                     <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
                       Debit
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
+                    <th className=" text-black text-sm text-left py-2 px-4 align-middle">
                       Credit
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Balance
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Remarks
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-2 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Actions
                     </th>
                   </tr>
@@ -2009,14 +2026,14 @@ export default function BankTransaction() {
                 <tbody className="[&_tr:last-child]:border-0">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-8 p-2 align-middle">
+                    <td colSpan={8} className="text-center py-4 px-4 align-middle">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                       <p className="text-sm text-gray-500">Loading transactions...</p>
                     </td>
                   </tr>
                 ) : !Array.isArray(filteredTransactions) || filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-8 p-2 align-middle">
+                    <td colSpan={8} className="text-center py-4 px-4 align-middle">
                       <p className="text-sm text-gray-500 mb-1">No transactions found.</p>
                       <p className="text-sm text-gray-400">Click "Add New" to create your first transaction.</p>
                     </td>
@@ -2037,6 +2054,10 @@ export default function BankTransaction() {
                         : undefined;
                     const { debit: debitShown, credit: creditShown } =
                       getDebitCreditDisplayForRow(transaction, clientPendingBottomDup);
+                    const debitAmount = debitShown
+                      ? parseFloat(String(debitShown).replace(/,/g, ''))
+                      : 0;
+                    const hasDebit = !Number.isNaN(debitAmount) && debitAmount > 0;
                     return (
                     <tr 
                       key={
@@ -2053,13 +2074,41 @@ export default function BankTransaction() {
                           : 'hover:bg-gray-50'
                       }`}
                     >
-                      <td className="text-gray-700 text-sm py-2 text-left p-2 align-middle">
+                      <td
+                        className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}
+                      >
                         {displayTransactionDate(transaction, !!clientPendingBottomDup)}
                       </td>
-                      <td className="text-gray-700 text-sm py-2 text-left p-2 align-middle">
-                        {transaction.categoryName || 'N/A'}
+                      <td
+                        className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}
+                      >
+                        {(() => {
+                          const description = transaction.categoryName || 'N/A';
+                          const maxChars = 35;
+                          const isLong = description.length > maxChars;
+                          const shortText = isLong
+                            ? `${description.slice(0, maxChars)}...`
+                            : description;
+
+                          if (!isLong) return shortText;
+
+                          return (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-block cursor-default">{shortText}</span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                  <p>{description}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        })()}
                       </td>
-                      <td className="text-gray-600 text-sm py-2 text-left p-2 align-middle">
+                      <td
+                        className={`${hasDebit ? 'text-red-600' : 'text-gray-600'} text-sm py-2 px-4 text-left align-middle`}
+                      >
                         {transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
                           ? `${transaction.chequeNumber}`
                           : transaction.paymentType === 'cash'
@@ -2068,18 +2117,20 @@ export default function BankTransaction() {
                           ? 'Credit Card'
                           : transaction.paymentType === 'banktransfer'
                           ? 'Online'
+                          : transaction.paymentType?.toLowerCase() === 'dd'
+                          ? 'DD'
                           : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
                       </td>
-                      <td className="text-sm py-2 text-left p-2 align-middle">
-                        {debitShown ? (
+                      <td className="text-sm py-2 px-4 text-left align-middle">
+                        {hasDebit ? (
                           <span className="text-red-600">
                             AED {debitShown}
                           </span>
                         ) : (
-                          <span className="text-black">AED 0.00</span>
+                          <span className="text-red-600">AED 0.00</span>
                         )}
                       </td>
-                      <td className="text-sm py-2 text-left p-2 align-middle">
+                      <td className="text-sm py-2 px-4 text-left align-middle">
                         {creditShown ? (
                           <span className="text-black">
                             AED {creditShown}
@@ -2088,7 +2139,7 @@ export default function BankTransaction() {
                           <span className="text-black">AED 0.00</span>
                         )}
                       </td>
-                      <td className="text-sm py-2 text-left p-2 align-middle">
+                      <td className="text-sm py-2 px-4 text-left align-middle">
                         {shouldSuppressBalanceForDisplay(
                           transaction,
                           !!clientPendingBottomDup
@@ -2107,22 +2158,24 @@ export default function BankTransaction() {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                               });
+                            const balanceClass =
+                              balanceValue < 0 ? 'text-red-600 font-bold' : 'text-[#0003eb] font-bold';
                             return (
-                              <span className="text-black font-bold">
+                              <span className={balanceClass}>
                                 AED {formattedBalance}
                               </span>
                             );
                           })()
                         )}
                       </td>
-                      <td className="text-sm py-2 text-left p-2 align-middle">
+                      <td className="text-sm py-2 px-4 text-left align-middle">
                         {remarksForTableDisplay(
                           transaction.remarks,
                           transaction.pdcType
                         )}
                       </td>
-                      <td className="text-sm py-2 text-left p-2 align-middle">
-                        <div className="flex items-center flex-wrap gap-2">
+                      <td className="text-sm py-2 px-4 text-left align-middle">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           {transaction.showLedgerApprovalCheckbox &&
                             !transaction.approvalPendingFooterDuplicate &&
                             transaction.pdcId != null &&

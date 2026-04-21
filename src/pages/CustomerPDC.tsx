@@ -712,7 +712,7 @@ export default function CustomerPDC() {
           <Card className="border border-gray-200 shadow-sm md:min-w-[240px]">
             <CardContent className="py-3 px-4">
               <p className="text-xs text-gray-500">Total Amount</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-lg font-bold text-black">
                 AED{' '}
                 {totalAmount.toLocaleString('en-US', {
                   minimumFractionDigits: 2,
@@ -728,7 +728,7 @@ export default function CustomerPDC() {
       <Card className="bg-white border border-gray-200 shadow-sm mx-8">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="[&_th]:!py-1 [&_td]:!py-1">
               <TableHeader>
                 <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -757,21 +757,21 @@ export default function CustomerPDC() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-4">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                       <p className="text-sm text-gray-500">Loading cheques...</p>
                     </TableCell>
                   </TableRow>
                 ) : !Array.isArray(cheques) || cheques.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-4">
                       <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                       <p className="text-sm text-gray-400">Click "Add New" to create your first cheque.</p>
                     </TableCell>
                   </TableRow>
                 ) : filteredCheques.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-4">
                       <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                     </TableCell>
                   </TableRow>

@@ -49,7 +49,7 @@ const menuItems: MenuItem[] = [
 
   {
     id: 'bank',
-    label: 'Daily Transactions',
+    label: 'Daily Transactions(ADCB)',
     icon: CreditCard,
     path: '/bank',
     sidebarKey: 'daily_transactions',
@@ -68,7 +68,7 @@ const menuItems: MenuItem[] = [
   
   {
     id: 'matching',
-    label: 'Customer Credit Card Payments',
+    label: 'Customer Credit Card (ADCB)',
     icon: CreditCard,
     path: '/matching',
     sidebarKey: 'customer_credit_card_payments',
@@ -76,14 +76,14 @@ const menuItems: MenuItem[] = [
 
   {
     id: 'gbp-transactions',
-    label: 'GBP Transactions',
+    label: 'GBP Transactions(ADCB)',
     icon: CreditCard,
     path: '/gbp-transactions',
     sidebarKey: 'gbp_transactions',
   },
   {
     id: 'usd-transactions',
-    label: 'USD Transactions',
+    label: 'USD Transactions(ADCB)',
     icon: CreditCard,
     path: '/usd-transactions',
     sidebarKey: 'usd_transactions',

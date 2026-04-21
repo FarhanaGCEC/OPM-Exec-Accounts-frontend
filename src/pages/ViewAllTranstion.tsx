@@ -97,6 +97,22 @@ interface TransactionSummary {
   total: number;
 }
 
+type OtherTransactionFilterOption =
+  | 'all'
+  | 'customer-credit-card-adcb-usd'
+  | 'customer-credit-card-gbp'
+  | 'customer-credit-card-fk-enbd';
+
+const OTHER_TRANSACTION_FILTER_OPTIONS: Array<{
+  value: OtherTransactionFilterOption;
+  label: string;
+}> = [
+  { value: 'all', label: 'All Other Transactions' },
+  { value: 'customer-credit-card-adcb-usd', label: 'Customer Credit Card - ADCB USD' },
+  { value: 'customer-credit-card-gbp', label: 'Customer Credit Card - GBP' },
+  { value: 'customer-credit-card-fk-enbd', label: 'Customer Credit Card - FK ENBD' },
+];
+
 const parseTransactionDate = (value: string): Date | null => {
   const parsed = new Date(value);
   if (!isNaN(parsed.getTime())) return parsed;
@@ -165,18 +181,30 @@ const getDailyPaymentTypeDisplay = (txn: DailyTransaction): string => {
   if (normalizedPaymentType === 'cheque') {
     return txn.chequeNumber?.trim() || 'Cheque';
   }
+  if (normalizedPaymentType === 'dd') {
+    return 'DD';
+  }
+  if (normalizedPaymentType === 'banktransfer' || normalizedPaymentType === 'online') {
+    return 'Online';
+  }
+  if (normalizedPaymentType === 'creditcard') {
+    return 'Credit Card';
+  }
 
   return toTitleCaseWords(txn.paymentType || '');
 };
 
 // Helper function to get display name for transaction type
 const getTransactionTypeDisplayName = (type: string): string => {
+  if (type === 'Daily Transaction') {
+    return 'Daily Transtion Detail';
+  }
   if (type === 'GCEC PDC') {
-    return 'GCEC Post Dated Cheques in Hand';
+    return 'GCEC PDC in Hand';
   } else if (type === 'Customer PDC') {
-    return 'Customers Post Dated Cheques in Hand';
+    return 'Customer PDC in Hand';
   } else if (type === 'Purchase Bill') {
-    return 'Sales Invoice amount paid against GCEC Purchase Bills';
+    return 'Customers Paid through Credit Cards';
   }
   return type;
 };
@@ -187,12 +215,39 @@ export default function ViewAllTranstion() {
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
+  const [otherTransactionFilter, setOtherTransactionFilter] =
+    useState<OtherTransactionFilterOption>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
   const itemsPerPage = 10;
 
+  const filteredTransactions = transactions.filter((transaction) => {
+    if (transaction.transactionType !== 'Purchase Bill' || otherTransactionFilter === 'all') {
+      return true;
+    }
+
+    const purchaseBill = transaction as PurchaseBill;
+    const searchable = [
+      purchaseBill.vendorName,
+      purchaseBill.paymentMethod,
+      purchaseBill.description || '',
+      purchaseBill.invoiceNumber || '',
+      purchaseBill.billNumber || '',
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    if (otherTransactionFilter === 'customer-credit-card-adcb-usd') {
+      return searchable.includes('adcb usd');
+    }
+    if (otherTransactionFilter === 'customer-credit-card-gbp') {
+      return searchable.includes('gbp');
+    }
+    return searchable.includes('fk enbd') || searchable.includes('fk emirates nbd');
+  });
+
   // Group transactions by type
-  const groupedTransactions = transactions.reduce((acc, transaction) => {
+  const groupedTransactions = filteredTransactions.reduce((acc, transaction) => {
     const type = transaction.transactionType;
     if (!acc[type]) {
       acc[type] = [];
@@ -217,7 +272,7 @@ export default function ViewAllTranstion() {
   });
 
   // Pagination - count only transactions (not headings)
-  const transactionCount = transactions.length;
+  const transactionCount = filteredTransactions.length;
   const totalPages = Math.ceil(transactionCount / itemsPerPage);
   
   // Calculate which transactions to show (10 per page)
@@ -274,7 +329,7 @@ export default function ViewAllTranstion() {
   
   // Get all transaction types that exist in the dataset
   const allTransactionTypes = new Set<string>();
-  transactions.forEach(txn => allTransactionTypes.add(txn.transactionType));
+  filteredTransactions.forEach(txn => allTransactionTypes.add(txn.transactionType));
   
   // Show all headers in order (like Excel), then show transactions under each
   transactionOrder.forEach((type) => {
@@ -343,6 +398,10 @@ export default function ViewAllTranstion() {
   }, [startDate, endDate]);
 
   useEffect(() => {
+    setCurrentPage(1);
+  }, [otherTransactionFilter]);
+
+  useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
 
@@ -350,6 +409,7 @@ export default function ViewAllTranstion() {
   const clearFilters = () => {
     setStartDate(null);
     setEndDate(null);
+    setOtherTransactionFilter('all');
   };
 
   // Convert Date to string for input (YYYY-MM-DD format)
@@ -370,8 +430,8 @@ export default function ViewAllTranstion() {
 
   // Excel Download function - exports only filtered transactions (based on startDate/endDate)
   const handleDownloadExcel = useCallback(async () => {
-    // transactions array is already filtered by API based on startDate/endDate filters
-    if (transactions.length === 0) {
+    // Transactions are already filtered by API date range and client-side "Other Transactions".
+    if (filteredTransactions.length === 0) {
       return;
     }
 
@@ -404,7 +464,7 @@ export default function ViewAllTranstion() {
 
     // Header rows
     addRow(['ADCB (AED)'], { font: { bold: true, size: 14 } });
-    addRow(['GCEC CLOUD SECURITY & SURVEILLANCE'], { font: { bold: true, size: 12 } });
+    addRow(['GCEC CLOUD SECURITY & SURVEILLANCE L.L.C '], { font: { bold: true, size: 12 } });
     addRow([]);
     
     // Account information
@@ -419,7 +479,7 @@ export default function ViewAllTranstion() {
     // Summary
     if (summary) {
       addRow(['Summary:'], { font: { bold: true } });
-      addRow(['Daily Transactions:', summary.dailyTransactions]);
+      addRow(['daily transtion detail:', summary.dailyTransactions]);
       addRow(['GCEC Post Dated Cheques in Hand:', summary.gcecPdc]);
       addRow(['Customers Post Dated Cheques in Hand:', summary.customerPdc]);
       addRow(['Sales Invoice amount paid against GCEC Purchase Bills:', summary.purchaseBills]);
@@ -460,12 +520,7 @@ export default function ViewAllTranstion() {
         typeTransactions.forEach((transaction) => {
           if (type === 'Daily Transaction') {
             const txn = transaction as DailyTransaction;
-            const formetpaymentType =
-              txn.paymentType === 'cheque'
-                ? txn.chequeNumber
-                : txn.paymentType === 'creditcard'
-                ? 'Credit Card'
-                : txn.paymentType;
+            const formetpaymentType = getDailyPaymentTypeDisplay(txn);
 
             const debitValue = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
             const creditValue = txn.credit ? parseFloat(String(txn.credit).replace(/,/g, '')) : 0;
@@ -490,12 +545,19 @@ export default function ViewAllTranstion() {
             row.getCell(5).numFmt = '#,##0.00'; // Credit
             row.getCell(6).numFmt = '#,##0.00'; // Balance
 
-            // If there's a debit amount, make all text in the row red
+            // Debit column should always be red in exports.
+            row.getCell(4).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+            // If row has debit, Date/Description/Details should also be red.
             if (debitValue > 0) {
-              row.eachCell((cell) => {
-                cell.font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
-              });
+              row.getCell(1).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+              row.getCell(2).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+              row.getCell(3).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
             }
+            // Balance should be blue, but red when negative.
+            row.getCell(6).font = excelExportFont({
+              bold: true,
+              color: { argb: balanceValue < 0 ? 'FFFF0000' : 'FF0003EB' },
+            }) as ExcelJS.Font;
 
             // Apply background color if bounced/returned cheque
             if (isBouncedOrReturned) {
@@ -594,7 +656,7 @@ export default function ViewAllTranstion() {
     link.download = fileName;
     link.click();
     window.URL.revokeObjectURL(url);
-  }, [transactions, groupedTransactions, summary, startDate, endDate]);
+  }, [filteredTransactions, groupedTransactions, summary, startDate, endDate]);
 
   // Render transaction row based on type
   const renderTransactionRow = (transaction: AllTransaction) => {
@@ -602,6 +664,8 @@ export default function ViewAllTranstion() {
       const txn = transaction as DailyTransaction;
       const bounceHighlight = isBouncedChequeRemarks(txn.remarks);
       const gcecPdcHighlight = rowIsGcecPdcHighlight(txn.remarks, dailyTxnPdcType(txn));
+      const debitAmount = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
+      const hasDebit = !Number.isNaN(debitAmount) && debitAmount > 0;
       return (
         <TableRow
           key={txn.id}
@@ -613,28 +677,38 @@ export default function ViewAllTranstion() {
               : 'hover:bg-blue-50'
           }`}
         >
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{txn.category}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">
+          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4`}>
+            {formatIsoDateDisplay(txn.date)}
+          </TableCell>
+          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4`}>
+            {txn.category}
+          </TableCell>
+          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-600'} text-sm py-2 px-4`}>
             {getDailyPaymentTypeDisplay(txn)}
           </TableCell>
 
-          <TableCell className="text-sm py-3 px-4">
-            {txn.debit ? (
+          <TableCell className="text-sm py-2 px-4">
+            {hasDebit ? (
               <span className="text-red-600">AED{formatAmount(txn.debit)}</span>
             ) : (
-              <span className="text-black">AED 0.00</span>
+              <span className="text-red-600">AED 0.00</span>
             )}
           </TableCell>
-          <TableCell className="text-sm py-3 px-4">
+          <TableCell className="text-sm py-2 px-4">
             {txn.credit ? (
               <span className="text-black">AED{formatAmount(txn.credit)}</span>
             ) : (
               <span className="text-black">AED 0.00</span>
             )}
           </TableCell>
-          <TableCell className="text-gray-700 font-semibold text-sm py-3 px-4">AED{formatAmount(txn.balance)}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">
+          <TableCell className="font-semibold text-sm py-2 px-4">
+            {(() => {
+              const balanceAmount = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
+              const balanceClass = balanceAmount < 0 ? 'text-red-600' : 'text-[#0003eb]';
+              return <span className={balanceClass}>AED{formatAmount(txn.balance)}</span>;
+            })()}
+          </TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">
             {remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn)) || ''}
           </TableCell>
         </TableRow>
@@ -643,55 +717,55 @@ export default function ViewAllTranstion() {
       const txn = transaction as GCECPDC;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
-          <TableCell className="text-red-600 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.customerName}</TableCell>
-          <TableCell className="text-red-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
-          <TableCell className="text-sm py-3 px-4">
-            <span className="text-black">AED 0.00</span>
+          <TableCell className="text-red-600 text-sm py-2 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
+          <TableCell className="text-red-600 text-sm py-2 px-4">{txn.customerName}</TableCell>
+          <TableCell className="text-red-600 text-sm py-2 px-4">-</TableCell>
+          <TableCell className="text-red-600 text-sm py-2 px-4">{txn.chequeNumber}</TableCell>
+          <TableCell className="text-sm py-2 px-4">
+            <span className="text-red-600">AED 0.00</span>
           </TableCell>
-          <TableCell className="text-sm py-3 px-4">
+          <TableCell className="text-sm py-2 px-4">
             <span className="text-red-600">AED{formatAmount(txn.amount)}</span>
           </TableCell>
-          <TableCell className="text-red-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-red-600 text-sm py-3 px-4">{txn.description || ''}</TableCell>
+          <TableCell className="text-red-600 text-sm py-2 px-4">-</TableCell>
+          <TableCell className="text-red-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Customer PDC') {
       const txn = transaction as CustomerPDC;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{txn.customerName}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.chequeNumber}</TableCell>
-          <TableCell className="text-sm py-3 px-4">
-            <span className="text-black">AED 0.00</span>
+          <TableCell className="text-gray-700 text-sm py-2 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-2 px-4">{txn.customerName}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.chequeNumber}</TableCell>
+          <TableCell className="text-sm py-2 px-4">
+            <span className="text-red-600">AED 0.00</span>
           </TableCell>
-          <TableCell className="text-sm py-3 px-4">
+          <TableCell className="text-sm py-2 px-4">
             <span className=" text-black">AED{formatAmount(txn.amount)}</span>
           </TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || ''}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Purchase Bill') {
       const txn = transaction as PurchaseBill;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
-          <TableCell className="text-gray-700 text-sm py-3 px-4">{txn.vendorName}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.paymentMethod}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.invoiceNumber || '-'}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-2 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-2 px-4">{txn.vendorName}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.paymentMethod}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.invoiceNumber || '-'}</TableCell>
          
-          <TableCell className="text-sm py-3 px-4">
-            <span className="text-black">AED 0.00</span>
+          <TableCell className="text-sm py-2 px-4">
+            <span className="text-red-600">AED 0.00</span>
           </TableCell>
-          <TableCell className="text-sm py-3 px-4">
+          <TableCell className="text-sm py-2 px-4">
             <span className="text-black">AED{formatAmount(txn.amount)}</span>
           </TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-3 px-4">{txn.description || ''}</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
         </TableRow>
       );
     }
@@ -717,7 +791,7 @@ export default function ViewAllTranstion() {
 
               <button
                 onClick={handleDownloadExcel}
-                disabled={transactions.length === 0 || loading}
+                disabled={filteredTransactions.length === 0 || loading}
                 className="flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="w-5 h-5" />
@@ -755,6 +829,24 @@ export default function ViewAllTranstion() {
                     className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                   />
                 </div>
+                <div className="flex-1 min-w-[260px]">
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Other Transactions
+                  </label>
+                  <select
+                    value={otherTransactionFilter}
+                    onChange={(e) =>
+                      setOtherTransactionFilter(e.target.value as OtherTransactionFilterOption)
+                    }
+                    className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl focus:border-blue-500 focus:outline-none transition-colors bg-white"
+                  >
+                    {OTHER_TRANSACTION_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <button
                   onClick={clearFilters}
@@ -772,7 +864,7 @@ export default function ViewAllTranstion() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
-              <p className="text-sm font-medium text-blue-700 mb-2">Daily Transactions</p>
+              <p className="text-sm font-medium text-blue-700 mb-2">daily transtion detail</p>
               <p className="text-3xl font-bold text-blue-900">{summary.dailyTransactions}</p>
             </CardContent>
           </Card>
@@ -807,7 +899,7 @@ export default function ViewAllTranstion() {
                 <p className="text-base text-gray-500">Loading transactions...</p>
               </div>
             </div>
-          ) : transactions.length === 0 ? (
+          ) : filteredTransactions.length === 0 ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <p className="text-lg font-medium text-gray-500 mb-2">No transactions found</p>
@@ -820,16 +912,16 @@ export default function ViewAllTranstion() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-[#f1f5f9] border-0">
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Date</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Date</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">
                         Description
                       </TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Details</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Details</TableHead>
 
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Debit</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Credit</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Balance</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Remarks</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Debit</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Credit</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Balance</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Remarks</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

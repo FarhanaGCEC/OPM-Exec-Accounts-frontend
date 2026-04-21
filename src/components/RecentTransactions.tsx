@@ -64,7 +64,7 @@ const TransactionRowMobile = ({ transaction }: { transaction: Transaction }) => 
             className={`font-semibold text-sm ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
               }`}
           >
-            {transaction.amount} AED
+            AED {transaction.amount}
           </p>
         </div>
         <StatusBadge status={transaction.status} />
@@ -90,7 +90,7 @@ const TransactionTableRow = ({ transaction }: { transaction: Transaction }) => {
         className={`font-semibold text-xs py-2 ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
           }`}
       >
-        {transaction.amount} AED
+        AED {transaction.amount}
       </TableCell>
       <TableCell className="py-2">
         <StatusBadge status={transaction.status} />

@@ -4,7 +4,7 @@
  */
 export const SIDEBAR_MENU_ITEMS = [
   { key: 'dashboard', label: 'Dashboard' },
-  { key: 'daily_transactions', label: 'Daily Transactions' },
+  { key: 'daily_transactions', label: 'Daily Transactions Details' },
   { key: 'post_dated_cheques', label: 'Post-Dated Cheques' },
   { key: 'creditors_list', label: 'Creditors List' },
   { key: 'debtors_list', label: 'Debtors List' },

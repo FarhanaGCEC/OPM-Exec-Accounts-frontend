@@ -190,10 +190,29 @@ export default function FkEmrits() {
   const formatDate = (dateString: string): string => {
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      if (Number.isNaN(date.getTime())) return dateString;
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = date.toLocaleString('en-US', { month: 'short' });
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
     } catch {
       return dateString;
     }
+  };
+
+  const parseDateForSort = (dateString: string): Date | null => {
+    const parsed = new Date(dateString);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+
+    const parts = String(dateString).split('/');
+    if (parts.length === 3) {
+      const day = Number(parts[0]);
+      const month = Number(parts[1]) - 1;
+      const year = Number(parts[2]);
+      const fallback = new Date(year, month, day);
+      if (!Number.isNaN(fallback.getTime())) return fallback;
+    }
+    return null;
   };
 
   // Filter transactions by selected currency first, then by search text
@@ -202,14 +221,26 @@ export default function FkEmrits() {
     let currencyFiltered = allTransactions.filter((txn: FkEmritsTransaction) => txn.currency === selectedCurrency);
     
     // Then filter by search text if provided
-    if (!filterText.trim()) return currencyFiltered;
-    
-    const searchLower = filterText.toLowerCase();
-    return currencyFiltered.filter((txn: FkEmritsTransaction) => {
-      const description = (txn.description || '').toLowerCase();
-      const details = (txn.details || '').toLowerCase();
-      const date = formatDate(txn.date).toLowerCase();
-      return description.includes(searchLower) || details.includes(searchLower) || date.includes(searchLower);
+    if (filterText.trim()) {
+      const searchLower = filterText.toLowerCase();
+      currencyFiltered = currencyFiltered.filter((txn: FkEmritsTransaction) => {
+        const description = (txn.description || '').toLowerCase();
+        const details = (txn.details || '').toLowerCase();
+        const date = formatDate(txn.date).toLowerCase();
+        return description.includes(searchLower) || details.includes(searchLower) || date.includes(searchLower);
+      });
+    }
+
+    // Always show newest first in table view.
+    return [...currencyFiltered].sort((a, b) => {
+      const aDate = parseDateForSort(a.date);
+      const bDate = parseDateForSort(b.date);
+      if (!aDate && !bDate) return Number(b.id || 0) - Number(a.id || 0);
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      const byDate = bDate.getTime() - aDate.getTime();
+      if (byDate !== 0) return byDate;
+      return Number(b.id || 0) - Number(a.id || 0);
     });
   }, [allTransactions, selectedCurrency, filterText]);
 

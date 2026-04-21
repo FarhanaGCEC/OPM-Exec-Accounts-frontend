@@ -441,14 +441,14 @@ export default function CreditCardDetails() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-8">
+                                        <TableCell colSpan={6} className="text-center py-4">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                             <p className="text-sm text-gray-500">Loading credit card details...</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-8">
+                                        <TableCell colSpan={6} className="text-center py-4">
                                             <p className="text-sm text-gray-500 mb-1">No credit card details found.</p>
                                             <p className="text-sm text-gray-400">Click "Add New" to add your first credit card.</p>
                                         </TableCell>
@@ -464,7 +464,7 @@ export default function CreditCardDetails() {
                                     if (filteredCards.length === 0) {
                                         return (
                                             <TableRow>
-                                                <TableCell colSpan={6} className="text-center py-8">
+                                                <TableCell colSpan={6} className="text-center py-4">
                                                     <p className="text-sm text-gray-500 mb-1">
                                                         No {statusFilter === 'active' ? 'active' : 'deactive'} credit cards found.
                                                     </p>

@@ -1,144 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { Card, CardContent } from '../components/ui/card';
 import Layout from '../components/Layout';
-import { transactionService, type AccountSummary, type PostDatedCheque } from '../services/transactionService';
+import { transactionService, type AccountSummary } from '../services/transactionService';
 import type { ApiResponse } from '../lib/api';
 import ViewAllTranstion from './ViewAllTranstion';
-import { formatIsoDateDisplay } from '../lib/formatDisplayDate';
-import { Loader2 } from 'lucide-react';
 
 const formatAmount = (value: number | string | undefined): string => {
   const numValue = typeof value === 'number' ? value : parseFloat(String(value || 0));
   return numValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
-function pdcAmount(c: PostDatedCheque): string {
-  if (typeof c.amount === 'number') return formatAmount(c.amount);
-  const n = parseFloat(String(c.amount).replace(/,/g, ''));
-  return formatAmount(isNaN(n) ? 0 : n);
-}
-
-function parseChequeDate(value: string): Date | null {
-  const d = new Date(value);
-  if (!isNaN(d.getTime())) return d;
-
-  // Fallback for dd/mm/yyyy values.
-  const parts = value.split('/');
-  if (parts.length === 3) {
-    const day = Number(parts[0]);
-    const month = Number(parts[1]) - 1;
-    const year = Number(parts[2]);
-    const parsed = new Date(year, month, day);
-    if (!isNaN(parsed.getTime())) return parsed;
-  }
-
-  return null;
-}
-
-function isDueWithinNextMonth(chequeDate: string): boolean {
-  const dueDate = parseChequeDate(chequeDate);
-  if (!dueDate) return false;
-
-  const today = new Date();
-  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const endDate = new Date(startOfToday);
-  endDate.setMonth(endDate.getMonth() + 1);
-
-  const due = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
-  return due >= startOfToday && due <= endDate;
-}
-
-function sortByChequeDateDesc(items: PostDatedCheque[]): PostDatedCheque[] {
-  return [...items].sort((a, b) => {
-    const aDate = parseChequeDate(a.chequeDate);
-    const bDate = parseChequeDate(b.chequeDate);
-
-    if (!aDate && !bDate) return 0;
-    if (!aDate) return 1;
-    if (!bDate) return -1;
-
-    return bDate.getTime() - aDate.getTime();
-  });
-}
-
-function DashboardPdcList({
-  title,
-  items,
-  loading,
-  viewAllTo,
-  partyKind,
-}: {
-  title: string;
-  items: PostDatedCheque[];
-  loading: boolean;
-  viewAllTo: string;
-  /** GCEC issued PDC: creditor; customer PDC in hand: debtor */
-  partyKind?: 'creditor' | 'debtor';
-}) {
-  return (
-    <Card className="bg-white border border-gray-200 flex-1 flex flex-col min-h-0 max-h-[260px] overflow-hidden shadow-sm">
-      <div className="bg-[#f7c46d] px-4 py-3 shrink-0 border-b border-[#c9a82f]/30">
-        <h3 className="text-lg font-semibold text-black">{title}</h3>
-      </div>
-      <CardContent className="p-0 flex-1 overflow-y-auto min-h-0 custom-scrollbar">
-        {loading ? (
-          <div className="flex items-center justify-center py-16 gap-2 text-gray-600">
-            <Loader2 className="w-6 h-6 animate-spin" />
-            <span className="text-sm">Loading…</span>
-          </div>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-10 px-4">No cheques in this category.</p>
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {items.map((c) => (
-              <li key={String(c.id)} className="px-4 py-3 hover:bg-gray-50/80 transition-colors">
-                <div className="flex justify-between items-start gap-2">
-                  <div className="min-w-0">
-                    <p className="text-base font-semibold text-gray-900 truncate">
-                      {c.chequeNumber}
-                      {c.chequeType === 'Security Cheque' && (
-                        <span className="ml-2 text-xs font-normal text-red-600">(Security)</span>
-                      )}
-                    </p>
-                    <p className="text-sm text-gray-600 truncate mt-0.5">
-                      {partyKind === 'creditor' && (
-                        <span className="text-black">Payee: </span>
-                      )}
-                      {partyKind === 'debtor' && (
-                        <span className="text-black">Customer Name: </span>
-                      )}
-                      {c.customerName || '—'}
-                    </p>
-                    <p className="text-sm text-black mt-1">
-                      Due {formatIsoDateDisplay(c.chequeDate)}
-                    </p>
-                  </div>
-                  <p className="text-sm font-semibold text-gray-900 shrink-0">AED {pdcAmount(c)}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-      <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50 shrink-0">
-        <Link
-          to={viewAllTo}
-          className="text-sm font-medium text-[#b08f2c] hover:text-black hover:underline"
-        >
-          View all →
-        </Link>
-      </div>
-    </Card>
-  );
-}
-
 export default function Dashboard() {
   const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
-  const [customerPdcs, setCustomerPdcs] = useState<PostDatedCheque[]>([]);
-  const [gcecPdcs, setGcecPdcs] = useState<PostDatedCheque[]>([]);
-  const [loadingPdc, setLoadingPdc] = useState(true);
 
   const fetchAccountSummary = useCallback(async () => {
     try {
@@ -158,48 +32,39 @@ export default function Dashboard() {
     }
   }, []);
 
-  const fetchPdcSplit = useCallback(async () => {
-    try {
-      setLoadingPdc(true);
-      const res = await transactionService.getPostDatedCheques();
-      if (res.success && res.data) {
-        const list = res.data.filter(
-          (c) => c.pdcType !== 'Custom PDC' && isDueWithinNextMonth(c.chequeDate)
-        );
-        setCustomerPdcs(sortByChequeDateDesc(list.filter((c) => c.pdcType === 'Customer PDC')));
-        setGcecPdcs(sortByChequeDateDesc(list.filter((c) => c.pdcType === 'GCEC PDC')));
-      } else {
-        setCustomerPdcs([]);
-        setGcecPdcs([]);
-      }
-    } catch (err) {
-      console.error('[Dashboard] Error fetching PDC lists:', err);
-      setCustomerPdcs([]);
-      setGcecPdcs([]);
-    } finally {
-      setLoadingPdc(false);
-    }
-  }, []);
-
   useEffect(() => {
     fetchAccountSummary();
-    fetchPdcSplit();
-  }, [fetchAccountSummary, fetchPdcSplit]);
+  }, [fetchAccountSummary]);
+
+  const totalDebitValue =
+    typeof accountSummary?.totalDebit === 'number'
+      ? accountSummary.totalDebit
+      : parseFloat(String(accountSummary?.totalDebit || 0));
+  const totalCreditValue =
+    typeof accountSummary?.totalCredit === 'number'
+      ? accountSummary.totalCredit
+      : parseFloat(String(accountSummary?.totalCredit || 0));
+  const currentBalanceValue = totalCreditValue - totalDebitValue;
+  const pendingHoldAmount =
+    typeof accountSummary?.pendingChecks?.totalAmount === 'number'
+      ? accountSummary.pendingChecks.totalAmount
+      : parseFloat(String(accountSummary?.pendingChecks?.totalAmount || 0));
+  const availableBalanceValue = currentBalanceValue - pendingHoldAmount;
 
   return (
     <Layout>
       <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
         <div className="flex items-center gap-4 ml-16">
           <h2 className="text-2xl font-bold text-gray-900">
-            Daily Transaction
+            Daily Transactions Summary
           </h2>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 m-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 m-8">
         {loadingSummary ? (
           <>
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3, 4].map((i) => (
               <Card key={i} className="bg-white border border-gray-200">
                 <CardContent className="p-6">
                   <div className="flex flex-col items-center justify-center text-center h-32">
@@ -219,10 +84,9 @@ export default function Dashboard() {
                 <div className="flex flex-col items-center justify-center text-center">
                   <p className="text-base font-medium text-gray-600 mb-3">Total Debit</p>
                   <div className="flex items-baseline space-x-2">
-                    <p className="text-3xl font-bold text-gray-900">
-                      {formatAmount(accountSummary.totalDebit)}
+                    <p className="text-2xl font-bold text-gray-900">
+                      AED {formatAmount(totalDebitValue)}
                     </p>
-                    <span className="text-xl font-semibold text-gray-900">AED</span>
                   </div>
                 </div>
               </CardContent>
@@ -233,10 +97,9 @@ export default function Dashboard() {
                 <div className="flex flex-col items-center justify-center text-center">
                   <p className="text-base font-medium text-gray-600 mb-3">Total Credit</p>
                   <div className="flex items-baseline space-x-2">
-                    <p className="text-3xl font-bold text-gray-900">
-                      {formatAmount(accountSummary.totalCredit)}
+                    <p className="text-2xl font-bold text-gray-900">
+                      AED {formatAmount(totalCreditValue)}
                     </p>
-                    <span className="text-xl font-semibold text-gray-900">AED</span>
                   </div>
                 </div>
               </CardContent>
@@ -246,54 +109,35 @@ export default function Dashboard() {
                 <div className="flex flex-col items-center justify-center text-center">
                   <p className="text-base font-medium text-gray-600 mb-3">Current Balance</p>
                   <div className="flex items-baseline space-x-2">
-                    {(() => {
-                      const balanceValue =
-                        typeof accountSummary.totalBalance === 'number'
-                          ? accountSummary.totalBalance
-                          : parseFloat(String(accountSummary.totalBalance || 0));
-                      const isNegative = balanceValue < 0;
-                      return (
-                        <>
-                          <p
-                            className={`text-3xl font-bold ${isNegative ? 'text-red-600' : 'text-gray-900'}`}
-                          >
-                            {formatAmount(accountSummary.totalBalance)}
-                          </p>
-                          <span
-                            className={`text-xl font-semibold ${isNegative ? 'text-red-600' : 'text-gray-900'}`}
-                          >
-                            AED
-                          </span>
-                        </>
-                      );
-                    })()}
+                    <p
+                      className={`text-2xl font-bold ${currentBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
+                    >
+                      AED {formatAmount(currentBalanceValue)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
+              <CardContent className="p-6">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <p className="text-base font-medium text-gray-600 mb-3">Available Balance</p>
+                  <div className="flex items-baseline space-x-2">
+                    <p
+                      className={`text-2xl font-bold ${availableBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
+                    >
+                      AED {formatAmount(availableBalanceValue)}
+                    </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </>
         ) : (
-          <div className="col-span-1 md:col-span-2 lg:col-span-3 text-center py-8">
+          <div className="col-span-1 md:col-span-2 lg:col-span-4 text-center py-8">
             <p className="text-base text-gray-500">Failed to load account summary</p>
           </div>
         )}
-      </div>
-
-      <div className="flex flex-col md:flex-row gap-6 m-8">
-        <DashboardPdcList
-          title="Customer PDC in hand"
-          items={customerPdcs}
-          loading={loadingPdc}
-          viewAllTo="/customer-pdc"
-          partyKind="debtor"
-        />
-        <DashboardPdcList
-          title="GCEC Issued PDC"
-          items={gcecPdcs}
-          loading={loadingPdc}
-          viewAllTo="/gcec-pdc"
-          partyKind="creditor"
-        />
       </div>
 
       <ViewAllTranstion />

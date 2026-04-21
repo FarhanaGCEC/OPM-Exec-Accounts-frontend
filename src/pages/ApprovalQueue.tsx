@@ -175,31 +175,31 @@ export default function ApprovalQueue() {
               <table className="w-full caption-bottom text-base border rounded-lg">
                 <thead className="sticky top-0 z-20 bg-[#f7c46d] shadow-sm">
                   <tr className="bg-[#f7c46d] border-0">
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       ID
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       User
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Action
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Resource
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Status
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Payload
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       User note
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Created
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-3 align-middle w-[140px]">
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle w-[140px]">
                       Actions
                     </th>
                   </tr>
@@ -207,14 +207,14 @@ export default function ApprovalQueue() {
                 <tbody className="[&_tr:last-child]:border-0">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-8 p-2 align-middle">
+                      <td colSpan={9} className="text-center py-4 px-4 align-middle">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                         <p className="text-sm text-gray-500">Loading requests...</p>
                       </td>
                     </tr>
                   ) : rows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-8 p-2 align-middle">
+                      <td colSpan={9} className="text-center py-4 px-4 align-middle">
                         <p className="text-sm text-gray-500">No requests in this view.</p>
                       </td>
                     </tr>
@@ -230,23 +230,23 @@ export default function ApprovalQueue() {
                           key={String(r.id)}
                           className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                         >
-                          <td className="p-3 align-middle text-sm font-mono text-gray-800">
+                          <td className="px-4 py-2 align-middle text-sm font-mono text-gray-800">
                             {String(r.id)}
                           </td>
-                          <td className="p-3 align-middle text-sm text-gray-800">
+                          <td className="px-4 py-2 align-middle text-sm text-gray-800">
                             {r.requesterUsername ??
                               (r.requesterId != null ? `#${r.requesterId}` : '—')}
                           </td>
-                          <td className="p-3 align-middle text-sm capitalize text-gray-800">
+                          <td className="px-4 py-2 align-middle text-sm capitalize text-gray-800">
                             {r.action}
                           </td>
-                          <td className="p-3 align-middle text-sm text-gray-800">
+                          <td className="px-4 py-2 align-middle text-sm text-gray-800">
                             <span className="font-medium text-gray-900">{r.resourceType}</span>
                             {r.resourceId != null && r.resourceId !== '' && (
                               <span className="text-gray-600"> #{r.resourceId}</span>
                             )}
                           </td>
-                          <td className="p-3 align-middle text-sm">
+                          <td className="px-4 py-2 align-middle text-sm">
                             <span
                               className={`inline-flex px-2 py-0.5 rounded-md text-xs font-medium ${statusClass(r.status)}`}
                             >
@@ -254,21 +254,21 @@ export default function ApprovalQueue() {
                             </span>
                           </td>
                           <td
-                            className="p-3 align-middle text-xs font-mono text-gray-700 max-w-[200px] truncate"
+                            className="px-4 py-2 align-middle text-xs font-mono text-gray-700 max-w-[200px] truncate"
                             title={payloadStr}
                           >
                             {payloadStr}
                           </td>
                           <td
-                            className="p-3 align-middle text-sm text-gray-700 max-w-[140px] truncate"
+                            className="px-4 py-2 align-middle text-sm text-gray-700 max-w-[140px] truncate"
                             title={r.note ?? ''}
                           >
                             {r.note || '—'}
                           </td>
-                          <td className="p-3 align-middle text-sm text-gray-700 whitespace-nowrap">
+                          <td className="px-4 py-2 align-middle text-sm text-gray-700 whitespace-nowrap">
                             {formatIsoDateTimeDisplay(r.createdAt)}
                           </td>
-                          <td className="p-3 align-middle">
+                          <td className="px-4 py-2 align-middle">
                             {pending ? (
                               <div className="flex flex-wrap gap-1.5">
                                 <Button

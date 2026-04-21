@@ -459,7 +459,7 @@ export default function CreditCardPaymentsPage() {
         const excelData: any[] = [];
 
         // Add company header
-        excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE']);
+        excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE L.L.C']);
         excelData.push([]);
         excelData.push(['Credit Card Payments Report']);
         excelData.push([]);
@@ -654,14 +654,14 @@ export default function CreditCardPaymentsPage() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={10} className="text-center py-8">
+                                        <TableCell colSpan={10} className="text-center py-4">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                             <p className="text-sm text-gray-500">Loading credit card payments...</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : !Array.isArray(sortedCreditCards) || sortedCreditCards.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={10} className="text-center py-8">
+                                        <TableCell colSpan={10} className="text-center py-4">
                                             <p className="text-sm text-gray-500 mb-1">No credit card payments</p>
 
                                         </TableCell>

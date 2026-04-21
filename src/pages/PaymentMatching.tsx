@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, FileSpreadsheet } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, FileSpreadsheet, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   applyXlsxArialToWorkbook,
@@ -148,6 +148,7 @@ export default function PaymentMatching() {
   const [purchaseBillApproval, setPurchaseBillApproval] = useState<PurchaseBillApprovalOffer | null>(null);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [customerOptions, setCustomerOptions] = useState<string[]>([]);
+  const [filterText, setFilterText] = useState('');
 
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema),
@@ -514,8 +515,23 @@ export default function PaymentMatching() {
     }
   }, [deletingPaymentId]);
 
+  const filteredPayments = useMemo(
+    () =>
+      payments.filter((payment) => {
+        if (filterText.trim()) {
+          const needle = filterText.toLowerCase().trim();
+          const haystack =
+            `${payment.customerName} ${payment.invoiceNumber || ''} ${payment.paymentMethod} ${payment.date || payment.paymentDate}`
+              .toLowerCase();
+          if (!haystack.includes(needle)) return false;
+        }
+        return true;
+      }),
+    [payments, filterText]
+  );
+
   const handleDownloadExcel = useCallback(() => {
-    if (payments.length === 0) return;
+    if (filteredPayments.length === 0) return;
 
     // Create a new workbook
     const workbook = XLSX.utils.book_new();
@@ -524,7 +540,7 @@ export default function PaymentMatching() {
     const excelData: any[] = [];
 
     // Add company header
-    excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE']);
+    excelData.push(['GCEC CLOUD SECURITY & SURVEILLANCE L.L.C']);
     excelData.push([]);
     excelData.push(['Sales Invoice amount paid against GCEC Purchase Bills']);
     excelData.push([]);
@@ -534,7 +550,7 @@ export default function PaymentMatching() {
     excelData.push(['Payment Date', 'Invoice Number', 'Customer Name', 'Payment Method', 'Amount (AED)']);
 
     // Sort payments by date (oldest first) for better readability in Excel
-    const sortedPayments = [...payments].sort((a, b) => {
+    const sortedPayments = [...filteredPayments].sort((a, b) => {
       const parseDate = (payment: PaymentMatching): Date | null => {
         if (payment.date) {
           const parts = payment.date.split('-');
@@ -676,7 +692,7 @@ export default function PaymentMatching() {
     // Generate Excel file and download
     applyXlsxArialToWorkbook(workbook);
     XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
-  }, [payments]);
+  }, [filteredPayments]);
 
   const handleModalClose = useCallback((open: boolean) => {
     setIsModalOpen(open);
@@ -700,7 +716,7 @@ export default function PaymentMatching() {
     return payment ? `${payment.customerName} - ${payment.date || payment.paymentDate}` : '';
   }, [deletingPaymentId, payments]);
 
-  const totalAmount = payments.reduce((sum, payment) => {
+  const totalAmount = filteredPayments.reduce((sum, payment) => {
     if (typeof payment.amount === 'number') {
       return sum + payment.amount;
     }
@@ -728,7 +744,7 @@ export default function PaymentMatching() {
               onClick={handleDownloadExcel}
               variant="outline"
               className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
-              disabled={loading || payments.length === 0}
+              disabled={loading || filteredPayments.length === 0}
             >
               <FileSpreadsheet className="w-4 h-4" />
               <span>Download Excel</span>
@@ -755,6 +771,27 @@ export default function PaymentMatching() {
           <p className="text-base text-red-600">{error}</p>
         </div>
       )}
+
+      <div className="mb-4 px-8">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              type="text"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              placeholder="Filter by customer, invoice, payment method, or date..."
+              className="pl-10"
+            />
+          </div>
+          <Card className="border border-gray-200 shadow-sm md:min-w-[240px]">
+            <CardContent className="py-3 px-4">
+              <p className="text-xs text-gray-500">Total Amount</p>
+              <p className="text-lg font-bold text-black">{formattedTotalAmount}</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
       {/* Payments Table */}
       <Card className="bg-white border border-gray-200 shadow-sm m-8">
@@ -783,21 +820,21 @@ export default function PaymentMatching() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
+                    <TableCell colSpan={5} className="text-center py-4">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                       <p className="text-sm text-gray-500">Loading payments...</p>
                     </TableCell>
                   </TableRow>
-                ) : !Array.isArray(payments) || payments.length === 0 ? (
+                ) : !Array.isArray(filteredPayments) || filteredPayments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
+                    <TableCell colSpan={5} className="text-center py-4">
                       <p className="text-sm text-gray-500 mb-1">No payments found.</p>
-                      <p className="text-sm text-gray-400">Click "Add New" to create your first payment.</p>
+                      <p className="text-sm text-gray-400">Try adjusting your filters.</p>
                     </TableCell>
                   </TableRow>
                 ) : (
                   <>
-                    {payments.map((payment) => (
+                    {filteredPayments.map((payment) => (
                       <TableRow
                         key={payment.id}
                         className="border-b border-gray-100 hover:bg-gray-50"
@@ -842,15 +879,6 @@ export default function PaymentMatching() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                      <TableCell colSpan={3} className="text-right font-bold text-gray-900 py-2">
-                        Total
-                      </TableCell>
-                      <TableCell className="font-bold text-gray-900 text-sm py-2 text-left">
-                        {formattedTotalAmount}
-                      </TableCell>
-                      <TableCell />
-                    </TableRow>
                   </>
                 )}
               </TableBody>

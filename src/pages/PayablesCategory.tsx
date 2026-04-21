@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -80,6 +80,7 @@ export default function PayablesCategory() {
     const [approvalNoteDraft, setApprovalNoteDraft] = useState('');
     const [approvalSubmitting, setApprovalSubmitting] = useState(false);
     const [bulkImportOpen, setBulkImportOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const form = useForm<CategoryFormData>({
         resolver: zodResolver(categorySchema),
@@ -356,6 +357,23 @@ export default function PayablesCategory() {
         return category?.name || '';
     }, [deletingCategoryId, categories]);
 
+    const sortedCategories = useMemo(
+        () =>
+            [...categories].sort((a, b) =>
+                (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+            ),
+        [categories]
+    );
+
+    const filteredSortedCategories = useMemo(() => {
+        const normalizedSearch = searchTerm.trim().toLowerCase();
+        if (!normalizedSearch) return sortedCategories;
+
+        return sortedCategories.filter((category) =>
+            (category.name || '').toLowerCase().includes(normalizedSearch)
+        );
+    }, [searchTerm, sortedCategories]);
+
     const handleDownloadExcel = useCallback(() => {
         if (categories.length === 0) {
             setError('No data to export');
@@ -376,7 +394,7 @@ export default function PayablesCategory() {
         excelData.push(['Name']);
 
         // Add category rows
-        categories.forEach((category) => {
+        sortedCategories.forEach((category) => {
             excelData.push([category.name || '']);
         });
 
@@ -406,7 +424,7 @@ export default function PayablesCategory() {
         const fileName = `Debtors-List-${new Date().toISOString().split('T')[0]}.xlsx`;
         applyXlsxArialToWorkbook(workbook);
         XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
-    }, [categories]);
+    }, [sortedCategories]);
 
     return (
         <Layout>
@@ -456,6 +474,16 @@ export default function PayablesCategory() {
                 </div>
             )}
 
+            <div className="mx-8 mb-4">
+                <Input
+                    type="text"
+                    placeholder="Search debtors..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full md:max-w-md"
+                />
+            </div>
+
             <Card className="bg-white border border-gray-200 shadow-sm m-8">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -473,20 +501,26 @@ export default function PayablesCategory() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={2} className="text-center py-8">
+                                        <TableCell colSpan={2} className="text-center py-4">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                             <p className="text-md text-gray-500">Loading categories...</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : !Array.isArray(categories) || categories.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={2} className="text-center py-8">
+                                        <TableCell colSpan={2} className="text-center py-4">
                                             <p className="text-md text-gray-500 mb-1">No categories found.</p>
                                             <p className="text-md text-gray-400">Click "Add New Category" to create your first category.</p>
                                         </TableCell>
                                     </TableRow>
+                                ) : filteredSortedCategories.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={2} className="text-center py-4">
+                                            <p className="text-md text-gray-500">No matching debtors found.</p>
+                                        </TableCell>
+                                    </TableRow>
                                 ) : (
-                                    categories.map((category) => (
+                                    filteredSortedCategories.map((category) => (
                                         <TableRow
                                             key={category.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"

@@ -1026,7 +1026,7 @@ export default function CreditCardStatements() {
                                             <TableBody>
                                                 {statements.length === 0 ? (
                                                     <TableRow>
-                                                        <TableCell colSpan={12} className="text-center py-8">
+                                                        <TableCell colSpan={12} className="text-center py-4">
                                                             <p className="text-sm text-gray-500">No statements found for {monthName} {year}.</p>
                                                         </TableCell>
                                                     </TableRow>
@@ -1262,14 +1262,14 @@ export default function CreditCardStatements() {
                                 <TableBody>
                                     {loading ? (
                                         <TableRow>
-                                            <TableCell colSpan={12} className="text-center py-8">
+                                            <TableCell colSpan={12} className="text-center py-4">
                                                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                                 <p className="text-sm text-gray-500">Loading credit card statements...</p>
                                             </TableCell>
                                         </TableRow>
                                     ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={12} className="text-center py-8">
+                                            <TableCell colSpan={12} className="text-center py-4">
                                                 <p className="text-sm text-gray-500 mb-1">No credit card statements found for selected period.</p>
                                                 <p className="text-sm text-gray-400">Select a different month/year to view statements.</p>
                                             </TableCell>
