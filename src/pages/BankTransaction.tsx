@@ -262,8 +262,11 @@ function shouldAffectRunningBalance(
   t: BankTransaction,
   clientPendingBottomDup = false
 ): boolean {
-  // Frontend duplicate rows are visual-only; never affect arithmetic.
-  if (clientPendingBottomDup) return false;
+  // Frontend duplicate rows are usually visual-only, except pending GCEC rows
+  // that must show projected balance (current + pending GCEC credits above).
+  if (clientPendingBottomDup) {
+    return isGcecPendingBottomCreditPresentation(t, true);
+  }
 
   // Enforce explicit precedence:
   // 1) GCEC PDC => immediate balance impact
