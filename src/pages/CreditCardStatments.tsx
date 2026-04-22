@@ -225,13 +225,28 @@ export default function CreditCardStatements() {
         return `AED ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
+    const getDisplayAmountPending = (statement: CreditCardStatement): number => {
+        const amountPending = Number(statement.amountPending) || 0;
+        const creditBalance = Number(statement.creditBalance) || 0;
+
+        if (amountPending !== 0) {
+            return amountPending;
+        }
+
+        if (creditBalance !== 0) {
+            return -Math.abs(creditBalance);
+        }
+
+        return 0;
+    };
+
     const getStatementTotals = (statements: CreditCardStatement[]): StatementTotals => {
         return statements.reduce(
             (totals, card) => ({
                 totalPaymentDue: totals.totalPaymentDue + (Number(card.totalPaymentDue) || 0),
                 paid: totals.paid + (Number(card.paid) || 0),
                 epp: totals.epp + (Number(card.epp) || 0),
-                amountPending: totals.amountPending + (Number(card.amountPending) || 0),
+                amountPending: totals.amountPending + getDisplayAmountPending(card),
             }),
             {
                 totalPaymentDue: 0,
@@ -424,6 +439,11 @@ export default function CreditCardStatements() {
                                 responseData.amountPending !== null
                                     ? Number(responseData.amountPending)
                                     : card.amountPending,
+                            creditBalance:
+                                responseData.creditBalance !== undefined &&
+                                responseData.creditBalance !== null
+                                    ? Number(responseData.creditBalance)
+                                    : card.creditBalance,
                             statement_date: responseData.statement_date || card.statement_date,
                             due_date: responseData.due_date || card.due_date,
                             due_month: responseData.due_month || card.due_month,
@@ -500,7 +520,10 @@ export default function CreditCardStatements() {
 
     const handleEditValueChange = (field: 'totalPaymentDue' | 'paid' | 'epp', value: string) => {
         if (!editValues) return;
-        const numValue = parseFloat(value) || 0;
+        const sanitizedValue = value
+            .replace(/[^0-9.]/g, '')
+            .replace(/(\..*)\./g, '$1');
+        const numValue = parseFloat(sanitizedValue) || 0;
         setEditValues({
             ...editValues,
             [field]: numValue,
@@ -656,7 +679,7 @@ export default function CreditCardStatements() {
                             card.totalPaymentDue || 0,
                             card.paid || 0,
                             card.epp || 0,
-                            card.amountPending || 0,
+                            getDisplayAmountPending(card),
                             card.attachmentName || '',
                         ]);
                     });
@@ -762,7 +785,7 @@ export default function CreditCardStatements() {
                     card.totalPaymentDue || 0,
                     card.paid || 0,
                     card.epp || 0,
-                    card.amountPending || 0,
+                    getDisplayAmountPending(card),
                     card.attachmentName || '',
                 ]);
             });
@@ -1059,8 +1082,9 @@ export default function CreditCardStatements() {
                                                                     <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
                                                                         {editingId && String(editingId) === String(card.id) && editValues ? (
                                                                             <input
-                                                                                type="number"
-                                                                                step="0.01"
+                                                                                type="text"
+                                                                                inputMode="decimal"
+                                                                                pattern="[0-9]*[.]?[0-9]*"
                                                                                 value={editValues.totalPaymentDue}
                                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1072,8 +1096,9 @@ export default function CreditCardStatements() {
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                                         {editingId && String(editingId) === String(card.id) && editValues ? (
                                                                             <input
-                                                                                type="number"
-                                                                                step="0.01"
+                                                                                type="text"
+                                                                                inputMode="decimal"
+                                                                                pattern="[0-9]*[.]?[0-9]*"
                                                                                 value={editValues.paid}
                                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1085,8 +1110,9 @@ export default function CreditCardStatements() {
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                                         {editingId && String(editingId) === String(card.id) && editValues ? (
                                                                             <input
-                                                                                type="number"
-                                                                                step="0.01"
+                                                                                type="text"
+                                                                                inputMode="decimal"
+                                                                                pattern="[0-9]*[.]?[0-9]*"
                                                                                 value={editValues.epp}
                                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1096,9 +1122,11 @@ export default function CreditCardStatements() {
                                                                         )}
                                                                     </TableCell>
                                                                     <TableCell className={`text-sm py-2 text-left font-semibold ${
-                                                                        card.amountPending > 0 ? 'text-red-600' : 'text-green-600'
+                                                                        getDisplayAmountPending(card) > 0
+                                                                            ? 'text-red-600'
+                                                                            : 'text-green-600'
                                                                     }`}>
-                                                                        {formatCurrency(card.amountPending)}
+                                                                        {formatCurrency(getDisplayAmountPending(card))}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
                                                                         <StatementAttachmentTableCell
@@ -1304,8 +1332,9 @@ export default function CreditCardStatements() {
                                                     <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
                                                         {editingId && String(editingId) === String(card.id) && editValues ? (
                                                             <input
-                                                                type="number"
-                                                                step="0.01"
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                pattern="[0-9]*[.]?[0-9]*"
                                                                 value={editValues.totalPaymentDue}
                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1317,8 +1346,9 @@ export default function CreditCardStatements() {
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                         {editingId && String(editingId) === String(card.id) && editValues ? (
                                                             <input
-                                                                type="number"
-                                                                step="0.01"
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                pattern="[0-9]*[.]?[0-9]*"
                                                                 value={editValues.paid}
                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1330,8 +1360,9 @@ export default function CreditCardStatements() {
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                         {editingId && String(editingId) === String(card.id) && editValues ? (
                                                             <input
-                                                                type="number"
-                                                                step="0.01"
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                pattern="[0-9]*[.]?[0-9]*"
                                                                 value={editValues.epp}
                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1342,10 +1373,12 @@ export default function CreditCardStatements() {
                                                     </TableCell>
                                                 
                                                     <TableCell className={`text-sm py-2 text-left font-semibold ${
-                                                        card.amountPending > 0 ? 'text-red-600' : 'text-green-600'
+                                                        getDisplayAmountPending(card) > 0
+                                                            ? 'text-red-600'
+                                                            : 'text-green-600'
                                                     }`}>
                                                         {/* amountPending is auto-calculated, so it's read-only */}
-                                                        {formatCurrency(card.amountPending)}
+                                                        {formatCurrency(getDisplayAmountPending(card))}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
                                                         <StatementAttachmentTableCell

@@ -66,6 +66,7 @@ export interface CreditCardStatementApiResponse {
   paid: number;
   epp: number;
   amount_pending: number;
+  credit_balance?: number;
 }
 
 // Internal interface for Credit Card Statements (camelCase for frontend)
@@ -81,6 +82,7 @@ export interface CreditCardStatement {
   paid: number;
   epp: number;
   amountPending: number;
+  creditBalance: number;
   /** Stored attachment filename from API */
   attachmentName?: string | null;
   /** URL or path to open/download the PDF */
@@ -144,7 +146,9 @@ function assertPatchBodyIsStatementRow(statementData: unknown): void {
     o.epp_balance != null ||
     o.eppBalance != null ||
     o.amount_pending != null ||
-    o.amountPending != null;
+    o.amountPending != null ||
+    o.credit_balance != null ||
+    o.creditBalance != null;
   if (hasRowFields) return;
   const msg = String(o.error ?? o.message ?? o.hint ?? '').trim();
   const e = new Error(msg || 'Statement update was not applied.');
@@ -176,6 +180,7 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
     paid: item.paid !== null && item.paid !== undefined ? Number(item.paid) : 0,
     epp: item.epp !== null && item.epp !== undefined ? Number(item.epp) : 0,
     amountPending: item.amount_pending !== null && item.amount_pending !== undefined ? Number(item.amount_pending) : 0,
+    creditBalance: item.credit_balance !== null && item.credit_balance !== undefined ? Number(item.credit_balance) : 0,
     attachmentName: att.attachmentName,
     attachmentUrl: att.attachmentUrl,
   };

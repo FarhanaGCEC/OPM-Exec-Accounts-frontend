@@ -56,7 +56,6 @@ import { receivablesService, type ReceivablesCategory } from '../services/receiv
 import {
   transactionService,
   type BankTransaction as BankTransactionType,
-  normalizePdcTypeFromApi,
 } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import BulkTransactionUploadDialog from '../components/BulkTransactionUploadDialog';
@@ -131,8 +130,40 @@ function isBouncedChequeRemarks(remarks?: string | null): boolean {
 }
 
 /** Customer PDC rows — API `pdcType` or short remark label only (not free-form sentences). */
+function isExplicitCustomerPdcType(pdcType?: string): boolean {
+  if (!pdcType) return false;
+  const s = String(pdcType).toLowerCase().trim().replace(/\s+/g, ' ');
+  return (
+    s === 'customer pdc' ||
+    s === 'pdc customer' ||
+    s === 'customerpdc' ||
+    (s.includes('customer') && s.includes('pdc'))
+  );
+}
+
+function isExplicitGcecPdcType(pdcType?: string): boolean {
+  if (!pdcType) return false;
+  const s = String(pdcType).toLowerCase().trim().replace(/\s+/g, ' ');
+  return (
+    s === 'gcec pdc' ||
+    s === 'pdc gcec' ||
+    s === 'gcecpdc' ||
+    (s.includes('gcec') && s.includes('pdc'))
+  );
+}
+
+function pdcKindFromTypeOrRemarks(t: Pick<BankTransaction, 'pdcType' | 'remarks'>): 'gcec' | 'customer' | 'other' {
+  if (isExplicitGcecPdcType(t.pdcType) || rowIsGcecPdcHighlight(t.remarks, t.pdcType)) {
+    return 'gcec';
+  }
+  if (isExplicitCustomerPdcType(t.pdcType) || rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) {
+    return 'customer';
+  }
+  return 'other';
+}
+
 function rowIsCustomerPdcHighlight(remarks?: string | null, pdcType?: string): boolean {
-  if (pdcType && normalizePdcTypeFromApi(pdcType) === 'Customer PDC') return true;
+  if (isExplicitCustomerPdcType(pdcType)) return true;
   return isCustomerPdcRemarksLabel(remarks);
 }
 
@@ -231,12 +262,16 @@ function shouldAffectRunningBalance(
   t: BankTransaction,
   clientPendingBottomDup = false
 ): boolean {
-  if (!t.ledgerApproved && rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) {
-    return false;
-  }
-  if (clientPendingBottomDup) {
-    return rowIsGcecPdcHighlight(t.remarks, t.pdcType) && !t.ledgerApproved;
-  }
+  // Frontend duplicate rows are visual-only; never affect arithmetic.
+  if (clientPendingBottomDup) return false;
+
+  // Enforce explicit precedence:
+  // 1) GCEC PDC => immediate balance impact
+  // 2) Customer PDC => only after approval
+  const kind = pdcKindFromTypeOrRemarks(t);
+  if (kind === 'gcec') return true;
+  if (kind === 'customer') return !!t.ledgerApproved;
+
   return true;
 }
 
