@@ -232,7 +232,7 @@
         setLoading(false);
         }
     }, []);
-
+console.log("hello")
     useEffect(() => {
         fetchCheques();
     }, [fetchCheques]);
