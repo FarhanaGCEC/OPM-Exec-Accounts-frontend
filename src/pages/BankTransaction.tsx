@@ -227,6 +227,19 @@ function isGcecPendingBottomCreditPresentation(
   );
 }
 
+function shouldAffectRunningBalance(
+  t: BankTransaction,
+  clientPendingBottomDup = false
+): boolean {
+  if (!t.ledgerApproved && rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) {
+    return false;
+  }
+  if (clientPendingBottomDup) {
+    return rowIsGcecPdcHighlight(t.remarks, t.pdcType) && !t.ledgerApproved;
+  }
+  return true;
+}
+
 function parseLedgerAmount(v: unknown): number {
   if (typeof v === 'number' && !Number.isNaN(v)) return v;
   return Number(String(v ?? 0).replace(/,/g, '').replace('AED', '').trim()) || 0;
@@ -248,11 +261,16 @@ function computeRunningBalanceAfterById(ordered: BankTransaction[]): {
   const afterById = new Map<string, number>();
   if (ordered.length === 0) return { afterById, finalRunning: 0 };
   let after = parseFormattedBalance(ordered[0].balance);
+  if (!shouldAffectRunningBalance(ordered[0])) {
+    after = after - parseLedgerAmount(ordered[0].credit) + parseLedgerAmount(ordered[0].debit);
+  }
   const id0 = String(ordered[0].id ?? '');
   if (id0) afterById.set(id0, after);
   for (let i = 1; i < ordered.length; i++) {
     const t = ordered[i];
-    after = after + parseLedgerAmount(t.credit) - parseLedgerAmount(t.debit);
+    if (shouldAffectRunningBalance(t)) {
+      after = after + parseLedgerAmount(t.credit) - parseLedgerAmount(t.debit);
+    }
     const id = String(t.id ?? '');
     if (id) afterById.set(id, after);
   }
@@ -271,8 +289,10 @@ function computePendingDupBalanceById(
   const pendingDupById = new Map<string, number>();
   let running = finalRunningAfterBody;
   for (const t of pendingBottomRows) {
-    const { debit, credit } = getLedgerDebitCreditNumeric(t, true);
-    running = running + credit - debit;
+    if (shouldAffectRunningBalance(t, true)) {
+      const { debit, credit } = getLedgerDebitCreditNumeric(t, true);
+      running = running + credit - debit;
+    }
     const id = String(t.id ?? '');
     if (id) pendingDupById.set(id, running);
   }
@@ -291,8 +311,10 @@ function buildLedgerBalanceMaps(filtered: BankTransaction[]): {
   const pendingDupAfterById = computePendingDupBalanceById(finalRunning, pendingRows);
   let statementClosing = finalRunning;
   for (const t of pendingRows) {
-    const { debit, credit } = getLedgerDebitCreditNumeric(t, true);
-    statementClosing = statementClosing + credit - debit;
+    if (shouldAffectRunningBalance(t, true)) {
+      const { debit, credit } = getLedgerDebitCreditNumeric(t, true);
+      statementClosing = statementClosing + credit - debit;
+    }
   }
   return { bodyAfterById, pendingDupAfterById, statementClosing };
 }
@@ -690,6 +712,7 @@ export default function BankTransaction() {
           const remarksRaw = row.remarks;
           const remarks =
             remarksRaw === undefined || remarksRaw === null ? undefined : String(remarksRaw);
+          const isCustomerPdcRow = rowIsCustomerPdcHighlight(remarks, flags.pdcType);
 
           return {
             ...transaction,
@@ -714,7 +737,8 @@ export default function BankTransaction() {
             syntheticFromPdc: flags.syntheticFromPdc,
             ledgerApprovalRequired: flags.ledgerApprovalRequired,
             ledgerApproved: flags.ledgerApproved,
-            showLedgerApprovalCheckbox: flags.showLedgerApprovalCheckbox,
+            showLedgerApprovalCheckbox:
+              flags.showLedgerApprovalCheckbox || (!!flags.pdcId && isCustomerPdcRow),
             approvalPendingFooterDuplicate: flags.approvalPendingFooterDuplicate,
           };
         });
@@ -2040,13 +2064,19 @@ export default function BankTransaction() {
                   </tr>
                 ) : (
                   paginatedRows.map(({ transaction, clientPendingBottomDup }) => {
+                    const remarksDisplay = remarksForTableDisplay(
+                      transaction.remarks,
+                      transaction.pdcType
+                    );
                     const isBouncedCheque = isBouncedChequeRemarks(
-                      remarksForTableDisplay(transaction.remarks, transaction.pdcType)
+                      remarksDisplay
                     );
                     const isGcecPdc = rowIsGcecPdcHighlight(
                       transaction.remarks,
                       transaction.pdcType
                     );
+                    const isAvailableBalanceRemark =
+                      remarksDisplay.trim().toLowerCase() === 'available balance';
                     const rowTone = isBouncedCheque
                       ? 'bounce'
                       : isGcecPdc
@@ -2139,7 +2169,11 @@ export default function BankTransaction() {
                           <span className="text-black">AED 0.00</span>
                         )}
                       </td>
-                      <td className="text-sm py-2 px-4 text-left align-middle">
+                      <td
+                        className={`text-sm py-2 px-4 text-left align-middle ${
+                          isAvailableBalanceRemark ? 'bg-[#91d34d]' : ''
+                        }`}
+                      >
                         {shouldSuppressBalanceForDisplay(
                           transaction,
                           !!clientPendingBottomDup
@@ -2169,10 +2203,7 @@ export default function BankTransaction() {
                         )}
                       </td>
                       <td className="text-sm py-2 px-4 text-left align-middle">
-                        {remarksForTableDisplay(
-                          transaction.remarks,
-                          transaction.pdcType
-                        )}
+                        {remarksDisplay}
                       </td>
                       <td className="text-sm py-2 px-4 text-left align-middle">
                         <div className="flex items-center gap-2 whitespace-nowrap">

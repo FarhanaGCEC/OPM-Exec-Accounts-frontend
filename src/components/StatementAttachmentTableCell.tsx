@@ -203,10 +203,7 @@ export function StatementAttachmentTableCell({
             Remove PDF
           </Button>
         ) : null}
-        <p className="text-xs text-gray-500 leading-snug">
-          Choose a PDF and press Save to upload (replaces existing). Remove PDF deletes the file on
-          the server if your API supports DELETE …/attachment.
-        </p>
+      
         <input
           type="file"
           accept=".pdf,application/pdf"

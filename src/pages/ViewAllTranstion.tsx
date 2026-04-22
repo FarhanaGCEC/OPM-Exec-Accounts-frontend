@@ -52,6 +52,9 @@ interface GCECPDC {
   chequeType: string;
   amount: string;
   description: string | null;
+  approved?: boolean;
+  ledgerApproved?: boolean;
+  showLedgerApprovalCheckbox?: boolean;
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
@@ -66,6 +69,8 @@ interface CustomerPDC {
   chequeType: string;
   amount: string;
   description: string | null;
+  approved?: boolean;
+  ledgerApproved?: boolean;
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
@@ -136,14 +141,26 @@ const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] =
     const bDate = parseTransactionDate(b.date);
 
     if (!aDate && !bDate) return b.id - a.id;
-    if (!aDate) return 1;
-    if (!bDate) return -1;
+    // Keep no-date rows at the top instead of bottom.
+    if (!aDate) return -1;
+    if (!bDate) return 1;
 
     const byDate = bDate.getTime() - aDate.getTime();
     if (byDate !== 0) return byDate;
 
     return b.id - a.id;
   });
+};
+
+const isUnapprovedGcecPdc = (transaction: AllTransaction): transaction is GCECPDC => {
+  if (transaction.transactionType !== 'GCEC PDC') return false;
+  const ledgerApproved = Boolean(transaction.ledgerApproved ?? transaction.approved);
+  return !ledgerApproved;
+};
+
+const displayTransactionDate = (date: string | null | undefined): string => {
+  if (!date || !parseTransactionDate(date)) return '';
+  return formatIsoDateDisplay(date);
 };
 
 // Helper function to format amounts
@@ -197,7 +214,7 @@ const getDailyPaymentTypeDisplay = (txn: DailyTransaction): string => {
 // Helper function to get display name for transaction type
 const getTransactionTypeDisplayName = (type: string): string => {
   if (type === 'Daily Transaction') {
-    return 'Daily Transtion Detail';
+    return 'Daily Transaction Detail';
   }
   if (type === 'GCEC PDC') {
     return 'GCEC PDC in Hand';
@@ -246,8 +263,27 @@ export default function ViewAllTranstion() {
     return searchable.includes('fk enbd') || searchable.includes('fk emirates nbd');
   });
 
-  // Group transactions by type
+  // Group transactions by type (for export/summary blocks)
   const groupedTransactions = filteredTransactions.reduce((acc, transaction) => {
+    const type = transaction.transactionType;
+    if (!acc[type]) {
+      acc[type] = [];
+    }
+    acc[type].push(transaction);
+    return acc;
+  }, {} as Record<string, AllTransaction[]>);
+
+  // Table-only list: for unapproved GCEC PDC, show one no-date row first (like BankTransaction UX).
+  const tableTransactions: AllTransaction[] = filteredTransactions.flatMap<AllTransaction>((transaction) => {
+    if (isUnapprovedGcecPdc(transaction)) {
+      const pendingRow: GCECPDC = { ...transaction, date: '' };
+      return [pendingRow, transaction];
+    }
+    return [transaction];
+  });
+
+  // Group table transactions by type
+  const groupedTableTransactions = tableTransactions.reduce<Record<string, AllTransaction[]>>((acc, transaction) => {
     const type = transaction.transactionType;
     if (!acc[type]) {
       acc[type] = [];
@@ -262,7 +298,7 @@ export default function ViewAllTranstion() {
   const transactionOrder = ['Daily Transaction', 'GCEC PDC', 'Customer PDC', 'Purchase Bill'];
   
   transactionOrder.forEach((type) => {
-    const typeTransactions = groupedTransactions[type] || [];
+    const typeTransactions = groupedTableTransactions[type] || [];
     if (typeTransactions.length > 0) {
       transactionsWithHeadings.push({ type: 'heading', content: type });
       typeTransactions.forEach((transaction) => {
@@ -272,7 +308,7 @@ export default function ViewAllTranstion() {
   });
 
   // Pagination - count only transactions (not headings)
-  const transactionCount = filteredTransactions.length;
+  const transactionCount = tableTransactions.length;
   const totalPages = Math.ceil(transactionCount / itemsPerPage);
   
   // Calculate which transactions to show (10 per page)
@@ -283,53 +319,31 @@ export default function ViewAllTranstion() {
   let transactionCounter = 0;
   const paginatedItems: Array<{ type: 'heading' | 'transaction'; content: string | AllTransaction }> = [];
   
-  // Use a Set to track unique transactions by their unique identifier
-  const seenTransactionIds = new Set<string>();
-  
-  // First, collect all transactions that should be on the current page (without duplicates)
+  // First, collect all transactions that should be on the current page
   const transactionsOnPage: AllTransaction[] = [];
   for (const item of transactionsWithHeadings) {
     if (item.type === 'transaction') {
       if (transactionCounter >= startTransactionIndex && transactionCounter < endTransactionIndex) {
         const txn = item.content as AllTransaction;
-        // Create a unique key combining transaction type and ID
-        const uniqueKey = `${txn.transactionType}-${txn.id}`;
-        
-        // Only add if we haven't seen this transaction before
-        if (!seenTransactionIds.has(uniqueKey)) {
-          seenTransactionIds.add(uniqueKey);
-          transactionsOnPage.push(txn);
-        }
+        transactionsOnPage.push(txn);
       }
       transactionCounter++;
     }
   }
   
-  // Group transactions on page by type (ensuring no duplicates)
+  // Group transactions on page by type
   const transactionsByTypeOnPage = transactionsOnPage.reduce((acc, txn) => {
     const type = txn.transactionType;
-    const uniqueKey = `${type}-${txn.id}`;
-    
-    // Check if this transaction is already in the group
     if (!acc[type]) {
       acc[type] = [];
     }
-    
-    // Only add if not already in the array
-    const exists = acc[type].some((existing: AllTransaction) => 
-      `${existing.transactionType}-${existing.id}` === uniqueKey
-    );
-    
-    if (!exists) {
-      acc[type].push(txn);
-    }
-    
+    acc[type].push(txn);
     return acc;
   }, {} as Record<string, AllTransaction[]>);
   
   // Get all transaction types that exist in the dataset
   const allTransactionTypes = new Set<string>();
-  filteredTransactions.forEach(txn => allTransactionTypes.add(txn.transactionType));
+  tableTransactions.forEach(txn => allTransactionTypes.add(txn.transactionType));
   
   // Show all headers in order (like Excel), then show transactions under each
   transactionOrder.forEach((type) => {
@@ -479,7 +493,7 @@ export default function ViewAllTranstion() {
     // Summary
     if (summary) {
       addRow(['Summary:'], { font: { bold: true } });
-      addRow(['daily transtion detail:', summary.dailyTransactions]);
+      addRow(['Daily Transaction Detail:', summary.dailyTransactions]);
       addRow(['GCEC Post Dated Cheques in Hand:', summary.gcecPdc]);
       addRow(['Customers Post Dated Cheques in Hand:', summary.customerPdc]);
       addRow(['Sales Invoice amount paid against GCEC Purchase Bills:', summary.purchaseBills]);
@@ -664,6 +678,8 @@ export default function ViewAllTranstion() {
       const txn = transaction as DailyTransaction;
       const bounceHighlight = isBouncedChequeRemarks(txn.remarks);
       const gcecPdcHighlight = rowIsGcecPdcHighlight(txn.remarks, dailyTxnPdcType(txn));
+      const remarksDisplay = remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn)) || '';
+      const isAvailableBalanceRemark = remarksDisplay.trim().toLowerCase() === 'available balance';
       const debitAmount = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
       const hasDebit = !Number.isNaN(debitAmount) && debitAmount > 0;
       return (
@@ -671,53 +687,59 @@ export default function ViewAllTranstion() {
           key={txn.id}
           className={`border-b border-gray-100 transition-colors ${
             bounceHighlight
-              ? 'bg-[#95dcf7] hover:bg-[#7dd3f0]'
+              ? 'bg-[#7dd3f0] hover:bg-[#67c6ea]'
               : gcecPdcHighlight
-              ? 'bg-yellow-100 hover:bg-yellow-200'
-              : 'hover:bg-blue-50'
+              ? 'hover:bg-yellow-200/70'
+              : 'hover:bg-gray-50'
           }`}
         >
-          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4`}>
-            {formatIsoDateDisplay(txn.date)}
+          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}>
+            {displayTransactionDate(txn.date)}
           </TableCell>
-          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4`}>
+          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}>
             {txn.category}
           </TableCell>
-          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-600'} text-sm py-2 px-4`}>
+          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-600'} text-sm py-2 px-4 text-left align-middle`}>
             {getDailyPaymentTypeDisplay(txn)}
           </TableCell>
 
-          <TableCell className="text-sm py-2 px-4">
+          <TableCell className="text-sm py-2 px-4 text-left align-middle">
             {hasDebit ? (
-              <span className="text-red-600">AED{formatAmount(txn.debit)}</span>
+              <span className="text-red-600">AED {formatAmount(txn.debit)}</span>
             ) : (
               <span className="text-red-600">AED 0.00</span>
             )}
           </TableCell>
-          <TableCell className="text-sm py-2 px-4">
+          <TableCell className="text-sm py-2 px-4 text-left align-middle">
             {txn.credit ? (
-              <span className="text-black">AED{formatAmount(txn.credit)}</span>
+              <span className="text-black">AED {formatAmount(txn.credit)}</span>
             ) : (
               <span className="text-black">AED 0.00</span>
             )}
           </TableCell>
-          <TableCell className="font-semibold text-sm py-2 px-4">
+          <TableCell
+            className={`text-sm py-2 px-4 text-left align-middle ${
+              isAvailableBalanceRemark ? 'bg-[#91d34d]' : ''
+            }`}
+          >
             {(() => {
               const balanceAmount = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
-              const balanceClass = balanceAmount < 0 ? 'text-red-600' : 'text-[#0003eb]';
-              return <span className={balanceClass}>AED{formatAmount(txn.balance)}</span>;
+              const balanceClass = balanceAmount < 0 ? 'text-red-600 font-bold' : 'text-[#0003eb] font-bold';
+              return <span className={balanceClass}>AED {formatAmount(txn.balance)}</span>;
             })()}
           </TableCell>
-          <TableCell className="text-gray-600 text-sm py-2 px-4">
-            {remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn)) || ''}
+          <TableCell className="text-sm py-2 px-4 text-left align-middle">
+            {remarksDisplay}
           </TableCell>
+          <TableCell className="text-sm py-2 px-4 text-left align-middle">-</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'GCEC PDC') {
       const txn = transaction as GCECPDC;
+      const isApproved = Boolean(txn.ledgerApproved ?? txn.approved);
       return (
-        <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
-          <TableCell className="text-red-600 text-sm py-2 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
+        <TableRow key={txn.id} className="border-b border-gray-100 bg-[#f3efc4] hover:bg-[#ece6ad] transition-colors">
+          <TableCell className="text-red-600 text-sm py-2 px-4">{displayTransactionDate(txn.date)}</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">{txn.customerName}</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">{txn.chequeNumber}</TableCell>
@@ -729,13 +751,29 @@ export default function ViewAllTranstion() {
           </TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
+          <TableCell className="text-sm py-2 px-4 text-left align-middle">
+            {(txn.showLedgerApprovalCheckbox ?? true) ? (
+              <label className="flex items-center gap-1.5 text-xs text-gray-800 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-400 text-[#f7c46d] focus:ring-[#f7c46d]"
+                  checked={isApproved}
+                  disabled
+                  readOnly
+                />
+                <span>Approved</span>
+              </label>
+            ) : (
+              '-'
+            )}
+          </TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Customer PDC') {
       const txn = transaction as CustomerPDC;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-2 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-2 px-4">{displayTransactionDate(txn.date)}</TableCell>
           <TableCell className="text-gray-700 text-sm py-2 px-4">{txn.customerName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.chequeNumber}</TableCell>
@@ -747,13 +785,14 @@ export default function ViewAllTranstion() {
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
+          <TableCell className="text-sm py-2 px-4 text-left align-middle">-</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Purchase Bill') {
       const txn = transaction as PurchaseBill;
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-orange-50 transition-colors">
-          <TableCell className="text-gray-700 text-sm py-2 px-4">{formatIsoDateDisplay(txn.date)}</TableCell>
+          <TableCell className="text-gray-700 text-sm py-2 px-4">{displayTransactionDate(txn.date)}</TableCell>
           <TableCell className="text-gray-700 text-sm py-2 px-4">{txn.vendorName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.paymentMethod}</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.invoiceNumber || '-'}</TableCell>
@@ -766,6 +805,7 @@ export default function ViewAllTranstion() {
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
+          <TableCell className="text-sm py-2 px-4 text-left align-middle">-</TableCell>
         </TableRow>
       );
     }
@@ -864,7 +904,7 @@ export default function ViewAllTranstion() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
-              <p className="text-sm font-medium text-blue-700 mb-2">daily transtion detail</p>
+              <p className="text-sm font-medium text-blue-700 mb-2">Daily Transaction Detail</p>
               <p className="text-3xl font-bold text-blue-900">{summary.dailyTransactions}</p>
             </CardContent>
           </Card>
@@ -922,6 +962,7 @@ export default function ViewAllTranstion() {
                       <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Credit</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Balance</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Remarks</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

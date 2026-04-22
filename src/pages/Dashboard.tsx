@@ -45,11 +45,41 @@ export default function Dashboard() {
       ? accountSummary.totalCredit
       : parseFloat(String(accountSummary?.totalCredit || 0));
   const currentBalanceValue = totalCreditValue - totalDebitValue;
-  const pendingHoldAmount =
-    typeof accountSummary?.pendingChecks?.totalAmount === 'number'
-      ? accountSummary.pendingChecks.totalAmount
-      : parseFloat(String(accountSummary?.pendingChecks?.totalAmount || 0));
-  const availableBalanceValue = currentBalanceValue - pendingHoldAmount;
+  const rawSummary = accountSummary as
+    | (AccountSummary & {
+        remarks?: string;
+        remark?: string;
+        availableBalance?: number | string;
+        mainAvailableBalance?: number | string;
+        availableBalanceRemark?: string;
+        available_balance_remark?: string;
+        availableBalanceTransaction?: { remarks?: string; remark?: string };
+        available_balance_transaction?: { remarks?: string; remark?: string };
+      })
+    | null;
+
+  const availableBalanceValue =
+    typeof rawSummary?.availableBalance === 'number'
+      ? rawSummary.availableBalance
+      : rawSummary?.availableBalance != null
+        ? parseFloat(String(rawSummary.availableBalance))
+        : typeof rawSummary?.mainAvailableBalance === 'number'
+          ? rawSummary.mainAvailableBalance
+          : rawSummary?.mainAvailableBalance != null
+            ? parseFloat(String(rawSummary.mainAvailableBalance))
+            : currentBalanceValue;
+  const availableBalanceRemark =
+    rawSummary?.availableBalanceTransaction?.remarks ||
+    rawSummary?.availableBalanceTransaction?.remark ||
+    rawSummary?.available_balance_transaction?.remarks ||
+    rawSummary?.available_balance_transaction?.remark ||
+    rawSummary?.availableBalanceRemark ||
+    rawSummary?.available_balance_remark ||
+    rawSummary?.remarks ||
+    rawSummary?.remark ||
+    '';
+  const shouldHighlightAvailableBalanceCell =
+    availableBalanceRemark.trim().toLowerCase() === 'available balance';
 
   return (
     <Layout>
@@ -118,13 +148,23 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
-            <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
+            <Card
+              className={`hover:shadow-lg transition-all duration-300 border rounded-lg overflow-hidden ${
+                shouldHighlightAvailableBalanceCell ? 'border-[#91d34d] bg-[#91d34d]' : 'bg-white border-gray-200'
+              }`}
+            >
               <CardContent className="p-6">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-base font-medium text-gray-600 mb-3">Available Balance</p>
+                  <p
+                    className={`text-base font-medium mb-3 ${
+                      shouldHighlightAvailableBalanceCell ? 'text-gray-900' : 'text-gray-600'
+                    }`}
+                  >
+                    Available Balance
+                  </p>
                   <div className="flex items-baseline space-x-2">
                     <p
-                      className={`text-2xl font-bold ${availableBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
+                      className={`text-2xl font-bold px-2 rounded ${availableBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
                     >
                       AED {formatAmount(availableBalanceValue)}
                     </p>
