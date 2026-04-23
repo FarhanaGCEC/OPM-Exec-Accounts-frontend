@@ -56,6 +56,7 @@ import { receivablesService, type ReceivablesCategory } from '../services/receiv
 import {
   transactionService,
   type BankTransaction as BankTransactionType,
+  type PostDatedCheque as PostDatedChequeType,
 } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import BulkTransactionUploadDialog from '../components/BulkTransactionUploadDialog';
@@ -200,6 +201,31 @@ function hasLedgerTransactionDatePassed(t: BankTransaction): boolean {
   return transactionDay.getTime() < today.getTime();
 }
 
+function isFutureLedgerTransaction(t: BankTransaction): boolean {
+  const parsedDate = parseTransactionDateForSort(t);
+  if (!parsedDate) return false;
+  const transactionDay = new Date(parsedDate);
+  transactionDay.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return transactionDay.getTime() > today.getTime();
+}
+
+function isWithinUpcomingDays(t: BankTransaction, days: number): boolean {
+  const parsedDate = parseTransactionDateForSort(t);
+  if (!parsedDate) return false;
+  const transactionDay = new Date(parsedDate);
+  transactionDay.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const lastAllowed = new Date(today);
+  lastAllowed.setDate(lastAllowed.getDate() + days);
+  return (
+    transactionDay.getTime() > today.getTime() &&
+    transactionDay.getTime() <= lastAllowed.getTime()
+  );
+}
+
 /**
  * GCEC / Customer PDC not yet ledger-approved: duplicated at table bottom (until approved).
  * Original row stays in chronological place with date; bottom copy has no date (purely client render).
@@ -272,7 +298,11 @@ function shouldAffectRunningBalance(
   // 1) GCEC PDC => immediate balance impact
   // 2) Customer PDC => only after approval
   const kind = pdcKindFromTypeOrRemarks(t);
-  if (kind === 'gcec') return true;
+  if (kind === 'gcec') {
+    // Upcoming GCEC rows are display-only and must not impact balance yet.
+    if (isFutureLedgerTransaction(t)) return false;
+    return true;
+  }
   if (kind === 'customer') return !!t.ledgerApproved;
 
   return true;
@@ -364,10 +394,23 @@ function balanceAfterForDisplay(
   pendingDupAfterById: Map<string, number>
 ): number {
   const id = String(t.id ?? '');
+  const isFrontendUpcomingRow = id.startsWith('frontend-upcoming-pdc-');
+  if (isFrontendUpcomingRow) {
+    const pendingBalances = Array.from(pendingDupAfterById.values());
+    const snapshotBalance = pendingBalances.length
+      ? Math.max(...pendingBalances)
+      : parseFormattedBalance(t.balance);
+    // #region agent log
+    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'post-fix',hypothesisId:'H8',location:'BankTransaction.tsx:balanceAfterForDisplay',message:'Upcoming row uses pending-chain anchor balance',data:{id,snapshotBalance,pendingBalanceCount:pendingBalances.length,pendingBalanceMax:pendingBalances.length?Math.max(...pendingBalances):null,rawBalance:t.balance},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return snapshotBalance;
+  }
   if (clientPendingBottomDup && id && pendingDupAfterById.has(id)) {
     return pendingDupAfterById.get(id)!;
   }
-  if (id && bodyAfterById.has(id)) return bodyAfterById.get(id)!;
+  if (id && bodyAfterById.has(id)) {
+    return bodyAfterById.get(id)!;
+  }
   return parseFormattedBalance(t.balance);
 }
 
@@ -376,6 +419,12 @@ function getDebitCreditDisplayForRow(
   t: BankTransaction,
   clientPendingBottomDup: boolean | undefined
 ): { debit: string | null; credit: string | null } {
+  const id = String(t.id ?? '');
+  if (id.startsWith('frontend-upcoming-pdc-')) {
+    // #region agent log
+    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H9',location:'BankTransaction.tsx:getDebitCreditDisplayForRow',message:'Upcoming row debit/credit source before render',data:{id,clientPendingBottomDup:!!clientPendingBottomDup,debit:t.debit ?? null,credit:t.credit ?? null,debitFormatted:t.debitFormatted ?? null,creditFormatted:t.creditFormatted ?? null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }
   if (isGcecPendingBottomCreditPresentation(t, !!clientPendingBottomDup)) {
     const d = parseLedgerAmount(t.debit);
     const c = parseLedgerAmount(t.credit);
@@ -431,8 +480,18 @@ interface BankTransaction extends BankTransactionType {
 
 function parseTransactionDateForSort(t: BankTransaction): Date | null {
   if (t.originalDate) {
-    const d = new Date(t.originalDate);
-    return Number.isNaN(d.getTime()) ? null : d;
+    const direct = new Date(t.originalDate);
+    if (!Number.isNaN(direct.getTime())) return direct;
+
+    // Fallback: support dd/mm/yyyy from API where JS Date parsing is inconsistent.
+    const slashParts = t.originalDate.split('/');
+    if (slashParts.length === 3) {
+      const day = Number(slashParts[0]);
+      const month = Number(slashParts[1]) - 1;
+      const year = Number(slashParts[2]);
+      const fallback = new Date(year, month, day);
+      if (!Number.isNaN(fallback.getTime())) return fallback;
+    }
   }
   const parts = t.date?.split('-');
   if (parts?.length === 3) {
@@ -455,6 +514,15 @@ function parseTransactionDateForSort(t: BankTransaction): Date | null {
       const d = new Date(`${parts[2]}-${m}-${parts[0]}`);
       return Number.isNaN(d.getTime()) ? null : d;
     }
+  }
+  // Last fallback for displayed dd/mm/yyyy dates.
+  const slashParts = t.date?.split('/');
+  if (slashParts?.length === 3) {
+    const day = Number(slashParts[0]);
+    const month = Number(slashParts[1]) - 1;
+    const year = Number(slashParts[2]);
+    const fallback = new Date(year, month, day);
+    if (!Number.isNaN(fallback.getTime())) return fallback;
   }
   return null;
 }
@@ -708,11 +776,17 @@ export default function BankTransaction() {
     try {
       setLoading(true);
       setError(null);
-      const response: ApiResponse<BankTransactionType[]> = await transactionService.getBankTransactions();
+      const [ledgerResponse, pdcResponse]: [
+        ApiResponse<BankTransactionType[]>,
+        ApiResponse<PostDatedChequeType[]>
+      ] = await Promise.all([
+        transactionService.getBankTransactions(),
+        transactionService.getPostDatedCheques(),
+      ]);
       
-      if (response.success && response.data && Array.isArray(response.data)) {
+      if (ledgerResponse.success && ledgerResponse.data && Array.isArray(ledgerResponse.data)) {
         // Process transactions from API response
-        const transactionsData: BankTransaction[] = response.data.map((transaction) => {
+        const transactionsData: BankTransaction[] = ledgerResponse.data.map((transaction) => {
           const row = transaction as BankTransactionType & Record<string, unknown>;
           const flags = readPdcLedgerRowFlags(row);
           const apiDate = row.date;
@@ -780,7 +854,95 @@ export default function BankTransaction() {
             approvalPendingFooterDuplicate: flags.approvalPendingFooterDuplicate,
           };
         });
-        setTransactions(transactionsData);
+
+        const existingLedgerPdcIds = new Set(
+          transactionsData
+            .map((t) => (typeof t.pdcId === 'number' ? t.pdcId : null))
+            .filter((id): id is number => id != null)
+        );
+        const existingUpcomingFingerprint = new Set(
+          transactionsData.map((t) => `${t.chequeNumber || ''}|${t.originalDate || ''}|${parseLedgerAmount(t.credit)}`)
+        );
+
+        const anchorBalance = transactionsData.length
+          ? parseFormattedBalance(transactionsData[0].balance)
+          : 0;
+        const anchorBalanceFormatted = anchorBalance.toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+        const upcomingMergedRows: BankTransaction[] =
+          pdcResponse.success && Array.isArray(pdcResponse.data)
+            ? pdcResponse.data
+                .filter((pdc) => pdc.pdcType === 'GCEC PDC')
+                .map((pdc) => {
+                  const parsedId = Number(pdc.id);
+                  const pdcIdNum = Number.isNaN(parsedId) ? undefined : parsedId;
+                  const parsedAmount = parseLedgerAmount(pdc.amount);
+                  const parsedDate = new Date(pdc.chequeDate);
+                  const isoDate = Number.isNaN(parsedDate.getTime())
+                    ? pdc.chequeDate
+                    : parsedDate.toISOString().split('T')[0];
+                  const fingerprint = `${pdc.chequeNumber || ''}|${isoDate || ''}|${parsedAmount}`;
+                  return {
+                    pdc,
+                    pdcIdNum,
+                    parsedAmount,
+                    isoDate,
+                    fingerprint,
+                    within15Future:
+                      !Number.isNaN(parsedDate.getTime()) &&
+                      isWithinUpcomingDays(
+                        {
+                          id: String(pdc.id ?? ''),
+                          date: formatDate(isoDate),
+                          originalDate: isoDate,
+                          paymentType: 'cheque',
+                          balance: anchorBalanceFormatted,
+                        } as BankTransaction,
+                        15
+                      ),
+                  };
+                })
+                .filter(({ pdcIdNum, within15Future, fingerprint }) => {
+                  if (!within15Future) return false;
+                  if (pdcIdNum != null && existingLedgerPdcIds.has(pdcIdNum)) return false;
+                  if (existingUpcomingFingerprint.has(fingerprint)) return false;
+                  return true;
+                })
+                .map(({ pdc, pdcIdNum, parsedAmount, isoDate }) => ({
+                  id: `frontend-upcoming-pdc-${String(pdc.id ?? '')}`,
+                  date: formatDate(isoDate),
+                  originalDate: isoDate,
+                  categoryName: pdc.customerName || 'GCEC PDC',
+                  categoryId: undefined,
+                  paymentType: 'cheque',
+                  chequeNumber: pdc.chequeNumber || '',
+                  debit: parsedAmount,
+                  credit: 0,
+                  debitFormatted: parsedAmount.toLocaleString('en-US', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2,
+                  }),
+                  creditFormatted: null,
+                  balance: anchorBalanceFormatted,
+                  remarks: 'GCEC PDC',
+                  pdcId: pdcIdNum,
+                  pdcType: 'GCEC PDC',
+                  syntheticFromPdc: true,
+                  ledgerApprovalRequired: false,
+                  ledgerApproved: false,
+                  showLedgerApprovalCheckbox: false,
+                  approvalPendingFooterDuplicate: false,
+                }))
+            : [];
+
+        // #region agent log
+        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'post-fix',hypothesisId:'H5',location:'BankTransaction.tsx:fetchTransactions',message:'Frontend upcoming PDC merge stats',data:{ledgerCount:transactionsData.length,pdcApiSuccess:!!pdcResponse.success,pdcCount:Array.isArray(pdcResponse.data)?pdcResponse.data.length:0,mergedUpcomingCount:upcomingMergedRows.length,sampleMerged:upcomingMergedRows.slice(0,5).map((r)=>({id:String(r.id ?? ''),date:r.date,originalDate:r.originalDate,pdcId:r.pdcId,credit:r.credit,remarks:r.remarks}))},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+
+        setTransactions([...upcomingMergedRows, ...transactionsData]);
       } else {
         setTransactions([]);
       }
@@ -1292,6 +1454,31 @@ export default function BankTransaction() {
   const filteredTransactions = transactions.filter((transaction) => {
     if (transaction.approvalPendingFooterDuplicate) return false;
 
+    // Show future GCEC PDC rows only in a 15-day upcoming window.
+    // Use normalized kind detection (pdcType/remarks variants) for reliability.
+    const isGcecPdcRow = pdcKindFromTypeOrRemarks(transaction) === 'gcec';
+    if (isGcecPdcRow) {
+      const parsedDate = parseTransactionDateForSort(transaction);
+      const isFuture = isFutureLedgerTransaction(transaction);
+      const within15 = isWithinUpcomingDays(transaction, 15);
+      // #region agent log
+      fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H1',location:'BankTransaction.tsx:filteredTransactions',message:'GCEC row upcoming window evaluation',data:{id:String(transaction.id ?? ''),date:transaction.date ?? '',originalDate:transaction.originalDate ?? '',remarks:transaction.remarks ?? '',pdcType:transaction.pdcType ?? '',parsedDateIso:parsedDate ? parsedDate.toISOString() : null,isFuture,within15,startDate,endDate,activeTab},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (!parsedDate) {
+        // #region agent log
+        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H2',location:'BankTransaction.tsx:filteredTransactions',message:'GCEC row has unparseable date',data:{id:String(transaction.id ?? ''),date:transaction.date ?? '',originalDate:transaction.originalDate ?? '',remarks:transaction.remarks ?? '',pdcType:transaction.pdcType ?? ''},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+      }
+    }
+    if (isGcecPdcRow && isFutureLedgerTransaction(transaction)) {
+      if (!isWithinUpcomingDays(transaction, 15)) {
+        // #region agent log
+        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H3',location:'BankTransaction.tsx:filteredTransactions',message:'GCEC future row excluded by 15-day window',data:{id:String(transaction.id ?? ''),date:transaction.date ?? '',originalDate:transaction.originalDate ?? '',remarks:transaction.remarks ?? '',pdcType:transaction.pdcType ?? ''},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        return false;
+      }
+    }
+
     // Filter by payment type
     // 'online' tab shows both creditcard and banktransfer (which comes as 'online' from API)
     if (activeTab === 'online' && transaction.paymentType !== 'creditcard' && transaction.paymentType !== 'banktransfer') return false;
@@ -1399,6 +1586,21 @@ export default function BankTransaction() {
     })),
     ...normalDatedRows.map((t) => ({ transaction: t })),
   ];
+
+  useEffect(() => {
+    const gcecFutureRows = filteredTransactions
+      .filter((t) => pdcKindFromTypeOrRemarks(t) === 'gcec' && isFutureLedgerTransaction(t))
+      .slice(0, 10)
+      .map((t) => ({
+        id: String(t.id ?? ''),
+        date: t.date ?? '',
+        originalDate: t.originalDate ?? '',
+        within15: isWithinUpcomingDays(t, 15),
+      }));
+    // #region agent log
+    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H4',location:'BankTransaction.tsx:rowsLayout',message:'Row buckets after filtering',data:{totalTransactions:transactions.length,filteredCount:filteredTransactions.length,futureCount:futureDatedRows.length,pendingDupCount:pdcPendingBottomRows.length,normalCount:normalDatedRows.length,paginatedCount:paginatedRows.length,gcecFutureRows,startDate,endDate,activeTab},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [transactions.length, filteredTransactions, futureDatedRows.length, pdcPendingBottomRows.length, normalDatedRows.length, paginatedRows.length, startDate, endDate, activeTab]);
 
   // Clear all filters
   const handleClearFilters = () => {
@@ -1619,6 +1821,21 @@ export default function BankTransaction() {
       r++;
 
       const exportRows = buildLedgerExportRows(filteredTransactions);
+      // #region agent log
+      (() => {
+        const dateFlags = exportRows.map(({ transaction: t }, idx) => ({
+          idx,
+          id: String(t.id ?? ''),
+          date: displayTransactionDate(t, false),
+          isBlankDate: !displayTransactionDate(t, false).trim(),
+        }));
+        const blankDateIndexes = dateFlags.filter((r) => r.isBlankDate).map((r) => r.idx);
+        const lastDatedIndex = [...dateFlags]
+          .reverse()
+          .find((r) => !r.isBlankDate)?.idx ?? -1;
+        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H10',location:'BankTransaction.tsx:handleDownloadExcel',message:'Excel export blank-date row positions',data:{totalRows:exportRows.length,blankDateIndexes,lastDatedIndex,sampleFirst:dateFlags.slice(0,8),sampleLast:dateFlags.slice(-8)},timestamp:Date.now()})}).catch(()=>{});
+      })();
+      // #endregion
 
       const ledgerRowFill = (t: BankTransaction): ExcelJS.Fill | undefined => {
         if (isBouncedChequeRemarks(t.remarks)) {
@@ -2113,6 +2330,16 @@ export default function BankTransaction() {
                       transaction.remarks,
                       transaction.pdcType
                     );
+                    const isGcecKind = pdcKindFromTypeOrRemarks(transaction) === 'gcec';
+                    const isUpcomingGcecRow =
+                      isGcecKind &&
+                      !clientPendingBottomDup &&
+                      isFutureLedgerTransaction(transaction);
+                    const remarksCellText = isUpcomingGcecRow
+                      ? remarksDisplay
+                        ? `${remarksDisplay} (Upcoming)`
+                        : 'Upcoming'
+                      : remarksDisplay;
                     const isAvailableBalanceRemark =
                       remarksDisplay.trim().toLowerCase() === 'available balance';
                     const rowTone = isBouncedCheque
@@ -2241,7 +2468,7 @@ export default function BankTransaction() {
                         )}
                       </td>
                       <td className="text-sm py-2 px-4 text-left align-middle">
-                        {remarksDisplay}
+                        {remarksCellText}
                       </td>
                       <td className="text-sm py-2 px-4 text-left align-middle">
                         <div className="flex items-center gap-2 whitespace-nowrap">

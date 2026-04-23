@@ -135,6 +135,28 @@ const parseTransactionDate = (value: string): Date | null => {
   return null;
 };
 
+const isFutureWithinDays = (value: string, days: number): boolean => {
+  const parsed = parseTransactionDate(value);
+  if (!parsed) return false;
+  const dateOnly = new Date(parsed);
+  dateOnly.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const lastAllowed = new Date(today);
+  lastAllowed.setDate(lastAllowed.getDate() + days);
+  return dateOnly.getTime() > today.getTime() && dateOnly.getTime() <= lastAllowed.getTime();
+};
+
+const isFutureDate = (value: string): boolean => {
+  const parsed = parseTransactionDate(value);
+  if (!parsed) return false;
+  const dateOnly = new Date(parsed);
+  dateOnly.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return dateOnly.getTime() > today.getTime();
+};
+
 const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] => {
   return [...items].sort((a, b) => {
     const aDate = parseTransactionDate(a.date);
@@ -239,6 +261,14 @@ export default function ViewAllTranstion() {
   const itemsPerPage = 10;
 
   const filteredTransactions = transactions.filter((transaction) => {
+    if (transaction.transactionType === 'Daily Transaction') {
+      const dailyTxn = transaction as DailyTransaction;
+      const isGcecDailyRow = rowIsGcecPdcHighlight(dailyTxn.remarks, dailyTxnPdcType(dailyTxn));
+      if (isGcecDailyRow && isFutureDate(dailyTxn.date) && !isFutureWithinDays(dailyTxn.date, 15)) {
+        return false;
+      }
+    }
+
     if (transaction.transactionType !== 'Purchase Bill' || otherTransactionFilter === 'all') {
       return true;
     }
@@ -679,6 +709,12 @@ export default function ViewAllTranstion() {
       const bounceHighlight = isBouncedChequeRemarks(txn.remarks);
       const gcecPdcHighlight = rowIsGcecPdcHighlight(txn.remarks, dailyTxnPdcType(txn));
       const remarksDisplay = remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn)) || '';
+      const isUpcomingGcec = gcecPdcHighlight && isFutureWithinDays(txn.date, 15);
+      const remarksText = isUpcomingGcec
+        ? remarksDisplay
+          ? `${remarksDisplay} (Upcoming)`
+          : 'Upcoming'
+        : remarksDisplay;
       const isAvailableBalanceRemark = remarksDisplay.trim().toLowerCase() === 'available balance';
       const debitAmount = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
       const hasDebit = !Number.isNaN(debitAmount) && debitAmount > 0;
@@ -722,14 +758,16 @@ export default function ViewAllTranstion() {
               isAvailableBalanceRemark ? 'bg-[#91d34d]' : ''
             }`}
           >
-            {(() => {
+            {isUpcomingGcec ? (
+              <span className="text-gray-400">—</span>
+            ) : (() => {
               const balanceAmount = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
               const balanceClass = balanceAmount < 0 ? 'text-red-600 font-bold' : 'text-[#0003eb] font-bold';
               return <span className={balanceClass}>AED {formatAmount(txn.balance)}</span>;
             })()}
           </TableCell>
           <TableCell className="text-sm py-2 px-4 text-left align-middle">
-            {remarksDisplay}
+            {remarksText}
           </TableCell>
           <TableCell className="text-sm py-2 px-4 text-left align-middle">-</TableCell>
         </TableRow>
