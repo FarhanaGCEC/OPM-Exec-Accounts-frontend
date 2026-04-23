@@ -7,6 +7,7 @@ import type { ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
+import { Card, CardContent } from '../components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -155,6 +156,27 @@ export default function GbpTranstion() {
       }),
     [sortedTransactions, filterText]
   );
+
+  const parseAmount = (value: number | string | null | undefined): number => {
+    if (value === null || value === undefined || value === '') return 0;
+    const parsed = parseFloat(String(value).replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const totals = useMemo(
+    () =>
+      filteredTransactions.reduce(
+        (acc, transaction) => {
+          acc.debit += parseAmount(transaction.debit);
+          acc.bankCharges += parseAmount(transaction.bankCharges);
+          acc.credit += parseAmount(transaction.credit);
+          return acc;
+        },
+        { debit: 0, bankCharges: 0, credit: 0 }
+      ),
+    [filteredTransactions]
+  );
+  const totalAmount = totals.debit + totals.bankCharges + totals.credit;
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -583,7 +605,7 @@ export default function GbpTranstion() {
 
       <div className="mx-8">
         <div className="mb-4 bg-white rounded-lg border border-gray-200 p-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
             <div className="relative md:col-span-3">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <Input
@@ -597,6 +619,12 @@ export default function GbpTranstion() {
             <Button variant="outline" onClick={clearFilters} className="text-black md:col-span-1">
               Clear Filters
             </Button>
+            <Card className="border border-gray-200 shadow-sm md:col-span-1">
+              <CardContent className="py-3 px-4">
+                <p className="text-xs text-gray-500">Total Amount</p>
+                <p className="text-lg font-bold text-black">£{formatAmount(totalAmount)}</p>
+              </CardContent>
+            </Card>
           </div>
         </div>
         {loading && transactions.length === 0 ? (

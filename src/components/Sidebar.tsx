@@ -49,31 +49,11 @@ const menuItems: MenuItem[] = [
 
   {
     id: 'bank',
-    label: 'Daily Transactions(ADCB)',
+    label: 'Daily AED Transactions',
     icon: CreditCard,
     path: '/bank',
     sidebarKey: 'daily_transactions',
   },
- 
-  { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque', sidebarKey: 'post_dated_cheques' },
-  {
-    id: 'receivable',
-    label: 'Creditors List',
-    icon: ListOrdered,
-    path: '/reciveables',
-    sidebarKey: 'creditors_list',
-  },
-  { id: 'category', label: 'Debtors List', icon: ListOrdered, path: '/category', sidebarKey: 'debtors_list' },
-
-  
-  {
-    id: 'matching',
-    label: 'Customer Credit Card (ADCB)',
-    icon: CreditCard,
-    path: '/matching',
-    sidebarKey: 'customer_credit_card_payments',
-  },
-
   {
     id: 'gbp-transactions',
     label: 'GBP Transactions(ADCB)',
@@ -89,8 +69,22 @@ const menuItems: MenuItem[] = [
     sidebarKey: 'usd_transactions',
   },
   {
+    id: 'matching',
+    label: 'Customer Credit Card Payments',
+    icon: CreditCard,
+    path: '/matching',
+    sidebarKey: 'customer_credit_card_payments',
+  },
+ 
+  { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque', sidebarKey: 'post_dated_cheques' },
+  
+  
+
+
+
+  {
     id: 'fks-transactions',
-    label: 'FK EMIRATES NBD',
+    label: 'FK ENBD',
     icon: CreditCard,
     path: '/fks-transactions',
     sidebarKey: 'fk_emirates_nbd',
@@ -120,6 +114,15 @@ const menuItems: MenuItem[] = [
       },
     ],
   },
+  {
+    id: 'receivable',
+    label: 'Creditors List',
+    icon: ListOrdered,
+    path: '/reciveables',
+    sidebarKey: 'creditors_list',
+  },
+  { id: 'category', label: 'Debtors List', icon: ListOrdered, path: '/category', sidebarKey: 'debtors_list' },
+
   {
     id: 'user-management',
     label: 'User Accounts Management',

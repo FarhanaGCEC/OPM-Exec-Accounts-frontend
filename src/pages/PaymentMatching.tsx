@@ -75,6 +75,7 @@ const paymentSchema = z.object({
       const num = parseFloat(val.replace(/,/g, ''));
       return !isNaN(num) && num > 0;
     }, 'Amount must be greater than 0'),
+  remarks: z.string().optional(),
 });
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
@@ -158,6 +159,7 @@ export default function PaymentMatching() {
       customerName: '',
       paymentMethod: 'Credit Card',
       amount: '',
+      remarks: '',
     },
   });
 
@@ -291,6 +293,7 @@ export default function PaymentMatching() {
           customerName: '',
           paymentMethod: 'Credit Card',
           amount: '',
+          remarks: '',
         });
       }
       setSuccessMessage(apiMessage);
@@ -321,6 +324,9 @@ export default function PaymentMatching() {
       if (data.invoiceNumber && data.invoiceNumber.trim()) {
         payload.invoiceNumber = data.invoiceNumber.trim();
       }
+      if (data.remarks && data.remarks.trim()) {
+        payload.remarks = data.remarks.trim();
+      }
 
       console.log('[PaymentMatching] Payload being sent:', JSON.stringify(payload, null, 2));
 
@@ -350,6 +356,7 @@ export default function PaymentMatching() {
           customerName: '',
           paymentMethod: 'Credit Card',
           amount: '',
+          remarks: '',
         });
         setEditingPayment(null);
         setError(null);
@@ -387,6 +394,7 @@ export default function PaymentMatching() {
           customerName: '',
           paymentMethod: 'Credit Card',
           amount: '',
+          remarks: '',
         });
         setEditingPayment(null);
         setError(null);
@@ -407,6 +415,7 @@ export default function PaymentMatching() {
           amount: parseFloat(data.amount.replace(/,/g, '')),
         };
         if (data.invoiceNumber?.trim()) payload.invoice_number = data.invoiceNumber.trim();
+        if (data.remarks?.trim()) payload.remarks = data.remarks.trim();
         setPurchaseBillApproval({
           mode: 'edit',
           resourceId: String(editingPayment.id),
@@ -420,6 +429,7 @@ export default function PaymentMatching() {
           customerName: '',
           paymentMethod: 'Credit Card',
           amount: '',
+          remarks: '',
         });
         setError(null);
       } else {
@@ -446,6 +456,7 @@ export default function PaymentMatching() {
         : typeof payment.amount === 'string'
         ? payment.amount.replace(/,/g, '')
         : '',
+      remarks: payment.remarks || payment.remark || payment.description || '',
     });
     setError(null);
     setIsModalOpen(true);
@@ -459,6 +470,7 @@ export default function PaymentMatching() {
       customerName: '',
       paymentMethod: 'Credit Card',
       amount: '',
+      remarks: '',
     });
     setError(null);
     setIsModalOpen(true);
@@ -521,7 +533,7 @@ export default function PaymentMatching() {
         if (filterText.trim()) {
           const needle = filterText.toLowerCase().trim();
           const haystack =
-            `${payment.customerName} ${payment.invoiceNumber || ''} ${payment.paymentMethod} ${payment.date || payment.paymentDate}`
+            `${payment.customerName} ${payment.invoiceNumber || ''} ${payment.paymentMethod} ${payment.remarks || payment.remark || payment.description || ''} ${payment.date || payment.paymentDate}`
               .toLowerCase();
           if (!haystack.includes(needle)) return false;
         }
@@ -547,7 +559,7 @@ export default function PaymentMatching() {
     excelData.push([]);
 
     // Add table headers
-    excelData.push(['Payment Date', 'Invoice Number', 'Customer Name', 'Payment Method', 'Amount (AED)']);
+    excelData.push(['Payment Date', 'Invoice Number', 'Customer Name', 'Payment Method', 'Amount (AED)', 'Remarks']);
 
     // Sort payments by date (oldest first) for better readability in Excel
     const sortedPayments = [...filteredPayments].sort((a, b) => {
@@ -599,7 +611,7 @@ export default function PaymentMatching() {
         amount = parseFloat(cleanedAmount) || 0;
       }
 
-      excelData.push([date, invoiceNumber, customerName, paymentMethod, amount]);
+      excelData.push([date, invoiceNumber, customerName, paymentMethod, amount, payment.remarks || payment.remark || payment.description || '']);
     });
 
     // Calculate total amount
@@ -619,7 +631,7 @@ export default function PaymentMatching() {
 
     // Add total row
     excelData.push([]);
-    excelData.push(['Total', '', '', '', totalAmount]);
+    excelData.push(['Total', '', '', '', totalAmount, '']);
 
     // Create worksheet from data
     const worksheet = XLSX.utils.aoa_to_sheet(excelData);
@@ -631,6 +643,7 @@ export default function PaymentMatching() {
       { wch: 30 }, // Customer Name
       { wch: 18 }, // Payment Method
       { wch: 18 }, // Amount (AED)
+      { wch: 30 }, // Remarks
     ];
 
     // Find the range of data
@@ -638,7 +651,7 @@ export default function PaymentMatching() {
     
     // Format header row (row 5, 0-indexed - after company header and empty rows)
     const headerRow = 5;
-    for (let col = 0; col <= 4; col++) {
+    for (let col = 0; col <= 5; col++) {
       const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
       if (worksheet[headerCellRef]) {
         if (!worksheet[headerCellRef].s) {
@@ -665,13 +678,13 @@ export default function PaymentMatching() {
 
     // Format total row (last row, excluding empty row before it)
     const totalRow = range.e.r;
-    for (let col = 0; col <= 4; col++) {
+    for (let col = 0; col <= 5; col++) {
       const totalCellRef = XLSX.utils.encode_cell({ r: totalRow, c: col });
       if (worksheet[totalCellRef]) {
         if (!worksheet[totalCellRef].s) {
           worksheet[totalCellRef].s = {};
         }
-        if (col === 0 || col === 4) { // First and last column
+        if (col === 0 || col === 4) { // Total label + amount column
           worksheet[totalCellRef].s.font = xlsxSheetFontArial({ bold: true });
         }
         if (col === 4 && typeof worksheet[totalCellRef].v === 'number') {
@@ -704,6 +717,7 @@ export default function PaymentMatching() {
         customerName: '',
         paymentMethod: 'Credit Card',
         amount: '',
+        remarks: '',
       });
       setEditingPayment(null);
       setError(null);
@@ -813,6 +827,9 @@ export default function PaymentMatching() {
                     Amount (AED)
                   </TableHead>
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
+                    Remarks
+                  </TableHead>
+                  <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -820,14 +837,14 @@ export default function PaymentMatching() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-4">
+                    <TableCell colSpan={6} className="text-center py-4">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                       <p className="text-sm text-gray-500">Loading payments...</p>
                     </TableCell>
                   </TableRow>
                 ) : !Array.isArray(filteredPayments) || filteredPayments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-4">
+                    <TableCell colSpan={6} className="text-center py-4">
                       <p className="text-sm text-gray-500 mb-1">No payments found.</p>
                       <p className="text-sm text-gray-400">Try adjusting your filters.</p>
                     </TableCell>
@@ -856,6 +873,9 @@ export default function PaymentMatching() {
                               : typeof payment.amount === 'string'
                                 ? `AED ${parseFloat(payment.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : 'AED 0.00'}
+                        </TableCell>
+                        <TableCell className="text-sm py-2 text-left text-gray-700">
+                          {payment.remarks || payment.remark || payment.description || '-'}
                         </TableCell>
                         <TableCell className="text-sm py-2 text-left">
                           <div className="flex items-center space-x-2">
@@ -1093,6 +1113,28 @@ export default function PaymentMatching() {
                         step="0.01"
                         placeholder="0.00"
                         {...field}
+                        disabled={isSubmitting}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Remarks Field */}
+              <FormField
+                control={form.control}
+                name="remarks"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-base font-medium text-gray-700">
+                      Remarks
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter remarks"
+                        {...field}
+                        value={field.value || ''}
                         disabled={isSubmitting}
                       />
                     </FormControl>

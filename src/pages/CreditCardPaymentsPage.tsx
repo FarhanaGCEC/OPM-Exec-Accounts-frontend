@@ -53,6 +53,7 @@ export interface CreditCardPayment {
     cardHolder: string;
     cardNo: string;
     amount: number;
+    paidAgainst?: string;
     remarks: string;
 }
 
@@ -70,6 +71,7 @@ const paymentSchema = z.object({
             if (isNaN(num) || num <= 0) throw new Error('Amount must be greater than 0');
             return num;
         })),
+    paidAgainst: z.string().optional(),
     remarks: z.string().optional(),
 });
 
@@ -96,6 +98,7 @@ export default function CreditCardPaymentsPage() {
             cardHolder: '',
             creditCardId: '',
             amount: 0,
+            paidAgainst: '',
             remarks: '',
         },
     });
@@ -162,6 +165,7 @@ export default function CreditCardPaymentsPage() {
             cardHolder: '',
             creditCardId: '',
             amount: 0,
+            paidAgainst: '',
             remarks: '',
         });
         setIsModalOpen(true);
@@ -223,6 +227,7 @@ export default function CreditCardPaymentsPage() {
             cardHolder: displayCreditCardHolderName(payment.cardHolder || ''),
             creditCardId: creditCardId,
             amount: payment.amount || 0,
+            paidAgainst: payment.paidAgainst || '',
             remarks: payment.remarks || '',
         });
         setIsModalOpen(true);
@@ -272,6 +277,10 @@ export default function CreditCardPaymentsPage() {
 
             if (data.remarks) {
                 payload.remarks = data.remarks;
+            }
+
+            if (data.paidAgainst) {
+                payload.paidAgainst = data.paidAgainst;
             }
 
             let response;
@@ -352,9 +361,9 @@ export default function CreditCardPaymentsPage() {
             return dateString; // Return original if parsing fails
         }
         
-        // Format as dd-mmm-yyyy (e.g., 02-jan-2026)
+        // Format as dd-mmm-yyyy (e.g., 02-Jan-2026)
         const day = String(date.getDate()).padStart(2, '0');
-        const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const month = monthNames[date.getMonth()];
         const year = date.getFullYear();
         
@@ -471,7 +480,7 @@ export default function CreditCardPaymentsPage() {
         excelData.push([]);
 
         // Add table headers
-        excelData.push(['Payment Date', 'Card Holder', 'Card Number', 'Amount (AED)', 'Remarks']);
+        excelData.push(['Payment Date', 'Card Holder', 'Card Number', 'Amount (AED)', 'Paid Against', 'Remarks']);
 
         // Sort payments by date (oldest first) for better readability in Excel
         const sortedPayments = [...creditCards].sort((a, b) => {
@@ -517,6 +526,7 @@ export default function CreditCardPaymentsPage() {
                 cardHolder,
                 payment.cardNo || '',
                 payment.amount || 0, // Store as number
+                payment.paidAgainst || '',
                 payment.remarks || '',
             ]);
         });
@@ -534,6 +544,7 @@ export default function CreditCardPaymentsPage() {
             { wch: 20 }, // Card Holder
             { wch: 20 }, // Card Number
             { wch: 18 }, // Amount
+            { wch: 24 }, // Paid Against
             { wch: 30 }, // Remarks
         ];
 
@@ -542,7 +553,7 @@ export default function CreditCardPaymentsPage() {
 
         // Format header row (row 8, after company header and info)
         const headerRow = 8;
-        for (let col = 0; col <= 4; col++) {
+        for (let col = 0; col <= 5; col++) {
             const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
             if (worksheet[headerCellRef]) {
                 if (!worksheet[headerCellRef].s) {
@@ -643,6 +654,9 @@ export default function CreditCardPaymentsPage() {
                                         Amount
                                     </TableHead>
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Paid Against
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Remarks
                                     </TableHead>
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -687,6 +701,9 @@ export default function CreditCardPaymentsPage() {
                                                     currency: 'AED',
                                                     minimumFractionDigits: 2 
                                                 }).format(card.amount)}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                {card.paidAgainst}
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">    {card.remarks}</TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left"> 
@@ -937,6 +954,27 @@ export default function CreditCardPaymentsPage() {
                                                         field.onChange(parseFloat(value));
                                                     }
                                                 }}
+                                                disabled={isSubmitting}
+                                            />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Paid Against Field */}
+                            <FormField
+                                control={form.control}
+                                name="paidAgainst"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-base font-medium text-gray-700">
+                                            Paid Against
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input
+                                                placeholder="Enter paid against"
+                                                {...field}
                                                 disabled={isSubmitting}
                                             />
                                         </FormControl>

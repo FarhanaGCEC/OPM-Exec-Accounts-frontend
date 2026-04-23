@@ -74,9 +74,9 @@ export default function CreditCardStatements() {
     // Edit state - only one card can be edited at a time
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<{
-        totalPaymentDue: number;
-        paid: number;
-        epp: number;
+        totalPaymentDue: string;
+        paid: string;
+        epp: string;
     } | null>(null);
     /** New PDF → POST /statements/:id/attachment */
     const [statementAttachmentFile, setStatementAttachmentFile] = useState<File | null>(null);
@@ -301,9 +301,9 @@ export default function CreditCardStatements() {
         setEditingId(cardId);
         setStatementAttachmentFile(null);
         setEditValues({
-            totalPaymentDue: card.totalPaymentDue,
-            paid: card.paid,
-            epp: card.epp,
+            totalPaymentDue: String(card.totalPaymentDue ?? ''),
+            paid: String(card.paid ?? ''),
+            epp: String(card.epp ?? ''),
         });
     }, []);
 
@@ -366,6 +366,9 @@ export default function CreditCardStatements() {
             selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
         const monthStr = String(monthIndex + 1).padStart(2, '0');
         const monthParam = `${selectedYear}-${monthStr}`;
+        const totalPaymentDue = parseFloat(editValues.totalPaymentDue) || 0;
+        const paid = parseFloat(editValues.paid) || 0;
+        const epp = parseFloat(editValues.epp) || 0;
         
         try {
             setSaving(true);
@@ -381,9 +384,9 @@ export default function CreditCardStatements() {
             const patchRes = await creditCardService.updateCreditCardStatement(
                 validCardId,
                 {
-                    totalPaymentDue: editValues.totalPaymentDue,
-                    paid: editValues.paid,
-                    epp: editValues.epp,
+                    totalPaymentDue,
+                    paid,
+                    epp,
                 },
                 monthParam
             );
@@ -487,9 +490,9 @@ export default function CreditCardStatements() {
             if (isApprovalRequiredError(err) && editValues) {
                 const payload: Record<string, unknown> = {
                     statementMonth: monthParam,
-                    total_due: editValues.totalPaymentDue,
-                    paid_amount: editValues.paid,
-                    epp_balance: editValues.epp,
+                    total_due: totalPaymentDue,
+                    paid_amount: paid,
+                    epp_balance: epp,
                 };
                 if (statementAttachmentFile && statementAttachmentFile.name) {
                     payload.replace_attachment_requested = true;
@@ -523,10 +526,9 @@ export default function CreditCardStatements() {
         const sanitizedValue = value
             .replace(/[^0-9.]/g, '')
             .replace(/(\..*)\./g, '$1');
-        const numValue = parseFloat(sanitizedValue) || 0;
         setEditValues({
             ...editValues,
-            [field]: numValue,
+            [field]: sanitizedValue,
         });
     };
 
@@ -1004,8 +1006,8 @@ export default function CreditCardStatements() {
                                             {monthName} {year}
                                         </h3>
                                     </div>
-                                    <div className="overflow-x-auto rounded-lg">
-                                        <Table>
+                                    <div className="overflow-x-hidden rounded-lg">
+                                        <Table className="w-full table-fixed text-[11px] sm:text-[12px] [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[11px] sm:[&_th]:text-[12px] [&_td]:text-[11px] sm:[&_td]:text-[12px] [&_td]:leading-tight [&_th]:leading-tight [&_th]:overflow-hidden [&_td]:overflow-hidden [&_th]:text-clip [&_td]:text-clip">
                                             <TableHeader>
                                                 <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -1062,13 +1064,22 @@ export default function CreditCardStatements() {
                                                                     className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                                                 >
                                                                     <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                                        {card.issuingBank}
+                                                                        <div className="w-full truncate" title={card.issuingBank || ''}>
+                                                                            {card.issuingBank}
+                                                                        </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                        {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                                                        <div
+                                                                            className="w-full truncate"
+                                                                            title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
+                                                                        >
+                                                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                                                        </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                        {card.card_number || ''}
+                                                                        <div className="w-full truncate" title={card.card_number || ''}>
+                                                                            {card.card_number || ''}
+                                                                        </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                                         {formatDate(card.statement_date || '')}
@@ -1245,8 +1256,8 @@ export default function CreditCardStatements() {
                     return (
                 <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
                     <CardContent className="p-0">
-                        <div className="overflow-x-auto rounded-lg">
-                            <Table>
+                        <div className="overflow-x-hidden rounded-lg">
+                            <Table className="w-full table-fixed text-[11px] sm:text-[12px] [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[11px] sm:[&_th]:text-[12px] [&_td]:text-[11px] sm:[&_td]:text-[12px] [&_td]:leading-tight [&_th]:leading-tight [&_th]:overflow-hidden [&_td]:overflow-hidden [&_th]:text-clip [&_td]:text-clip">
                                 <TableHeader>
                                     <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -1311,13 +1322,22 @@ export default function CreditCardStatements() {
                                                     className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                                 >
                                                     <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                        {card.issuingBank}
+                                                        <div className="w-full truncate" title={card.issuingBank || ''}>
+                                                            {card.issuingBank}
+                                                        </div>
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                                        <div
+                                                            className="w-full truncate"
+                                                            title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
+                                                        >
+                                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                                        </div>
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                        {card.card_number || ''}
+                                                        <div className="w-full truncate" title={card.card_number || ''}>
+                                                            {card.card_number || ''}
+                                                        </div>
                                                     </TableCell>
                                                 
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">

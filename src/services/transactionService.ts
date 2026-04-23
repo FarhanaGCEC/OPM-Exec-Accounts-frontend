@@ -267,6 +267,8 @@ export interface PaymentMatchingApiResponse {
   payment_method: string;
   amount: string | number;
   bill_number?: string | null;
+  remark?: string | null;
+  remarks?: string | null;
   description?: string | null;
   payment_status?: string;
   created_by?: number;
@@ -284,6 +286,8 @@ export interface PaymentMatching {
   paymentMethod: string;
   amount: string | number;
   billNumber?: string;
+  remark?: string;
+  remarks?: string;
   description?: string;
   paymentStatus?: string;
   createdBy?: number;
@@ -585,6 +589,8 @@ export const transactionService = {
         paymentMethod: item.payment_method,
         amount: item.amount,
         billNumber: item.bill_number || undefined,
+        remark: item.remark || undefined,
+        remarks: item.remarks || item.remark || item.description || undefined,
         description: item.description || undefined,
         paymentStatus: item.payment_status,
         createdBy: item.created_by,
@@ -616,6 +622,10 @@ export const transactionService = {
     if (data.description) {
       apiData.description = data.description;
     }
+    if (data.remarks) {
+      apiData.remarks = data.remarks;
+      apiData.remark = data.remarks;
+    }
     
     console.log('[transactionService] createPaymentMatching - API payload:', JSON.stringify(apiData, null, 2));
     
@@ -633,6 +643,8 @@ export const transactionService = {
         paymentMethod: response.data.payment_method,
         amount: response.data.amount,
         billNumber: response.data.bill_number || undefined,
+        remark: response.data.remark || undefined,
+        remarks: response.data.remarks || response.data.remark || response.data.description || undefined,
         description: response.data.description || undefined,
         paymentStatus: response.data.payment_status,
         createdBy: response.data.created_by,
@@ -660,6 +672,10 @@ export const transactionService = {
     }
     if (data.invoiceNumber !== undefined) apiData.invoice_number = data.invoiceNumber;
     if (data.description !== undefined) apiData.description = data.description;
+    if (data.remarks !== undefined) {
+      apiData.remarks = data.remarks;
+      apiData.remark = data.remarks;
+    }
     
     const response = await api.patch<PaymentMatchingApiResponse>(`/purchase-bills/${id}`, apiData);
     if (response.success && response.data && isChangeRequestSubmittedEnvelope(response.data)) {
@@ -675,6 +691,8 @@ export const transactionService = {
         paymentMethod: response.data.payment_method,
         amount: response.data.amount,
         billNumber: response.data.bill_number || undefined,
+        remark: response.data.remark || undefined,
+        remarks: response.data.remarks || response.data.remark || response.data.description || undefined,
         description: response.data.description || undefined,
         paymentStatus: response.data.payment_status,
         createdBy: response.data.created_by,

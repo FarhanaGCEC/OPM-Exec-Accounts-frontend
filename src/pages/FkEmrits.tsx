@@ -54,7 +54,7 @@ type Currency = 'AED' | 'USD' | 'GBP';
 export default function FkEmrits() {
   const [loading, setLoading] = useState(false);
   const [allTransactions, setAllTransactions] = useState<FkEmritsTransaction[]>([]);
-  const [selectedCurrency, setSelectedCurrency] = useState<Currency>('USD');
+  const [selectedCurrency, setSelectedCurrency] = useState<Currency>('AED');
   const [filterText, setFilterText] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);

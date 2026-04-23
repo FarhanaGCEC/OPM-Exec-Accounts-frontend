@@ -589,8 +589,7 @@ function buildLedgerExportRows(filteredTransactions: BankTransaction[]): LedgerE
   const bodyTransactions = filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t));
   const sortedBody = sortTransactionsOldestFirst(bodyTransactions);
   const pdcPendingBottomRows = sortedBody.filter((t) => isUnapprovedPdcPinBottom(t));
-
-  return [
+  const rows: LedgerExportRowSpec[] = [
     ...sortedBody.map((t) => ({
       transaction: t,
       clientPendingBottomDup: false,
@@ -600,6 +599,18 @@ function buildLedgerExportRows(filteredTransactions: BankTransaction[]): LedgerE
       clientPendingBottomDup: true,
     })),
   ];
+
+  // Keep export deterministic: rows without visible date always at the end.
+  const datedRows = rows.filter(
+    ({ transaction, clientPendingBottomDup }) =>
+      displayTransactionDate(transaction, clientPendingBottomDup).trim() !== ''
+  );
+  const blankDateRows = rows.filter(
+    ({ transaction, clientPendingBottomDup }) =>
+      displayTransactionDate(transaction, clientPendingBottomDup).trim() === ''
+  );
+
+  return [...datedRows, ...blankDateRows];
 }
 
 function ledgerExportDetailsColumn(t: BankTransaction): string {
@@ -1823,11 +1834,12 @@ export default function BankTransaction() {
       const exportRows = buildLedgerExportRows(filteredTransactions);
       // #region agent log
       (() => {
-        const dateFlags = exportRows.map(({ transaction: t }, idx) => ({
+        const dateFlags = exportRows.map(({ transaction: t, clientPendingBottomDup }, idx) => ({
           idx,
           id: String(t.id ?? ''),
-          date: displayTransactionDate(t, false),
-          isBlankDate: !displayTransactionDate(t, false).trim(),
+          date: displayTransactionDate(t, clientPendingBottomDup),
+          isBlankDate: !displayTransactionDate(t, clientPendingBottomDup).trim(),
+          clientPendingBottomDup,
         }));
         const blankDateIndexes = dateFlags.filter((r) => r.isBlankDate).map((r) => r.idx);
         const lastDatedIndex = [...dateFlags]

@@ -467,6 +467,7 @@ export const creditCardService = {
         cardHolder: item.card_holder || '',
         cardNo: item.card_no || item.card_number || '',
         amount: item.amount !== null && item.amount !== undefined ? Number(item.amount) : 0,
+        paidAgainst: item.paid_against || item.paidAgainst || '',
         remarks: item.remarks || '',
       }));
       
@@ -486,6 +487,7 @@ export const creditCardService = {
     cardHolder?: string; // Optional if credit_card_id provided
     creditCardId?: string | number; // Optional - if provided, card_holder is optional
     amount: number;
+    paidAgainst?: string;
     remarks?: string;
   }): Promise<ApiResponse<any>> => {
     // Convert to API format (snake_case)
@@ -509,6 +511,10 @@ export const creditCardService = {
     if (data.remarks !== undefined) {
       payload.remarks = data.remarks;
     }
+
+    if (data.paidAgainst !== undefined) {
+      payload.paid_against = data.paidAgainst;
+    }
     
     return api.post<any>('/credit-card-payments', payload);
   },
@@ -522,6 +528,7 @@ export const creditCardService = {
       cardHolder?: string;
       creditCardId?: string | number;
       amount?: number;
+      paidAgainst?: string;
       remarks?: string;
     }
   ): Promise<ApiResponse<any>> => {
@@ -550,6 +557,10 @@ export const creditCardService = {
     
     if (data.remarks !== undefined) {
       payload.remarks = data.remarks;
+    }
+
+    if (data.paidAgainst !== undefined) {
+      payload.paid_against = data.paidAgainst;
     }
     
     return api.patch<any>(`/credit-card-payments/${id}`, payload);

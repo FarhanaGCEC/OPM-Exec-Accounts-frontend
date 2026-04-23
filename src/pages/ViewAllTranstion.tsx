@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { transactionService } from '../services/transactionService';
-import type { ApiResponse } from '../lib/api';
+import api, { type ApiResponse } from '../lib/api';
 import { formatIsoDateDisplay, formatJsDateDisplay } from '../lib/formatDisplayDate';
 import {
   remarksForDailyLedgerDisplay,
@@ -17,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Calendar, ChevronDown, Download, X } from 'lucide-react';
+import { Calendar, ChevronDown, Download, Upload, X } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 
@@ -100,6 +100,14 @@ interface TransactionSummary {
   customerPdc: number;
   purchaseBills: number;
   total: number;
+}
+
+interface DailyBankStatementMeta {
+  id?: number;
+  fileName?: string;
+  filename?: string;
+  originalName?: string;
+  original_filename?: string;
 }
 
 type OtherTransactionFilterOption =
@@ -192,6 +200,12 @@ const formatAmount = (value: string | number | null | undefined): string => {
   return numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+const ensurePdfFilename = (name: string | null | undefined): string => {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return 'bank-statement.pdf';
+  return /\.pdf$/i.test(trimmed) ? trimmed : `${trimmed}.pdf`;
+};
+
 // Helper function to format date for Excel (DD-MMM-YYYY, same as Daily Transaction)
 const formatDateForExcel = (date: Date | string | null): string => {
   if (!date) return '';
@@ -258,6 +272,14 @@ export default function ViewAllTranstion() {
     useState<OtherTransactionFilterOption>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [reportFile, setReportFile] = useState<File | null>(null);
+  const [statementMeta, setStatementMeta] = useState<DailyBankStatementMeta | null>(null);
+  const [statementLoading, setStatementLoading] = useState(false);
+  
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const itemsPerPage = 10;
 
   const filteredTransactions = transactions.filter((transaction) => {
@@ -455,6 +477,41 @@ export default function ViewAllTranstion() {
     setEndDate(null);
     setOtherTransactionFilter('all');
   };
+
+  const openUploadModal = useCallback(() => {
+    setUploadError(null);
+    setUploadSuccess(null);
+    setReportFile(null);
+    setShowUploadModal(true);
+  }, []);
+
+  const closeUploadModal = useCallback(() => {
+    setShowUploadModal(false);
+    setReportFile(null);
+    setUploadError(null);
+  }, []);
+
+  const loadStatementMeta = useCallback(async () => {
+    try {
+      setStatementLoading(true);
+      const response = await api.get<any>('/daily-bank-statement');
+      const body = response?.data;
+      const maybeMeta =
+        body?.data ??
+        body?.statement ??
+        body?.dailyBankStatement ??
+        body;
+      setStatementMeta(maybeMeta && typeof maybeMeta === 'object' ? maybeMeta : null);
+    } catch {
+      setStatementMeta(null);
+    } finally {
+      setStatementLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatementMeta();
+  }, [loadStatementMeta]);
 
   // Convert Date to string for input (YYYY-MM-DD format)
   const dateToString = (date: Date | null): string => {
@@ -702,6 +759,78 @@ export default function ViewAllTranstion() {
     window.URL.revokeObjectURL(url);
   }, [filteredTransactions, groupedTransactions, summary, startDate, endDate]);
 
+  const handleDownloadPdf = useCallback(async () => {
+    try {
+      setUploadError(null);
+      setUploadSuccess(null);
+      const token = localStorage.getItem('authToken');
+      const response = await fetch('/api/daily-bank-statement/file', {
+        method: 'GET',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to download statement PDF.';
+        try {
+          const errorBody = await response.json();
+          errorMessage = String(errorBody?.message || errorBody?.error || errorMessage);
+        } catch {
+          // keep default message
+        }
+        throw new Error(errorMessage);
+      }
+
+      let filename = 'bank-statement.pdf';
+      const disposition = String(response.headers.get('content-disposition') || '');
+      const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+      filename = nameMatch?.[1]
+        ? decodeURIComponent(nameMatch[1]).replace(/"/g, '')
+        : filename;
+      const blob = await response.blob();
+
+      filename = ensurePdfFilename(filename);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      setUploadSuccess('Statement PDF downloaded successfully.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download statement PDF.';
+      setUploadError(message);
+    }
+  }, []);
+
+  const handleReportUpload = useCallback(async () => {
+    if (!reportFile) {
+      setUploadError('Please select a report file first.');
+      return;
+    }
+    if (!reportFile.name.toLowerCase().endsWith('.pdf')) {
+      setUploadError('Only PDF files are allowed.');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setUploadError(null);
+      const formData = new FormData();
+      formData.append('file', reportFile, reportFile.name);
+      await api.post('/daily-bank-statement', formData);
+      await loadStatementMeta();
+      setUploadSuccess(`Statement "${reportFile.name}" uploaded successfully.`);
+      setShowUploadModal(false);
+      setReportFile(null);
+    } catch {
+      setUploadError('Failed to upload statement. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [loadStatementMeta, reportFile]);
+
+
+
   // Render transaction row based on type
   const renderTransactionRow = (transaction: AllTransaction) => {
     if (transaction.transactionType === 'Daily Transaction') {
@@ -769,12 +898,10 @@ export default function ViewAllTranstion() {
           <TableCell className="text-sm py-2 px-4 text-left align-middle">
             {remarksText}
           </TableCell>
-          <TableCell className="text-sm py-2 px-4 text-left align-middle">-</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'GCEC PDC') {
       const txn = transaction as GCECPDC;
-      const isApproved = Boolean(txn.ledgerApproved ?? txn.approved);
       return (
         <TableRow key={txn.id} className="border-b border-gray-100 bg-[#f3efc4] hover:bg-[#ece6ad] transition-colors">
           <TableCell className="text-red-600 text-sm py-2 px-4">{displayTransactionDate(txn.date)}</TableCell>
@@ -789,22 +916,6 @@ export default function ViewAllTranstion() {
           </TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
-          <TableCell className="text-sm py-2 px-4 text-left align-middle">
-            {(txn.showLedgerApprovalCheckbox ?? true) ? (
-              <label className="flex items-center gap-1.5 text-xs text-gray-800 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  className="rounded border-gray-400 text-[#f7c46d] focus:ring-[#f7c46d]"
-                  checked={isApproved}
-                  disabled
-                  readOnly
-                />
-                <span>Approved</span>
-              </label>
-            ) : (
-              '-'
-            )}
-          </TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Customer PDC') {
@@ -823,7 +934,6 @@ export default function ViewAllTranstion() {
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
-          <TableCell className="text-sm py-2 px-4 text-left align-middle">-</TableCell>
         </TableRow>
       );
     } else if (transaction.transactionType === 'Purchase Bill') {
@@ -843,7 +953,6 @@ export default function ViewAllTranstion() {
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
-          <TableCell className="text-sm py-2 px-4 text-left align-middle">-</TableCell>
         </TableRow>
       );
     }
@@ -866,6 +975,43 @@ export default function ViewAllTranstion() {
                 Filter by Date
                 <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
               </button>
+              <div className="flex items-right gap-2">
+              <div
+                className={`flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md ${
+                  loading || statementLoading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                <div className="relative group">
+                  <button
+                    type="button"
+                    onClick={handleDownloadPdf}
+                    disabled={loading || statementLoading || !statementMeta}
+                    className="p-0.5 rounded hover:bg-gray-100 disabled:cursor-not-allowed"
+                    aria-label="Download PDF"
+                  >
+                    <Download className="w-5 h-5" />
+                  </button>
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 rounded bg-black px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                    Download
+                  </span>
+                </div>
+                <div className="relative group">
+                  <button
+                    type="button"
+                    onClick={openUploadModal}
+                    disabled={loading || statementLoading}
+                    className="p-0.5 rounded hover:bg-gray-100 disabled:cursor-not-allowed"
+                    aria-label="Upload PDF"
+                  >
+                    <Upload className="w-5 h-5" />
+                  </button>
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 rounded bg-black px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                    Upload
+                  </span>
+                </div>
+             
+                <span>Bank Statement</span>
+              </div>
 
               <button
                 onClick={handleDownloadExcel}
@@ -875,6 +1021,7 @@ export default function ViewAllTranstion() {
                 <Download className="w-5 h-5" />
                 Download Excel
               </button>
+              </div>
             </div>
           </div>
 
@@ -1000,13 +1147,12 @@ export default function ViewAllTranstion() {
                       <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Credit</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Balance</TableHead>
                       <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Remarks</TableHead>
-                      <TableHead className="font-semibold text-black text-sm text-left py-2 px-4">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedItems.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                           No transactions on this page
                         </TableCell>
                       </TableRow>
@@ -1016,7 +1162,7 @@ export default function ViewAllTranstion() {
                           const displayName = getTransactionTypeDisplayName(item.content as string);
                           return (
                             <TableRow key={`heading-${item.content}-${index}`} className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-300">
-                              <TableCell colSpan={8} className="font-bold text-gray-900 text-lg py-4 px-4">
+                              <TableCell colSpan={7} className="font-bold text-gray-900 text-lg py-4 px-4">
                                 {displayName}
                               </TableCell>
                             </TableRow>
@@ -1190,6 +1336,80 @@ export default function ViewAllTranstion() {
           )}
         </CardContent>
       </Card>
+
+      {statementMeta && (
+        <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
+          Current statement:{' '}
+          {ensurePdfFilename(
+            statementMeta.fileName ??
+              statementMeta.filename ??
+              statementMeta.originalName ??
+              statementMeta.original_filename ??
+              'bank-statement.pdf'
+          )}
+        </div>
+      )}
+
+      {uploadSuccess && (
+        <div className="mt-4 rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700">
+          {uploadSuccess}
+        </div>
+      )}
+
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="text-lg font-semibold text-gray-900">Upload Report</h3>
+              <button
+                onClick={closeUploadModal}
+                className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close upload modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 px-4 py-4">
+              <label className="block text-sm font-medium text-gray-700">
+                Select statement file
+              </label>
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null;
+                  setReportFile(selected);
+                  setUploadError(null);
+                }}
+                className="block w-full rounded border border-gray-300 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#f7c46d] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-black"
+              />
+              {reportFile && (
+                <p className="text-xs text-gray-600">
+                  Selected: {reportFile.name}
+                </p>
+              )}
+              {uploadError && (
+                <p className="text-sm text-red-600">{uploadError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t px-4 py-3">
+              <button
+                onClick={closeUploadModal}
+                className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReportUpload}
+                disabled={isUploading}
+                className="rounded bg-[#f7c46d] px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5b764] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isUploading ? 'Uploading...' : 'Upload'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
    </div>
   );
 }

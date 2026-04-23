@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import Layout from '../components/Layout';
-import { transactionService, type AccountSummary } from '../services/transactionService';
-import type { ApiResponse } from '../lib/api';
+import { transactionService } from '../services/transactionService';
 import ViewAllTranstion from './ViewAllTranstion';
 
 const formatAmount = (value: number | string | undefined): string => {
@@ -10,20 +9,40 @@ const formatAmount = (value: number | string | undefined): string => {
   return numValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
+type DashboardSummary = {
+  totalDebit: number;
+  totalCredit: number;
+  currentBalance: number;
+  availableBalance: number;
+  availableBalanceRemark: string;
+};
+
+const toAmount = (value: number | string | null | undefined): number => {
+  if (value == null) return 0;
+  const parsed = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, '').trim());
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
 export default function Dashboard() {
-  const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null);
+  const [accountSummary, setAccountSummary] = useState<DashboardSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
 
   const fetchAccountSummary = useCallback(async () => {
     try {
       setLoadingSummary(true);
-      const response: ApiResponse<AccountSummary> = await transactionService.getAccountSummary();
-
-      if (response.success && response.data) {
-        setAccountSummary(response.data);
-      } else {
+      const response = await transactionService.getAccountSummary();
+      if (!response.success || !response.data) {
         setAccountSummary(null);
+        return;
       }
+
+      setAccountSummary({
+        totalDebit: toAmount(response.data.totalDebit),
+        totalCredit: toAmount(response.data.totalCredit),
+        currentBalance: toAmount(response.data.totalBalance),
+        availableBalance: toAmount(response.data.totalBalance),
+        availableBalanceRemark: '',
+      });
     } catch (err) {
       console.error('[Dashboard] Error fetching account summary:', err);
       setAccountSummary(null);
@@ -36,48 +55,11 @@ export default function Dashboard() {
     fetchAccountSummary();
   }, [fetchAccountSummary]);
 
-  const totalDebitValue =
-    typeof accountSummary?.totalDebit === 'number'
-      ? accountSummary.totalDebit
-      : parseFloat(String(accountSummary?.totalDebit || 0));
-  const totalCreditValue =
-    typeof accountSummary?.totalCredit === 'number'
-      ? accountSummary.totalCredit
-      : parseFloat(String(accountSummary?.totalCredit || 0));
-  const currentBalanceValue = totalCreditValue - totalDebitValue;
-  const rawSummary = accountSummary as
-    | (AccountSummary & {
-        remarks?: string;
-        remark?: string;
-        availableBalance?: number | string;
-        mainAvailableBalance?: number | string;
-        availableBalanceRemark?: string;
-        available_balance_remark?: string;
-        availableBalanceTransaction?: { remarks?: string; remark?: string };
-        available_balance_transaction?: { remarks?: string; remark?: string };
-      })
-    | null;
-
-  const availableBalanceValue =
-    typeof rawSummary?.availableBalance === 'number'
-      ? rawSummary.availableBalance
-      : rawSummary?.availableBalance != null
-        ? parseFloat(String(rawSummary.availableBalance))
-        : typeof rawSummary?.mainAvailableBalance === 'number'
-          ? rawSummary.mainAvailableBalance
-          : rawSummary?.mainAvailableBalance != null
-            ? parseFloat(String(rawSummary.mainAvailableBalance))
-            : currentBalanceValue;
-  const availableBalanceRemark =
-    rawSummary?.availableBalanceTransaction?.remarks ||
-    rawSummary?.availableBalanceTransaction?.remark ||
-    rawSummary?.available_balance_transaction?.remarks ||
-    rawSummary?.available_balance_transaction?.remark ||
-    rawSummary?.availableBalanceRemark ||
-    rawSummary?.available_balance_remark ||
-    rawSummary?.remarks ||
-    rawSummary?.remark ||
-    '';
+  const totalDebitValue = accountSummary?.totalDebit ?? 0;
+  const totalCreditValue = accountSummary?.totalCredit ?? 0;
+  const currentBalanceValue = accountSummary?.currentBalance ?? 0;
+  const availableBalanceValue = accountSummary?.availableBalance ?? currentBalanceValue;
+  const availableBalanceRemark = accountSummary?.availableBalanceRemark ?? '';
   const shouldHighlightAvailableBalanceCell =
     availableBalanceRemark.trim().toLowerCase() === 'available balance';
 
@@ -91,16 +73,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 m-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 m-6">
         {loadingSummary ? (
           <>
             {[1, 2, 3, 4].map((i) => (
               <Card key={i} className="bg-white border border-gray-200">
-                <CardContent className="p-6">
-                  <div className="flex flex-col items-center justify-center text-center h-32">
+                <CardContent className="p-4">
+                  <div className="flex flex-col items-center justify-center text-center h-24">
                     <div className="animate-pulse">
-                      <div className="h-4 bg-gray-200 rounded w-24 mb-4" />
-                      <div className="h-8 bg-gray-200 rounded w-32" />
+                      <div className="h-3 bg-gray-200 rounded w-20 mb-3" />
+                      <div className="h-6 bg-gray-200 rounded w-28" />
                     </div>
                   </div>
                 </CardContent>
@@ -110,11 +92,11 @@ export default function Dashboard() {
         ) : accountSummary ? (
           <>
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
-              <CardContent className="p-6">
+              <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-base font-medium text-gray-600 mb-3">Total Debit</p>
+                  <p className="text-sm font-medium text-gray-600 mb-2">Total Debit</p>
                   <div className="flex items-baseline space-x-2">
-                    <p className="text-2xl font-bold text-gray-900">
+                    <p className="text-xl font-bold text-gray-900">
                       AED {formatAmount(totalDebitValue)}
                     </p>
                   </div>
@@ -123,11 +105,11 @@ export default function Dashboard() {
             </Card>
 
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
-              <CardContent className="p-6">
+              <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-base font-medium text-gray-600 mb-3">Total Credit</p>
+                  <p className="text-sm font-medium text-gray-600 mb-2">Total Credit</p>
                   <div className="flex items-baseline space-x-2">
-                    <p className="text-2xl font-bold text-gray-900">
+                    <p className="text-xl font-bold text-gray-900">
                       AED {formatAmount(totalCreditValue)}
                     </p>
                   </div>
@@ -135,12 +117,12 @@ export default function Dashboard() {
               </CardContent>
             </Card>
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
-              <CardContent className="p-6">
+              <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-base font-medium text-gray-600 mb-3">Current Balance</p>
+                  <p className="text-sm font-medium text-gray-600 mb-2">Current Balance</p>
                   <div className="flex items-baseline space-x-2">
                     <p
-                      className={`text-2xl font-bold ${currentBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
+                      className={`text-xl font-bold ${currentBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
                     >
                       AED {formatAmount(currentBalanceValue)}
                     </p>
@@ -149,14 +131,14 @@ export default function Dashboard() {
               </CardContent>
             </Card>
             <Card
-              className={`hover:shadow-lg transition-all duration-300 border rounded-lg overflow-hidden ${
-                shouldHighlightAvailableBalanceCell ? 'border-[#91d34d] bg-[#91d34d]' : 'bg-white border-gray-200'
-              }`}
+              className={"hover:shadow-lg transition-all duration-300 border rounded-lg overflow-hidden:bg-[#91d34d]"}
+
+            
             >
-              <CardContent className="p-6">
+              <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
                   <p
-                    className={`text-base font-medium mb-3 ${
+                    className={`text-sm font-medium mb-2 ${
                       shouldHighlightAvailableBalanceCell ? 'text-gray-900' : 'text-gray-600'
                     }`}
                   >
@@ -164,7 +146,7 @@ export default function Dashboard() {
                   </p>
                   <div className="flex items-baseline space-x-2">
                     <p
-                      className={`text-2xl font-bold px-2 rounded ${availableBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
+                      className={`text-xl font-bold px-1.5 rounded ${availableBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
                     >
                       AED {formatAmount(availableBalanceValue)}
                     </p>
