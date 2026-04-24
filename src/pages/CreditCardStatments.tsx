@@ -1006,8 +1006,8 @@ export default function CreditCardStatements() {
                                             {monthName} {year}
                                         </h3>
                                     </div>
-                                    <div className="overflow-x-hidden rounded-lg">
-                                        <Table className="w-full table-fixed text-[11px] sm:text-[12px] [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[11px] sm:[&_th]:text-[12px] [&_td]:text-[11px] sm:[&_td]:text-[12px] [&_td]:leading-tight [&_th]:leading-tight [&_th]:overflow-hidden [&_td]:overflow-hidden [&_th]:text-clip [&_td]:text-clip">
+                                    <div className="overflow-x-auto rounded-lg">
+                                        <Table className="w-full table-auto text-[14px] sm:text-[15px] [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight [&_td]:overflow-hidden [&_td]:text-clip">
                                             <TableHeader>
                                                 <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -1040,10 +1040,10 @@ export default function CreditCardStatements() {
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                                         Amount Pending
                                                     </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Attachment
+                                                    <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[44px]">
+                                                        File
                                                     </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                                    <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
                                                         Actions
                                                     </TableHead>
                                                 </TableRow>
@@ -1139,7 +1139,7 @@ export default function CreditCardStatements() {
                                                                     }`}>
                                                                         {formatCurrency(getDisplayAmountPending(card))}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
                                                                         <StatementAttachmentTableCell
                                                                             card={card}
                                                                             isEditing={Boolean(
@@ -1166,7 +1166,7 @@ export default function CreditCardStatements() {
                                                                             onEditClick={() => handleEdit(card)}
                                                                         />
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
                                                                         {editingId && String(editingId) === String(card.id) ? (
                                                                             <div className="flex gap-2">
                                                                                 <Button
@@ -1198,7 +1198,8 @@ export default function CreditCardStatements() {
                                                                             </div>
                                                                         ) : (
                                                                             <Button
-                                                                                variant="outline"
+                                                                                variant="ghost"
+                                                                                size="icon"
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
                                                                                     if (card.id) {
@@ -1206,10 +1207,9 @@ export default function CreditCardStatements() {
                                                                                     }
                                                                                 }}
                                                                                 disabled={!card.id}
-                                                                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                                                                className="h-8 w-8 p-0 text-black hover:bg-[#f7c46d]/40"
                                                                             >
                                                                                 <Pencil className="w-4 h-4 text-black" />
-                                                                                Edit
                                                                             </Button>
                                                                         )}
                                                                     </TableCell>
@@ -1256,8 +1256,8 @@ export default function CreditCardStatements() {
                     return (
                 <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
                     <CardContent className="p-0">
-                        <div className="overflow-x-hidden rounded-lg">
-                            <Table className="w-full table-fixed text-[11px] sm:text-[12px] [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[11px] sm:[&_th]:text-[12px] [&_td]:text-[11px] sm:[&_td]:text-[12px] [&_td]:leading-tight [&_th]:leading-tight [&_th]:overflow-hidden [&_td]:overflow-hidden [&_th]:text-clip [&_td]:text-clip">
+                        <div className="overflow-x-auto rounded-lg">
+                            <Table className="w-full table-auto text-[14px] sm:text-[15px] [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight [&_td]:overflow-hidden [&_td]:text-clip">
                                 <TableHeader>
                                     <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -1290,10 +1290,10 @@ export default function CreditCardStatements() {
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
                                             Amount Pending
                                         </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Attachment
+                                        <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[44px]">
+                                            File
                                         </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
                                             Actions
                                         </TableHead>
                                     </TableRow>
@@ -1400,7 +1400,7 @@ export default function CreditCardStatements() {
                                                         {/* amountPending is auto-calculated, so it's read-only */}
                                                         {formatCurrency(getDisplayAmountPending(card))}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top">
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
                                                         <StatementAttachmentTableCell
                                                             card={card}
                                                             isEditing={Boolean(
@@ -1422,7 +1422,7 @@ export default function CreditCardStatements() {
                                                             onEditClick={() => handleEdit(card)}
                                                         />
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
                                                         {editingId && String(editingId) === String(card.id) ? (
                                                             <div className="flex gap-2">
                                                                 <Button
@@ -1452,7 +1452,8 @@ export default function CreditCardStatements() {
                                                             </div>
                                                         ) : (
                                                             <Button
-                                                                variant="outline"
+                                                                variant="ghost"
+                                                                size="icon"
                                                                 onClick={(e) => {
                                                                 
                                                                     e.stopPropagation();
@@ -1461,10 +1462,9 @@ export default function CreditCardStatements() {
                                                                     }
                                                                 }}
                                                                 disabled={!card.id}
-                                                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                                                className="h-8 w-8 p-0 text-black hover:bg-[#f7c46d]/40"
                                                             >
                                                                 <Pencil className="w-4 h-4 text-black" />
-                                                                Edit
                                                             </Button>
                                                         )}
                                                     </TableCell>
