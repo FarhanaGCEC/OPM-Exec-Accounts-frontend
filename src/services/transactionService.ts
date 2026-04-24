@@ -328,7 +328,10 @@ export interface PendingChecks {
 }
 
 export interface AccountSummary {
+  asOfDate?: string;
   totalBalance: number;
+  mainAvailableBalance?: number | string;
+  availableBalance?: number | string;
   totalCredit: number;
   totalDebit: number;
   pendingChecks: PendingChecks;

@@ -40,7 +40,9 @@ export default function Dashboard() {
         totalDebit: toAmount(response.data.totalDebit),
         totalCredit: toAmount(response.data.totalCredit),
         currentBalance: toAmount(response.data.totalBalance),
-        availableBalance: toAmount(response.data.totalBalance),
+        availableBalance: toAmount(
+          response.data.availableBalance ?? response.data.mainAvailableBalance ?? response.data.totalBalance
+        ),
         availableBalanceRemark: '',
       });
     } catch (err) {

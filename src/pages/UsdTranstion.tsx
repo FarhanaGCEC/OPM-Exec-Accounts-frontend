@@ -1,8 +1,8 @@
 import { Button } from '@/components/ui/button';
 import Layout from '../components/Layout';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileSpreadsheet, Plus, Edit, Trash2, Loader2, Search } from 'lucide-react';
-import type { ApiResponse } from '../lib/api';
+import { FileSpreadsheet, Plus, Edit, Trash2, Loader2, Search, Download, Upload, X } from 'lucide-react';
+import api, { type ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
@@ -46,6 +46,27 @@ interface UsdTransaction {
   balance?: number | string;
 }
 
+interface DailyBankStatementMeta {
+  id?: number;
+  fileName?: string;
+  filename?: string;
+  originalName?: string;
+  original_filename?: string;
+}
+
+interface ToastState {
+  type: 'success' | 'error';
+  message: string;
+}
+
+const STATEMENT_CURRENCY = 'USD';
+
+const ensurePdfFilename = (name: string | null | undefined): string => {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return 'bank-statement.pdf';
+  return /\.pdf$/i.test(trimmed) ? trimmed : `${trimmed}.pdf`;
+};
+
 const parseUsdTransactionDate = (value: string): Date | null => {
   const parsed = new Date(value);
   if (!Number.isNaN(parsed.getTime())) return parsed;
@@ -70,9 +91,15 @@ export default function UsdTranstion() {
   const [editingTransaction, setEditingTransaction] = useState<UsdTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<UsdTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [filterText, setFilterText] = useState('');
   const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
   const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [reportFile, setReportFile] = useState<File | null>(null);
+  const [statementMeta, setStatementMeta] = useState<DailyBankStatementMeta | null>(null);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState<{
@@ -127,6 +154,114 @@ export default function UsdTranstion() {
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
+
+  const loadStatementMeta = useCallback(async () => {
+    try {
+      setStatementLoading(true);
+      const response = await api.get<any>('/daily-bank-statement', {
+        params: { currency: STATEMENT_CURRENCY },
+      });
+      const body = response?.data;
+      const maybeMeta = body?.data ?? body?.statement ?? body?.dailyBankStatement ?? body;
+      setStatementMeta(maybeMeta && typeof maybeMeta === 'object' ? maybeMeta : null);
+    } catch {
+      setStatementMeta(null);
+    } finally {
+      setStatementLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStatementMeta();
+  }, [loadStatementMeta]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const showToast = useCallback((type: ToastState['type'], message: string) => {
+    setToast({ type, message });
+  }, []);
+
+  const openUploadModal = useCallback(() => {
+    setReportFile(null);
+    setShowUploadModal(true);
+  }, []);
+
+  const closeUploadModal = useCallback(() => {
+    setShowUploadModal(false);
+    setReportFile(null);
+  }, []);
+
+  const handleDownloadStatementPdf = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(
+        `/api/daily-bank-statement/file?currency=${encodeURIComponent(STATEMENT_CURRENCY)}`,
+        {
+          method: 'GET',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
+      );
+
+      if (!response.ok) {
+        let errorMessage = 'Failed to download statement PDF.';
+        try {
+          const errorBody = await response.json();
+          errorMessage = String(errorBody?.message || errorBody?.error || errorMessage);
+        } catch {
+          // keep default message
+        }
+        throw new Error(errorMessage);
+      }
+
+      let filename = 'bank-statement.pdf';
+      const disposition = String(response.headers.get('content-disposition') || '');
+      const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+      filename = nameMatch?.[1] ? decodeURIComponent(nameMatch[1]).replace(/"/g, '') : filename;
+      const blob = await response.blob();
+      const fileToDownload = ensurePdfFilename(filename);
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileToDownload;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      showToast('success', 'Statement PDF downloaded successfully.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to download statement PDF.';
+      showToast('error', message);
+    }
+  }, [showToast]);
+
+  const handleReportUpload = useCallback(async () => {
+    if (!reportFile) {
+      showToast('error', 'Please select a report file first.');
+      return;
+    }
+    if (!reportFile.name.toLowerCase().endsWith('.pdf')) {
+      showToast('error', 'Only PDF files are allowed.');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append('file', reportFile, reportFile.name);
+      await api.post(`/daily-bank-statement?currency=${encodeURIComponent(STATEMENT_CURRENCY)}`, formData);
+      await loadStatementMeta();
+      showToast('success', `Statement "${reportFile.name}" uploaded successfully.`);
+      setShowUploadModal(false);
+      setReportFile(null);
+    } catch {
+      showToast('error', 'Failed to upload statement. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [loadStatementMeta, reportFile, showToast]);
 
   const sortedTransactions = useMemo(
     () =>
@@ -578,6 +713,40 @@ export default function UsdTranstion() {
           <h2 className="text-2xl font-bold text-gray-900">ADCB GCEC CLOUD (USD)</h2>
         </div>
         <div className="flex items-center gap-3 mr-4">
+          <div className="flex h-10 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 shadow-sm">
+            <Button
+              onClick={handleDownloadStatementPdf}
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-black hover:bg-[#f7c46d]/30"
+              disabled={statementLoading}
+              title="Download bank statement"
+            >
+              <Download className="h-5 w-5" />
+            </Button>
+            <Button
+              onClick={openUploadModal}
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-black hover:bg-[#f7c46d]/30"
+              disabled={isUploading}
+              title="Upload bank statement"
+            >
+              <Upload className="h-5 w-5" />
+            </Button>
+            <span className="px-1 text-sm font-semibold text-black">Bank Statement</span>
+            {statementMeta && (
+              <span className="max-w-[170px] truncate text-xs text-gray-600">
+                {ensurePdfFilename(
+                  statementMeta.fileName ??
+                    statementMeta.filename ??
+                    statementMeta.originalName ??
+                    statementMeta.original_filename ??
+                    'bank-statement.pdf'
+                )}
+              </span>
+            )}
+          </div>
           <Button
             onClick={handleDownloadExcel}
             variant="outline"
@@ -720,6 +889,62 @@ export default function UsdTranstion() {
           </div>
         )}
       </div>
+
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="text-lg font-semibold text-gray-900">Upload Report</h3>
+              <button
+                onClick={closeUploadModal}
+                className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close upload modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 px-4 py-4">
+              <label className="block text-sm font-medium text-gray-700">Select statement file</label>
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null;
+                  setReportFile(selected);
+                }}
+                className="block w-full rounded border border-gray-300 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#f7c46d] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-black"
+              />
+              {reportFile && <p className="text-xs text-gray-600">Selected: {reportFile.name}</p>}
+            </div>
+            <div className="flex justify-end gap-2 border-t px-4 py-3">
+              <button
+                onClick={closeUploadModal}
+                className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReportUpload}
+                disabled={isUploading}
+                className="rounded bg-[#f7c46d] px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5b764] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isUploading ? 'Uploading...' : 'Upload'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toast && (
+        <div
+          className={`fixed right-4 top-4 z-[70] rounded-md border px-4 py-2 text-sm shadow-lg ${
+            toast.type === 'success'
+              ? 'border-green-200 bg-green-50 text-green-700'
+              : 'border-red-200 bg-red-50 text-red-700'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
