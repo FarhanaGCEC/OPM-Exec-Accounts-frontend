@@ -15,6 +15,7 @@ export const SIDEBAR_MENU_ITEMS = [
   { key: 'fk_emirates_nbd', label: 'FK EMIRATES NBD' },
   { key: 'user_accounts_management', label: 'User Accounts Management' },
   { key: 'approval_queue', label: 'Approval Queue' },
+  { key: 'monthly_bank_statements', label: 'Monthly Bank Statements' },
 ] as const;
 
 export type SidebarPermissionKey = (typeof SIDEBAR_MENU_ITEMS)[number]['key'];

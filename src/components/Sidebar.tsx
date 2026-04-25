@@ -14,6 +14,7 @@ import {
   Inbox,
 } from 'lucide-react';
 import {
+  canApprovePdcDailyLedger,
   clearAuthStorage,
   hasSidebarPermission,
   isCurrentUserAdmin,
@@ -40,6 +41,8 @@ interface MenuItem {
   adminOnly?: boolean;
   /** If set, only JWT/stored role `admin` (not accountant). */
   roleAdminOnly?: boolean;
+  /** If set, only role `admin` or `accountant`. */
+  adminOrAccountantOnly?: boolean;
   /** If set, only standard users (approval flow); hide for admin / accountant. */
   standardUserOnly?: boolean;
 }
@@ -146,6 +149,14 @@ const menuItems: MenuItem[] = [
     sidebarKey: 'approval_queue',
     roleAdminOnly: true,
   },
+  {
+    id: 'monthly-bank-statements',
+    label: 'Monthly Bank Statements',
+    icon: Inbox,
+    path: '/monthly-bank-statements',
+    sidebarKey: 'monthly_bank_statements',
+    adminOrAccountantOnly: true,
+  },
 ];
 
 export default function Sidebar() {
@@ -160,6 +171,7 @@ export default function Sidebar() {
   const visibleMenuItems = menuItems.filter((item) => {
     if (item.standardUserOnly && !showMyChangeRequestsInNav()) return false;
     if (item.roleAdminOnly && !isRoleAdmin()) return false;
+    if (item.adminOrAccountantOnly && !canApprovePdcDailyLedger()) return false;
     if (item.adminOnly && !isAdmin) return false;
     if (item.sidebarKey && !hasSidebarPermission(item.sidebarKey)) return false;
     return true;
