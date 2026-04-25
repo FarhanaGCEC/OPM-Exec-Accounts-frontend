@@ -729,6 +729,7 @@ export default function FkEmrits() {
   };
 
   const currencySymbol = getCurrencySymbol(selectedCurrency);
+  const shouldShowBankCharges = selectedCurrency !== 'AED';
 
   return (
     <Layout>
@@ -884,7 +885,9 @@ export default function FkEmrits() {
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Description</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Details</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Debit</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Bank Charges</TableHead>
+                    {shouldShowBankCharges && (
+                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Bank Charges</TableHead>
+                    )}
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Credit</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Balance</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Actions</TableHead>
@@ -916,13 +919,15 @@ export default function FkEmrits() {
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm py-3 px-4">
-                        {transaction.bankCharges ? (
-                          <span className="text-red-600 font-semibold">{currencySymbol}{formatAmount(transaction.bankCharges)}</span>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </TableCell>
+                      {shouldShowBankCharges && (
+                        <TableCell className="text-sm py-3 px-4">
+                          {transaction.bankCharges ? (
+                            <span className="text-red-600 font-semibold">{currencySymbol}{formatAmount(transaction.bankCharges)}</span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell className="text-sm py-3 px-4">
                         {transaction.credit ? (
                           <span className="text-black font-semibold">{currencySymbol}{formatAmount(transaction.credit)}</span>
@@ -1095,17 +1100,19 @@ export default function FkEmrits() {
                 placeholder="0.00"
               />
             </div>
-            <div>
-              <Label htmlFor="bank_charges">Bank Charges</Label>
-              <Input
-                id="bank_charges"
-                type="number"
-                step="0.01"
-                value={formData.bankCharges}
-                onChange={(e) => setFormData({ ...formData, bankCharges: e.target.value })}
-                placeholder="0.00"
-              />
-            </div>
+            {shouldShowBankCharges && (
+              <div>
+                <Label htmlFor="bank_charges">Bank Charges</Label>
+                <Input
+                  id="bank_charges"
+                  type="number"
+                  step="0.01"
+                  value={formData.bankCharges}
+                  onChange={(e) => setFormData({ ...formData, bankCharges: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-4">
               <Button
                 variant="outline"
