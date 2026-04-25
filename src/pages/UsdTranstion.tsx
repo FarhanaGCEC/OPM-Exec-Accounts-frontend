@@ -97,7 +97,7 @@ export default function UsdTranstion() {
   const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [reportFile, setReportFile] = useState<File | null>(null);
-  const [statementMeta, setStatementMeta] = useState<DailyBankStatementMeta | null>(null);
+  const [, setStatementMeta] = useState<DailyBankStatementMeta | null>(null);
   const [statementLoading, setStatementLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
@@ -713,40 +713,26 @@ export default function UsdTranstion() {
           <h2 className="text-2xl font-bold text-gray-900">ADCB GCEC CLOUD (USD)</h2>
         </div>
         <div className="flex items-center gap-3 mr-4">
-          <div className="flex h-10 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 shadow-sm">
-            <Button
-              onClick={handleDownloadStatementPdf}
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-black hover:bg-[#f7c46d]/30"
-              disabled={statementLoading}
-              title="Download bank statement"
-            >
-              <Download className="h-5 w-5" />
-            </Button>
-            <Button
-              onClick={openUploadModal}
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-black hover:bg-[#f7c46d]/30"
-              disabled={isUploading}
-              title="Upload bank statement"
-            >
-              <Upload className="h-5 w-5" />
-            </Button>
-            <span className="px-1 text-sm font-semibold text-black">Bank Statement</span>
-            {statementMeta && (
-              <span className="max-w-[170px] truncate text-xs text-gray-600">
-                {ensurePdfFilename(
-                  statementMeta.fileName ??
-                    statementMeta.filename ??
-                    statementMeta.originalName ??
-                    statementMeta.original_filename ??
-                    'bank-statement.pdf'
-                )}
-              </span>
-            )}
-          </div>
+          <Button
+            onClick={handleDownloadStatementPdf}
+            variant="outline"
+            className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black"
+            disabled={statementLoading}
+            title="Download bank statement"
+          >
+            <Download className="h-4 w-4" />
+            <span>Download Bank Statement</span>
+          </Button>
+          <Button
+            onClick={openUploadModal}
+            variant="outline"
+            className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black"
+            disabled={isUploading}
+            title="Upload bank statement"
+          >
+            <Upload className="h-4 w-4" />
+            <span>Upload Bank Statement</span>
+          </Button>
           <Button
             onClick={handleDownloadExcel}
             variant="outline"

@@ -976,42 +976,26 @@ export default function ViewAllTranstion() {
                 <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
               </button>
               <div className="flex items-right gap-2">
-              <div
-                className={`flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md ${
-                  loading || statementLoading ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={loading || statementLoading || !statementMeta}
+                className="flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Download Bank Statement PDF"
               >
-                <div className="relative group">
-                  <button
-                    type="button"
-                    onClick={handleDownloadPdf}
-                    disabled={loading || statementLoading || !statementMeta}
-                    className="p-0.5 rounded hover:bg-gray-100 disabled:cursor-not-allowed"
-                    aria-label="Download PDF"
-                  >
-                    <Download className="w-5 h-5" />
-                  </button>
-                  <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 rounded bg-black px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                    Download
-                  </span>
-                </div>
-                <div className="relative group">
-                  <button
-                    type="button"
-                    onClick={openUploadModal}
-                    disabled={loading || statementLoading}
-                    className="p-0.5 rounded hover:bg-gray-100 disabled:cursor-not-allowed"
-                    aria-label="Upload PDF"
-                  >
-                    <Upload className="w-5 h-5" />
-                  </button>
-                  <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 rounded bg-black px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                    Upload
-                  </span>
-                </div>
-             
-                <span>Bank Statement</span>
-              </div>
+                <Download className="w-5 h-5" />
+                Download Bank Statement
+              </button>
+              <button
+                type="button"
+                onClick={openUploadModal}
+                disabled={loading || statementLoading}
+                className="flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Upload Bank Statement PDF"
+              >
+                <Upload className="w-5 h-5" />
+                Upload Bank Statement
+              </button>
 
               <button
                 onClick={handleDownloadExcel}

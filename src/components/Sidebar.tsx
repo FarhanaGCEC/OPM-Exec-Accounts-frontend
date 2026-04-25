@@ -81,10 +81,6 @@ const menuItems: MenuItem[] = [
  
   { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque', sidebarKey: 'post_dated_cheques' },
   
-  
-
-
-
   {
     id: 'fks-transactions',
     label: 'FK ENBD',

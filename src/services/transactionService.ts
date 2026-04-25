@@ -722,7 +722,7 @@ export const transactionService = {
 
   // Account Summary
   getAccountSummary: async (): Promise<ApiResponse<AccountSummary>> => {
-    return api.get<AccountSummary>('/account-summary');
+    return api.get<AccountSummary>('/account-summary?useStatementTotals=true');
   },
 
   // PDC Reminders
