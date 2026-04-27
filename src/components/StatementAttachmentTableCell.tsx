@@ -33,21 +33,6 @@ function isPublicHttpsUrl(href: string): boolean {
   }
 }
 
-/** These hosts work reliably in Google’s embed viewer; in-app blob+iframe often fails or downloads. */
-function preferGoogleEmbed(href: string): boolean {
-  try {
-    const h = new URL(href, typeof window !== 'undefined' ? window.location.href : undefined)
-      .hostname.toLowerCase();
-    return (
-      h.includes('cloudinary.com') ||
-      h.includes('amazonaws.com') ||
-      h.includes('storage.googleapis.com')
-    );
-  } catch {
-    return false;
-  }
-}
-
 function googleDocsViewerUrl(fileUrl: string): string {
   return `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
 }
@@ -88,16 +73,6 @@ function useStatementPdfPreview(
       return;
     }
 
-    if (preferGoogleEmbed(href) && isPublicHttpsUrl(href)) {
-      setMode('google');
-      setBlobUrl(null);
-      if (blobRef.current) {
-        URL.revokeObjectURL(blobRef.current);
-        blobRef.current = null;
-      }
-      return;
-    }
-
     let cancelled = false;
     setMode('loading');
     setBlobUrl(null);
@@ -119,7 +94,10 @@ function useStatementPdfPreview(
       /* ignore */
     }
 
-    void fetch(href, { credentials, headers })
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+
+    void fetch(href, { credentials, headers, signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.blob();
@@ -148,6 +126,8 @@ function useStatementPdfPreview(
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
       if (blobRef.current) {
         URL.revokeObjectURL(blobRef.current);
         blobRef.current = null;
@@ -173,6 +153,7 @@ export function StatementAttachmentTableCell({
   const showImage = attachmentLooksLikeImage(
     card.attachmentName || card.attachmentUrl || ''
   );
+  const previewHref = !showImage && href ? googleDocsViewerUrl(href) : href;
   const { mode, blobUrl } = useStatementPdfPreview(open, href, showImage);
 
   if (isEditing) {
@@ -264,7 +245,7 @@ export function StatementAttachmentTableCell({
               ) : mode === 'google' ? (
                 <iframe
                   title={label}
-                  src={googleDocsViewerUrl(href)}
+                  src={previewHref ?? googleDocsViewerUrl(href)}
                   className="w-full min-h-[75vh] border-0 bg-white"
                 />
               ) : blobUrl ? (
@@ -286,7 +267,7 @@ export function StatementAttachmentTableCell({
                 </Button>
               ) : null}
               <Button variant="outline" className="text-black" asChild>
-                <a href={href} target="_blank" rel="noopener noreferrer">
+                <a href={previewHref || href} target="_blank" rel="noopener noreferrer">
                   Open in new tab
                 </a>
               </Button>

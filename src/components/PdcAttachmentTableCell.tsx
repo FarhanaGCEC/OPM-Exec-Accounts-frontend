@@ -13,6 +13,9 @@ import {
   resolveAttachmentHref,
 } from '../lib/resolveAttachmentUrl';
 
+const googleDocsViewerUrl = (fileUrl: string): string =>
+  `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
+
 export interface PdcAttachmentTableCellProps {
   attachmentUrl?: string | null;
   attachmentName?: string | null;
@@ -33,6 +36,7 @@ export function PdcAttachmentTableCell({
   const isProbablyImage = attachmentLooksLikeImage(
     attachmentName || attachmentUrl || ''
   );
+  const previewHref = !isProbablyImage && href ? googleDocsViewerUrl(href) : href;
   const label = attachmentName?.trim() || 'Cheque image';
 
   if (!href) {
@@ -75,7 +79,7 @@ export function PdcAttachmentTableCell({
               />
             ) : (
               <a
-                href={href}
+                href={previewHref || href}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[#c9a82f] underline text-sm"
@@ -95,7 +99,7 @@ export function PdcAttachmentTableCell({
               </Button>
             )}
             <Button variant="outline" className="text-black" asChild>
-              <a href={href} target="_blank" rel="noopener noreferrer">
+              <a href={previewHref || href} target="_blank" rel="noopener noreferrer">
                 Open in new tab
               </a>
             </Button>

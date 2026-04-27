@@ -267,6 +267,7 @@ export default function MonthlyBankStatements() {
           currency,
           month: monthParam,
         });
+        if (token) qs.set('token', token);
         const response = await fetch(`/api/monthly-bank-statements/file/${documentType}?${qs.toString()}`, {
           method: 'GET',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -317,28 +318,9 @@ export default function MonthlyBankStatements() {
           currency,
           month: monthParam,
         });
-        const response = await fetch(`/api/monthly-bank-statements/file/${documentType}?${qs.toString()}`, {
-          method: 'GET',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-
-        if (!response.ok) {
-          let errorMessage = 'Failed to open PDF.';
-          try {
-            const errBody = await response.json();
-            errorMessage = String(errBody?.message || errBody?.error || errorMessage);
-          } catch {
-            // keep fallback
-          }
-          throw new Error(errorMessage);
-        }
-
-        const blob = await response.blob();
-        const objectUrl = window.URL.createObjectURL(blob);
-        window.open(objectUrl, '_blank', 'noopener,noreferrer');
-        window.setTimeout(() => {
-          window.URL.revokeObjectURL(objectUrl);
-        }, 15000);
+        if (token) qs.set('token', token);
+        const fileUrl = `/api/monthly-bank-statements/file/${documentType}?${qs.toString()}`;
+        window.open(fileUrl, '_blank', 'noopener,noreferrer');
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to open PDF.';
         showToast('error', message);

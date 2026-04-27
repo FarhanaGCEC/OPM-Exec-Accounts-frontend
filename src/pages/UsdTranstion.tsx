@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import Layout from '../components/Layout';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileSpreadsheet, Plus, Edit, Trash2, Loader2, Search, Download, Upload, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, Search, Download, Upload, X } from 'lucide-react';
 import api, { type ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
@@ -741,7 +741,7 @@ export default function UsdTranstion() {
             className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
             disabled={loading || filteredTransactions.length === 0}
           >
-            <FileSpreadsheet className="w-4 h-4" />
+            <Download className="w-4 h-4" />
             <span>Download Excel</span>
           </Button>
           {canMutate && (

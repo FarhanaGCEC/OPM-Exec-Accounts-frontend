@@ -33,7 +33,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, FileSpreadsheet, Search } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Loader2, Edit, Trash2, Download, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   applyXlsxArialToWorkbook,
@@ -796,7 +796,7 @@ export default function PaymentMatching() {
               className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
               disabled={loading || filteredPayments.length === 0}
             >
-              <FileSpreadsheet className="w-4 h-4" />
+              <Download className="w-4 h-4" />
               <span>Download Excel</span>
             </Button>
             {canMutate && (

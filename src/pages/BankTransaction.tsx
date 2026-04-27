@@ -37,7 +37,6 @@ import {
   Edit,
   Trash2,
   Download,
-  FileSpreadsheet,
   Filter,
   X,
   Upload,
@@ -2424,7 +2423,7 @@ export default function BankTransaction() {
           className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
           disabled={loading || filteredTransactions.length === 0}
         >
-          <FileSpreadsheet className="w-4 h-4" />
+          <Download className="w-4 h-4" />
           <span>Download Excel</span>
         </Button>
      

@@ -1,5 +1,6 @@
 import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
+import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
 
 // API Response interface for Credit Card Details (snake_case from backend)
 export interface CreditCardDetailApiResponse {
@@ -208,18 +209,7 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
 
 /** Turn API attachment path into a browser-openable URL (same-origin /api proxy or absolute). */
 export function resolveStatementAttachmentHref(pathOrUrl: string | null | undefined): string | null {
-  if (!pathOrUrl || !String(pathOrUrl).trim()) return null;
-  const s = String(pathOrUrl).trim();
-  if (/^https?:\/\//i.test(s)) return s;
-  const base = import.meta.env.VITE_API_BASE_URL || '/api';
-  const path = s.startsWith('/') ? s : `/${s}`;
-  if (base.startsWith('http://') || base.startsWith('https://')) {
-    return `${base.replace(/\/$/, '')}${path}`;
-  }
-  if (typeof window !== 'undefined') {
-    return `${window.location.origin}${base.replace(/\/$/, '')}${path}`;
-  }
-  return path;
+  return resolveAttachmentHref(pathOrUrl);
 }
 
 export const creditCardService = {
