@@ -34,6 +34,7 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
+import { canMutateRecords } from '../lib/authPayload';
 
 type StatementApprovalOffer =
     | {
@@ -60,6 +61,7 @@ interface StatementTotals {
 }
 
 export default function CreditCardStatements() {
+    const canMutate = canMutateRecords();
     const [creditCards, setCreditCards] = useState<CreditCardStatement[]>([]);
     const [groupedStatements, setGroupedStatements] = useState<GroupedStatements>({});
     const [loading, setLoading] = useState(true);
@@ -1043,15 +1045,17 @@ export default function CreditCardStatements() {
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[44px]">
                                                         File
                                                     </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
-                                                        Actions
-                                                    </TableHead>
+                                                    {canMutate && (
+                                                        <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
+                                                            Actions
+                                                        </TableHead>
+                                                    )}
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
                                                 {statements.length === 0 ? (
                                                     <TableRow>
-                                                        <TableCell colSpan={12} className="text-center py-4">
+                                                        <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-4">
                                                             <p className="text-sm text-gray-500">No statements found for {monthName} {year}.</p>
                                                         </TableCell>
                                                     </TableRow>
@@ -1155,7 +1159,7 @@ export default function CreditCardStatements() {
                                                                                 setStatementAttachmentFile
                                                                             }
                                                                             onDeleteAttachment={
-                                                                                card.id
+                                                                                canMutate && card.id
                                                                                     ? () =>
                                                                                           void handleDeleteStatementAttachment(
                                                                                               String(card.id)
@@ -1163,9 +1167,10 @@ export default function CreditCardStatements() {
                                                                                     : undefined
                                                                             }
                                                                             deleteAttachmentBusy={deletingAttachment}
-                                                                            onEditClick={() => handleEdit(card)}
+                                                                            onEditClick={canMutate ? () => handleEdit(card) : undefined}
                                                                         />
                                                                     </TableCell>
+                                                                    {canMutate && (
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
                                                                         {editingId && String(editingId) === String(card.id) ? (
                                                                             <div className="flex gap-2">
@@ -1213,6 +1218,7 @@ export default function CreditCardStatements() {
                                                                             </Button>
                                                                         )}
                                                                     </TableCell>
+                                                                    )}
                                                                 </TableRow>
                                                             );
                                                         })}
@@ -1238,7 +1244,7 @@ export default function CreditCardStatements() {
                                                             >
                                                                 {formatCurrency(monthlyTotals.amountPending)}
                                                             </TableCell>
-                                                            <TableCell colSpan={2} />
+                                                            <TableCell colSpan={canMutate ? 2 : 1} />
                                                         </TableRow>
                                                     </>
                                                 )}
@@ -1293,22 +1299,24 @@ export default function CreditCardStatements() {
                                         <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[44px]">
                                             File
                                         </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
-                                            Actions
-                                        </TableHead>
+                                        {canMutate && (
+                                            <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
+                                                Actions
+                                            </TableHead>
+                                        )}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {loading ? (
                                         <TableRow>
-                                            <TableCell colSpan={12} className="text-center py-4">
+                                            <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-4">
                                                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                                 <p className="text-sm text-gray-500">Loading credit card statements...</p>
                                             </TableCell>
                                         </TableRow>
                                     ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={12} className="text-center py-4">
+                                            <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-4">
                                                 <p className="text-sm text-gray-500 mb-1">No credit card statements found for selected period.</p>
                                                 <p className="text-sm text-gray-400">Select a different month/year to view statements.</p>
                                             </TableCell>
@@ -1411,7 +1419,7 @@ export default function CreditCardStatements() {
                                                             statementAttachmentFile={statementAttachmentFile}
                                                             onAttachmentFileChange={setStatementAttachmentFile}
                                                             onDeleteAttachment={
-                                                                card.id
+                                                                canMutate && card.id
                                                                     ? () =>
                                                                           void handleDeleteStatementAttachment(
                                                                               String(card.id)
@@ -1419,9 +1427,10 @@ export default function CreditCardStatements() {
                                                                     : undefined
                                                             }
                                                             deleteAttachmentBusy={deletingAttachment}
-                                                            onEditClick={() => handleEdit(card)}
+                                                            onEditClick={canMutate ? () => handleEdit(card) : undefined}
                                                         />
                                                     </TableCell>
+                                                    {canMutate && (
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
                                                         {editingId && String(editingId) === String(card.id) ? (
                                                             <div className="flex gap-2">
@@ -1468,6 +1477,7 @@ export default function CreditCardStatements() {
                                                             </Button>
                                                         )}
                                                     </TableCell>
+                                                    )}
                                                 </TableRow>
                                                 );
                                             })}
@@ -1493,7 +1503,7 @@ export default function CreditCardStatements() {
                                                 >
                                                     {formatCurrency(monthlyTotals.amountPending)}
                                                 </TableCell>
-                                                <TableCell colSpan={2} />
+                                                <TableCell colSpan={canMutate ? 2 : 1} />
                                             </TableRow>
                                         </>
                                     )}

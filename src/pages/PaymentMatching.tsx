@@ -21,7 +21,9 @@ import {
   FormLabel,
   FormMessage,
 } from '../components/ui/form';
-import { SelectItem } from '../components/ui/select';
+import {
+  SelectItem,
+} from '../components/ui/select';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import {
   Table,
@@ -40,7 +42,10 @@ import {
 } from '../lib/excelExportFont';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import Calendar from '../components/ui/calendar-tailwind';
-import { transactionService, type PaymentMatching as PaymentMatchingType } from '../services/transactionService';
+import {
+  transactionService,
+  type PaymentMatching as PaymentMatchingType,
+} from '../services/transactionService';
 import { receivablesService } from '../services/receivablesService';
 import { payablesService } from '../services/payablesService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
@@ -51,6 +56,7 @@ import {
   isChangeRequestSubmittedEnvelope,
   userMessageFromChangeRequestSubmit,
 } from '../lib/changeRequestUi';
+import { canMutateRecords } from '../lib/authPayload';
 
 interface PaymentMatching extends PaymentMatchingType {
   date?: string; // Formatted date for display
@@ -76,6 +82,7 @@ const paymentSchema = z.object({
       return !isNaN(num) && num > 0;
     }, 'Amount must be greater than 0'),
   remarks: z.string().optional(),
+  paidAgainst: z.string().optional(),
 });
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
@@ -136,6 +143,7 @@ const convertDateForForm = (dateString: string): string => {
 };
 
 export default function PaymentMatching() {
+  const canMutate = canMutateRecords();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<PaymentMatching | null>(null);
@@ -160,6 +168,7 @@ export default function PaymentMatching() {
       paymentMethod: 'Credit Card',
       amount: '',
       remarks: '',
+      paidAgainst: '',
     },
   });
 
@@ -294,6 +303,7 @@ export default function PaymentMatching() {
           paymentMethod: 'Credit Card',
           amount: '',
           remarks: '',
+          paidAgainst: '',
         });
       }
       setSuccessMessage(apiMessage);
@@ -327,6 +337,9 @@ export default function PaymentMatching() {
       if (data.remarks && data.remarks.trim()) {
         payload.remarks = data.remarks.trim();
       }
+      if (data.paidAgainst && data.paidAgainst.trim()) {
+        payload.paidAgainst = data.paidAgainst.trim();
+      }
 
       console.log('[PaymentMatching] Payload being sent:', JSON.stringify(payload, null, 2));
 
@@ -357,6 +370,7 @@ export default function PaymentMatching() {
           paymentMethod: 'Credit Card',
           amount: '',
           remarks: '',
+          paidAgainst: '',
         });
         setEditingPayment(null);
         setError(null);
@@ -395,6 +409,7 @@ export default function PaymentMatching() {
           paymentMethod: 'Credit Card',
           amount: '',
           remarks: '',
+          paidAgainst: '',
         });
         setEditingPayment(null);
         setError(null);
@@ -416,6 +431,7 @@ export default function PaymentMatching() {
         };
         if (data.invoiceNumber?.trim()) payload.invoice_number = data.invoiceNumber.trim();
         if (data.remarks?.trim()) payload.remarks = data.remarks.trim();
+        if (data.paidAgainst?.trim()) payload.paid_against = data.paidAgainst.trim();
         setPurchaseBillApproval({
           mode: 'edit',
           resourceId: String(editingPayment.id),
@@ -430,6 +446,7 @@ export default function PaymentMatching() {
           paymentMethod: 'Credit Card',
           amount: '',
           remarks: '',
+          paidAgainst: '',
         });
         setError(null);
       } else {
@@ -457,6 +474,7 @@ export default function PaymentMatching() {
         ? payment.amount.replace(/,/g, '')
         : '',
       remarks: payment.remarks || payment.remark || payment.description || '',
+      paidAgainst: payment.paidAgainst || '',
     });
     setError(null);
     setIsModalOpen(true);
@@ -471,6 +489,7 @@ export default function PaymentMatching() {
       paymentMethod: 'Credit Card',
       amount: '',
       remarks: '',
+      paidAgainst: '',
     });
     setError(null);
     setIsModalOpen(true);
@@ -533,7 +552,7 @@ export default function PaymentMatching() {
         if (filterText.trim()) {
           const needle = filterText.toLowerCase().trim();
           const haystack =
-            `${payment.customerName} ${payment.invoiceNumber || ''} ${payment.paymentMethod} ${payment.remarks || payment.remark || payment.description || ''} ${payment.date || payment.paymentDate}`
+            `${payment.customerName} ${payment.invoiceNumber || ''} ${payment.paymentMethod} ${payment.paidAgainst || ''} ${payment.remarks || payment.remark || payment.description || ''} ${payment.date || payment.paymentDate}`
               .toLowerCase();
           if (!haystack.includes(needle)) return false;
         }
@@ -559,7 +578,15 @@ export default function PaymentMatching() {
     excelData.push([]);
 
     // Add table headers
-    excelData.push(['Payment Date', 'Invoice Number', 'Customer Name', 'Payment Method', 'Amount (AED)', 'Remarks']);
+    excelData.push([
+      'Payment Date',
+      'Invoice Number',
+      'Customer Name',
+      'Payment Method',
+      'Amount (AED)',
+      'Paid Against',
+      'Remarks',
+    ]);
 
     // Sort payments by date (oldest first) for better readability in Excel
     const sortedPayments = [...filteredPayments].sort((a, b) => {
@@ -611,7 +638,15 @@ export default function PaymentMatching() {
         amount = parseFloat(cleanedAmount) || 0;
       }
 
-      excelData.push([date, invoiceNumber, customerName, paymentMethod, amount, payment.remarks || payment.remark || payment.description || '']);
+      excelData.push([
+        date,
+        invoiceNumber,
+        customerName,
+        paymentMethod,
+        amount,
+        payment.paidAgainst || '',
+        payment.remarks || payment.remark || payment.description || '',
+      ]);
     });
 
     // Calculate total amount
@@ -631,7 +666,7 @@ export default function PaymentMatching() {
 
     // Add total row
     excelData.push([]);
-    excelData.push(['Total', '', '', '', totalAmount, '']);
+    excelData.push(['Total', '', '', '', totalAmount, '', '']);
 
     // Create worksheet from data
     const worksheet = XLSX.utils.aoa_to_sheet(excelData);
@@ -643,6 +678,7 @@ export default function PaymentMatching() {
       { wch: 30 }, // Customer Name
       { wch: 18 }, // Payment Method
       { wch: 18 }, // Amount (AED)
+      { wch: 30 }, // Paid Against
       { wch: 30 }, // Remarks
     ];
 
@@ -651,7 +687,7 @@ export default function PaymentMatching() {
     
     // Format header row (row 5, 0-indexed - after company header and empty rows)
     const headerRow = 5;
-    for (let col = 0; col <= 5; col++) {
+    for (let col = 0; col <= 6; col++) {
       const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
       if (worksheet[headerCellRef]) {
         if (!worksheet[headerCellRef].s) {
@@ -678,7 +714,7 @@ export default function PaymentMatching() {
 
     // Format total row (last row, excluding empty row before it)
     const totalRow = range.e.r;
-    for (let col = 0; col <= 5; col++) {
+    for (let col = 0; col <= 6; col++) {
       const totalCellRef = XLSX.utils.encode_cell({ r: totalRow, c: col });
       if (worksheet[totalCellRef]) {
         if (!worksheet[totalCellRef].s) {
@@ -763,14 +799,16 @@ export default function PaymentMatching() {
               <FileSpreadsheet className="w-4 h-4" />
               <span>Download Excel</span>
             </Button>
-            <Button
-            onClick={handleAddNew}
-            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
-            disabled={loading}
-            >
-            <Plus className="w-4 h-4 text-black" />
-            <span>Add New</span>
-            </Button>
+            {canMutate && (
+              <Button
+                onClick={handleAddNew}
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                disabled={loading}
+              >
+                <Plus className="w-4 h-4 text-black" />
+                <span>Add New</span>
+              </Button>
+            )}
         </div>
         </div>
 
@@ -794,7 +832,7 @@ export default function PaymentMatching() {
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
-              placeholder="Filter by customer, invoice, payment method, or date..."
+              placeholder="Filter by customer, invoice, paid against, payment method, or date..."
               className="pl-10"
             />
           </div>
@@ -827,24 +865,29 @@ export default function PaymentMatching() {
                     Amount (AED)
                   </TableHead>
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
-                    Remarks
+                    Paid Against
                   </TableHead>
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
-                    Actions
+                    Remarks
                   </TableHead>
+                  {canMutate && (
+                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                      Actions
+                    </TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-4">
+                    <TableCell colSpan={canMutate ? 7 : 6} className="text-center py-4">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                       <p className="text-sm text-gray-500">Loading payments...</p>
                     </TableCell>
                   </TableRow>
                 ) : !Array.isArray(filteredPayments) || filteredPayments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-4">
+                    <TableCell colSpan={canMutate ? 7 : 6} className="text-center py-4">
                       <p className="text-sm text-gray-500 mb-1">No payments found.</p>
                       <p className="text-sm text-gray-400">Try adjusting your filters.</p>
                     </TableCell>
@@ -875,28 +918,33 @@ export default function PaymentMatching() {
                                 : 'AED 0.00'}
                         </TableCell>
                         <TableCell className="text-sm py-2 text-left text-gray-700">
+                          {payment.paidAgainst || '-'}
+                        </TableCell>
+                        <TableCell className="text-sm py-2 text-left text-gray-700">
                           {payment.remarks || payment.remark || payment.description || '-'}
                         </TableCell>
-                        <TableCell className="text-sm py-2 text-left">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() => handleEdit(payment)}
-                              className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-                              title="Edit payment"
-                              aria-label={`Edit ${payment.customerName}`}
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteClick(String(payment.id))}
-                              className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-                              title="Delete payment"
-                              aria-label={`Delete ${payment.customerName}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </TableCell>
+                        {canMutate && (
+                          <TableCell className="text-sm py-2 text-left">
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => handleEdit(payment)}
+                                className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+                                title="Edit payment"
+                                aria-label={`Edit ${payment.customerName}`}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteClick(String(payment.id))}
+                                className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+                                title="Delete payment"
+                                aria-label={`Delete ${payment.customerName}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </>
@@ -989,7 +1037,9 @@ export default function PaymentMatching() {
                               placeholder="dd/mm/yyyy"
                               value={field.value}
                               onChange={(e) => {
-                                let value = e.target.value.replace(/\D/g, '');
+                                let value = e.target.value
+                                  .replace(/[^0-9.]/g, '')
+                                  .replace(/(\..*)\./g, '$1');
                                 if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                 if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                 field.onChange(value);
@@ -1109,10 +1159,38 @@ export default function PaymentMatching() {
                     </FormLabel>
                     <FormControl>
                       <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
                         {...field}
+                        onChange={(e) =>
+                          field.onChange(
+                            e.target.value
+                              .replace(/[^0-9.]/g, '')
+                              .replace(/(\..*)\./g, '$1')
+                          )
+                        }
+                        disabled={isSubmitting}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="paidAgainst"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-base font-medium text-gray-700">
+                      Paid Against
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter paid against"
+                        {...field}
+                        value={field.value || ''}
                         disabled={isSubmitting}
                       />
                     </FormControl>

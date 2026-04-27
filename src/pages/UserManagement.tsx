@@ -256,6 +256,8 @@ export default function UserManagement() {
                           ? 'font-semibold text-amber-900 capitalize'
                           : roleKey === 'accountant'
                             ? 'font-medium text-blue-900 capitalize'
+                            : roleKey === 'viewer'
+                              ? 'font-medium text-emerald-800 capitalize'
                             : 'text-gray-800 capitalize';
                       return (
                         <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
@@ -363,6 +365,7 @@ export default function UserManagement() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
                   <SelectItem value="accountant">Accountant</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
@@ -442,6 +445,7 @@ export default function UserManagement() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
                   <SelectItem value="accountant">Accountant</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>

@@ -31,14 +31,16 @@ import {
 } from '../components/ui/form';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { SearchableSelect } from '../components/ui/searchable-select';
-import { SelectItem } from '../components/ui/select';
+import {
+    SelectItem,
+} from '../components/ui/select';
 import Calendar from '../components/ui/calendar-tailwind';
 import { Loader2, Plus, Calendar as CalendarIcon, Download } from 'lucide-react';
 import { 
     creditCardService, 
     mapApiResponseToCreditCardDetail,
     displayCreditCardHolderName,
-    type CreditCardDetail 
+    type CreditCardDetail,
 } from '../services/creditCardService';
 import * as XLSX from 'xlsx';
 import {
@@ -46,6 +48,7 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
+import { canMutateRecords } from '../lib/authPayload';
 
 export interface CreditCardPayment {
     id: string;
@@ -71,13 +74,13 @@ const paymentSchema = z.object({
             if (isNaN(num) || num <= 0) throw new Error('Amount must be greater than 0');
             return num;
         })),
-    paidAgainst: z.string().optional(),
     remarks: z.string().optional(),
 });
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
 export default function CreditCardPaymentsPage() {
+    const canMutate = canMutateRecords();
     const [creditCards, setCreditCards] = useState<CreditCardPayment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -89,6 +92,16 @@ export default function CreditCardPaymentsPage() {
     
     // Period selection state
     const currentDate = new Date();
+    const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth());
+    const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
+    const monthOptions = useMemo(
+        () => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+        []
+    );
+    const yearOptions = useMemo(() => {
+        const currentYear = currentDate.getFullYear();
+        return Array.from({ length: 7 }, (_, index) => currentYear - 3 + index);
+    }, [currentDate]);
 
     const form = useForm<PaymentFormData>({
         resolver: zodResolver(paymentSchema),
@@ -98,7 +111,6 @@ export default function CreditCardPaymentsPage() {
             cardHolder: '',
             creditCardId: '',
             amount: 0,
-            paidAgainst: '',
             remarks: '',
         },
     });
@@ -149,13 +161,12 @@ export default function CreditCardPaymentsPage() {
  
 
     useEffect(() => {
-        // Initial load with default period (current month/year)
-        const year = currentDate.getFullYear();
-        const months = [currentDate.getMonth()];
-        fetchCreditCards(year, months);
+        fetchCreditCards(selectedYear, [selectedMonth]);
+    }, [fetchCreditCards, selectedMonth, selectedYear]);
+
+    useEffect(() => {
         fetchAvailableCreditCards();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [fetchAvailableCreditCards]);
 
     const handleAddNew = () => {
         setEditingPayment(null);
@@ -165,7 +176,6 @@ export default function CreditCardPaymentsPage() {
             cardHolder: '',
             creditCardId: '',
             amount: 0,
-            paidAgainst: '',
             remarks: '',
         });
         setIsModalOpen(true);
@@ -227,7 +237,6 @@ export default function CreditCardPaymentsPage() {
             cardHolder: displayCreditCardHolderName(payment.cardHolder || ''),
             creditCardId: creditCardId,
             amount: payment.amount || 0,
-            paidAgainst: payment.paidAgainst || '',
             remarks: payment.remarks || '',
         });
         setIsModalOpen(true);
@@ -279,10 +288,6 @@ export default function CreditCardPaymentsPage() {
                 payload.remarks = data.remarks;
             }
 
-            if (data.paidAgainst) {
-                payload.paidAgainst = data.paidAgainst;
-            }
-
             let response;
             if (editingPayment) {
                 // Update existing payment
@@ -297,9 +302,7 @@ export default function CreditCardPaymentsPage() {
                 setEditingPayment(null);
                 form.reset();
                 // Refresh the list
-                const year = currentDate.getFullYear();
-                const months = [currentDate.getMonth()];
-                await fetchCreditCards(year, months);
+                await fetchCreditCards(selectedYear, [selectedMonth]);
             } else {
                 setError(response.error || (editingPayment ? 'Failed to update payment' : 'Failed to create payment'));
             }
@@ -425,6 +428,10 @@ export default function CreditCardPaymentsPage() {
         });
     }, [creditCards, parseDateForSort]);
 
+    const totalPaymentAmount = useMemo(() => {
+        return sortedCreditCards.reduce((sum, card) => sum + (card.amount || 0), 0);
+    }, [sortedCreditCards]);
+
     // Excel Download function
     const handleDownloadExcel = useCallback(() => {
         if (!creditCards || creditCards.length === 0) {
@@ -480,7 +487,7 @@ export default function CreditCardPaymentsPage() {
         excelData.push([]);
 
         // Add table headers
-        excelData.push(['Payment Date', 'Card Holder', 'Card Number', 'Amount (AED)', 'Paid Against', 'Remarks']);
+        excelData.push(['Payment Date', 'Card Holder', 'Card Number', 'Amount (AED)', 'Remarks']);
 
         // Sort payments by date (oldest first) for better readability in Excel
         const sortedPayments = [...creditCards].sort((a, b) => {
@@ -526,7 +533,6 @@ export default function CreditCardPaymentsPage() {
                 cardHolder,
                 payment.cardNo || '',
                 payment.amount || 0, // Store as number
-                payment.paidAgainst || '',
                 payment.remarks || '',
             ]);
         });
@@ -544,7 +550,6 @@ export default function CreditCardPaymentsPage() {
             { wch: 20 }, // Card Holder
             { wch: 20 }, // Card Number
             { wch: 18 }, // Amount
-            { wch: 24 }, // Paid Against
             { wch: 30 }, // Remarks
         ];
 
@@ -601,7 +606,7 @@ export default function CreditCardPaymentsPage() {
 
     return (
         <Layout>
-              <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
+      <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
         <div className="flex items-center gap-4 ml-16">
       
           <h2 className="text-2xl font-bold text-gray-900"> Credit Card Payments</h2>
@@ -616,18 +621,61 @@ export default function CreditCardPaymentsPage() {
             <Download className="w-4 h-4" />
             <span>Download Excel</span>
             </Button>
-            <Button
-            onClick={handleAddNew}
-            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
-            disabled={loading}
-            >
-            <Plus className="w-4 h-4 text-black" />
-            <span>Add New</span>
-            </Button>
+            {canMutate && (
+                <Button
+                onClick={handleAddNew}
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                disabled={loading}
+                >
+                <Plus className="w-4 h-4 text-black" />
+                <span>Add New</span>
+                </Button>
+            )}
         </div>
         </div>
-         
-        
+        <div className="mx-8 mb-4 flex flex-wrap items-end justify-between gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-gray-600">Month</label>
+                    <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                        className="h-10 min-w-32 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                    >
+                        {monthOptions.map((month, index) => (
+                            <option key={month} value={index}>
+                                {month}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-gray-600">Year</label>
+                    <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(Number(e.target.value))}
+                        className="h-10 min-w-28 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                    >
+                        {yearOptions.map((year) => (
+                            <option key={year} value={year}>
+                                {year}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
+                <p className="text-xs font-medium text-gray-600">Total Payment ({monthOptions[selectedMonth]} {selectedYear})</p>
+                <p className="text-lg font-semibold text-gray-900">
+                    {new Intl.NumberFormat('en-AE', {
+                        style: 'currency',
+                        currency: 'AED',
+                        minimumFractionDigits: 2,
+                    }).format(totalPaymentAmount)}
+                </p>
+            </div>
+        </div>
+
 
             {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
@@ -654,14 +702,13 @@ export default function CreditCardPaymentsPage() {
                                         Amount
                                     </TableHead>
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                        Paid Against
-                                    </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Remarks
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                        Actions
-                                    </TableHead>
+                                    {canMutate && (
+                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                            Actions
+                                        </TableHead>
+                                    )}
                                     
                                 </TableRow>
                             </TableHeader>
@@ -702,19 +749,18 @@ export default function CreditCardPaymentsPage() {
                                                     minimumFractionDigits: 2 
                                                 }).format(card.amount)}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                {card.paidAgainst}
-                                            </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">    {card.remarks}</TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left"> 
-                                                   <Button 
-                                                       variant="outline" 
-                                                       className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                                                       onClick={() => handleEditClick(card)}
-                                                   >
-                                                       Edit
-                                                   </Button>
-                                                   </TableCell>
+                                            {canMutate && (
+                                                <TableCell className="text-gray-700 text-sm py-2 text-left"> 
+                                                       <Button 
+                                                           variant="outline" 
+                                                           className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                                           onClick={() => handleEditClick(card)}
+                                                       >
+                                                           Edit
+                                                       </Button>
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ))
                                 )}
@@ -807,7 +853,9 @@ export default function CreditCardPaymentsPage() {
                                                             placeholder="dd/mm/yyyy"
                                                             value={field.value}
                                                             onChange={(e) => {
-                                                                let value = e.target.value.replace(/\D/g, '');
+                                                                let value = e.target.value
+                                                                  .replace(/[^0-9.]/g, '')
+                                                                  .replace(/(\..*)\./g, '$1');
                                                                 if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                                                 if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                                                 field.onChange(value);
@@ -942,39 +990,21 @@ export default function CreditCardPaymentsPage() {
                                         </FormLabel>
                                         <FormControl>
                                             <Input
-                                                type="number"
-                                                step="0.01"
-                                                placeholder="0.00"
+                                                type="text"
+                                                inputMode="numeric"
+                                                pattern="[0-9]*"
+                                                placeholder="0"
                                                 {...field}
                                                 onChange={(e) => {
-                                                    const value = e.target.value;
+                                                    const value = e.target.value
+                                                      .replace(/[^0-9.]/g, '')
+                                                      .replace(/(\..*)\./g, '$1');
                                                     if (value === '') {
                                                         field.onChange(0);
                                                     } else {
                                                         field.onChange(parseFloat(value));
                                                     }
                                                 }}
-                                                disabled={isSubmitting}
-                                            />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-
-                            {/* Paid Against Field */}
-                            <FormField
-                                control={form.control}
-                                name="paidAgainst"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-base font-medium text-gray-700">
-                                            Paid Against
-                                        </FormLabel>
-                                        <FormControl>
-                                            <Input
-                                                placeholder="Enter paid against"
-                                                {...field}
                                                 disabled={isSubmitting}
                                             />
                                         </FormControl>

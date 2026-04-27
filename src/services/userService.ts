@@ -3,7 +3,7 @@ import type { ApiResponse } from '../lib/api';
 import { AUTH_STORAGE_KEYS } from '../lib/authPayload';
 
 /** Roles exposed in admin UI; API may return other strings — we map unknown → user in forms. */
-export const MANAGEABLE_USER_ROLES = ['user', 'accountant', 'admin'] as const;
+export const MANAGEABLE_USER_ROLES = ['user', 'viewer', 'accountant', 'admin'] as const;
 export type ManageableUserRole = (typeof MANAGEABLE_USER_ROLES)[number];
 
 export type AppUserRole = ManageableUserRole | string;
@@ -14,6 +14,7 @@ export function normalizeManageableRole(role: string | undefined | null): Manage
     .trim();
   if (r === 'admin') return 'admin';
   if (r === 'accountant') return 'accountant';
+  if (r === 'viewer' || r === 'vierer') return 'viewer';
   return 'user';
 }
 
@@ -90,7 +91,7 @@ export const userService = {
     return api.post<unknown>('/admin/create-user', body);
   },
 
-  /** PUT /api/admin/update-role/:id — body { role: "admin" | "accountant" | "user" } */
+  /** PUT /api/admin/update-role/:id — body { role: "admin" | "accountant" | "viewer" | "user" } */
   updateRole: async (userId: number, role: AppUserRole): Promise<ApiResponse<unknown>> => {
     return api.put<unknown>(`/admin/update-role/${userId}`, { role });
   },

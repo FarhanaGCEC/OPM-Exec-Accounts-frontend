@@ -91,6 +91,16 @@ export default function Reminder() {
     fetchReminders();
   }, [fetchReminders]);
 
+  useEffect(() => {
+    const handleTransactionsUpdated = () => {
+      void fetchReminders();
+    };
+    window.addEventListener('gcec:transactions-updated', handleTransactionsUpdated);
+    return () => {
+      window.removeEventListener('gcec:transactions-updated', handleTransactionsUpdated);
+    };
+  }, [fetchReminders]);
+
   // Calculate totals for alert banner
   const urgentCount = upcomingCheques.filter(c => c.status === 'urgent').length;
   const totalAmount = upcomingCheques.reduce((sum, cheque) => sum + cheque.amount, 0);

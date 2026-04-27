@@ -5,7 +5,10 @@ import { transactionService } from '../services/transactionService';
 import ViewAllTranstion from './ViewAllTranstion';
 
 const formatAmount = (value: number | string | undefined): string => {
-  const numValue = typeof value === 'number' ? value : parseFloat(String(value || 0));
+  const numValue =
+    typeof value === 'number'
+      ? value
+      : parseFloat(String(value ?? 0).replace(/,/g, '').trim());
   return numValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 };
 
@@ -17,10 +20,30 @@ type DashboardSummary = {
   availableBalanceRemark: string;
 };
 
+type SummarySource = Record<string, unknown>;
+
 const toAmount = (value: number | string | null | undefined): number => {
   if (value == null) return 0;
   const parsed = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, '').trim());
   return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const pickAmountValue = (
+  source: SummarySource,
+  keys: string[]
+): number | string | null | undefined => {
+  for (const key of keys) {
+    const value = source[key];
+    if (
+      value === null ||
+      value === undefined ||
+      typeof value === 'number' ||
+      typeof value === 'string'
+    ) {
+      if (value !== undefined) return value;
+    }
+  }
+  return undefined;
 };
 
 export default function Dashboard() {
@@ -35,13 +58,20 @@ export default function Dashboard() {
         setAccountSummary(null);
         return;
       }
+      const topLevel = response.data as unknown as SummarySource;
+      const nested =
+        topLevel.data && typeof topLevel.data === 'object' && !Array.isArray(topLevel.data)
+          ? (topLevel.data as SummarySource)
+          : null;
+      const source = nested ?? topLevel;
 
       setAccountSummary({
-        totalDebit: toAmount(response.data.totalDebit),
-        totalCredit: toAmount(response.data.totalCredit),
-        currentBalance: toAmount(response.data.totalBalance),
+        totalDebit: toAmount(pickAmountValue(source, ['totalDebit', 'total_debit', 'debitTotal'])),
+        totalCredit: toAmount(pickAmountValue(source, ['totalCredit', 'total_credit', 'creditTotal'])),
+        currentBalance: toAmount(pickAmountValue(source, ['totalBalance', 'total_balance', 'currentBalance'])),
         availableBalance: toAmount(
-          response.data.availableBalance ?? response.data.mainAvailableBalance ?? response.data.totalBalance
+          pickAmountValue(source, ['availableBalance', 'available_balance', 'mainAvailableBalance', 'main_available_balance']) ??
+            pickAmountValue(source, ['totalBalance', 'total_balance', 'currentBalance'])
         ),
         availableBalanceRemark: '',
       });
@@ -96,7 +126,7 @@ export default function Dashboard() {
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
               <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">Total Debit</p>
+                  <p className="text-sm font-medium text-gray-600 mb-2">Monthly Total Debit</p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-xl font-bold text-gray-900">
                       AED {formatAmount(totalDebitValue)}
@@ -109,7 +139,7 @@ export default function Dashboard() {
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
               <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">Total Credit</p>
+                  <p className="text-sm font-medium text-gray-600 mb-2">Monthly Total Credit</p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-xl font-bold text-gray-900">
                       AED {formatAmount(totalCreditValue)}

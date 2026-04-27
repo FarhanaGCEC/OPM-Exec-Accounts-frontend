@@ -89,6 +89,26 @@ export interface CreditCardStatement {
   attachmentUrl?: string | null;
 }
 
+export interface PaidAgainstOptionApiResponse {
+  value: string;
+  label: string;
+  billNumber?: string | null;
+  invoiceNumber?: string | null;
+  vendorName?: string | null;
+  billDate?: string | null;
+  paymentStatus?: string | null;
+}
+
+export interface PaidAgainstOption {
+  value: string;
+  label: string;
+  billNumber?: string;
+  invoiceNumber?: string;
+  vendorName?: string;
+  billDate?: string;
+  paymentStatus?: string;
+}
+
 function mapStatementAttachmentFields(item: any): {
   attachmentName: string | null;
   attachmentUrl: string | null;
@@ -435,6 +455,29 @@ export const creditCardService = {
   },
 
   // Credit Card Payments API
+  getPaidAgainstOptions: async (): Promise<ApiResponse<PaidAgainstOption[]>> => {
+    const response = await api.get<PaidAgainstOptionApiResponse[]>(
+      '/purchase-bills/paid-against-options'
+    );
+
+    if (response.success && Array.isArray(response.data)) {
+      return {
+        ...response,
+        data: response.data.map((item) => ({
+          value: String(item.value ?? ''),
+          label: String(item.label ?? ''),
+          billNumber: item.billNumber ?? undefined,
+          invoiceNumber: item.invoiceNumber ?? undefined,
+          vendorName: item.vendorName ?? undefined,
+          billDate: item.billDate ?? undefined,
+          paymentStatus: item.paymentStatus ?? undefined,
+        })),
+      };
+    }
+
+    return response as ApiResponse<PaidAgainstOption[]>;
+  },
+
   // API Response interface for Credit Card Payments (snake_case from backend)
   getCreditCardPayments: async (options?: {
     year?: number;

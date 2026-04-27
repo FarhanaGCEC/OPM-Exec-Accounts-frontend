@@ -271,6 +271,8 @@ export interface PaymentMatchingApiResponse {
   remarks?: string | null;
   description?: string | null;
   payment_status?: string;
+  paid_against?: string | null;
+  paidAgainst?: string | null;
   created_by?: number;
   created_by_username?: string;
   created_at?: string;
@@ -290,6 +292,7 @@ export interface PaymentMatching {
   remarks?: string;
   description?: string;
   paymentStatus?: string;
+  paidAgainst?: string;
   createdBy?: number;
   createdByUsername?: string;
   createdAt?: string;
@@ -376,6 +379,16 @@ export interface RemindersResponse {
   data: ReminderApiResponse[];
   count: number;
   days_lookahead: number;
+}
+
+export interface PaidAgainstOption {
+  value: string;
+  label: string;
+  billNumber?: string;
+  invoiceNumber?: string;
+  vendorName?: string;
+  billDate?: string;
+  paymentStatus?: string;
 }
 
 export const transactionService = {
@@ -596,6 +609,7 @@ export const transactionService = {
         remarks: item.remarks || item.remark || item.description || undefined,
         description: item.description || undefined,
         paymentStatus: item.payment_status,
+        paidAgainst: item.paid_against || item.paidAgainst || undefined,
         createdBy: item.created_by,
         createdByUsername: item.created_by_username,
         createdAt: item.created_at,
@@ -629,6 +643,9 @@ export const transactionService = {
       apiData.remarks = data.remarks;
       apiData.remark = data.remarks;
     }
+    if (data.paidAgainst) {
+      apiData.paid_against = data.paidAgainst;
+    }
     
     console.log('[transactionService] createPaymentMatching - API payload:', JSON.stringify(apiData, null, 2));
     
@@ -650,6 +667,7 @@ export const transactionService = {
         remarks: response.data.remarks || response.data.remark || response.data.description || undefined,
         description: response.data.description || undefined,
         paymentStatus: response.data.payment_status,
+        paidAgainst: response.data.paid_against || response.data.paidAgainst || undefined,
         createdBy: response.data.created_by,
         createdByUsername: response.data.created_by_username,
         createdAt: response.data.created_at,
@@ -679,6 +697,9 @@ export const transactionService = {
       apiData.remarks = data.remarks;
       apiData.remark = data.remarks;
     }
+    if (data.paidAgainst !== undefined) {
+      apiData.paid_against = data.paidAgainst;
+    }
     
     const response = await api.patch<PaymentMatchingApiResponse>(`/purchase-bills/${id}`, apiData);
     if (response.success && response.data && isChangeRequestSubmittedEnvelope(response.data)) {
@@ -698,6 +719,7 @@ export const transactionService = {
         remarks: response.data.remarks || response.data.remark || response.data.description || undefined,
         description: response.data.description || undefined,
         paymentStatus: response.data.payment_status,
+        paidAgainst: response.data.paid_against || response.data.paidAgainst || undefined,
         createdBy: response.data.created_by,
         createdByUsername: response.data.created_by_username,
         createdAt: response.data.created_at,
@@ -713,6 +735,38 @@ export const transactionService = {
   // Payment Matching (Purchase Bills) - DELETE /purchase-bills/:id
   deletePaymentMatching: async (id: string): Promise<ApiResponse<void>> => {
     return api.delete<void>(`/purchase-bills/${id}`);
+  },
+
+  // Purchase Bills paid-against select options
+  getPaidAgainstOptions: async (): Promise<ApiResponse<PaidAgainstOption[]>> => {
+    const response = await api.get<
+      Array<{
+        value: string;
+        label: string;
+        billNumber?: string | null;
+        invoiceNumber?: string | null;
+        vendorName?: string | null;
+        billDate?: string | null;
+        paymentStatus?: string | null;
+      }>
+    >('/purchase-bills/paid-against-options');
+
+    if (response.success && Array.isArray(response.data)) {
+      return {
+        ...response,
+        data: response.data.map((item) => ({
+          value: String(item.value ?? ''),
+          label: String(item.label ?? ''),
+          billNumber: item.billNumber ?? undefined,
+          invoiceNumber: item.invoiceNumber ?? undefined,
+          vendorName: item.vendorName ?? undefined,
+          billDate: item.billDate ?? undefined,
+          paymentStatus: item.paymentStatus ?? undefined,
+        })),
+      };
+    }
+
+    return response as unknown as ApiResponse<PaidAgainstOption[]>;
   },
 
   // Analytics

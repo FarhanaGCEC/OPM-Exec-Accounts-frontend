@@ -51,6 +51,7 @@
     } from '../lib/changeRequestUi';
     import { changeRequestService } from '../services/changeRequestService';
     import * as XLSX from 'xlsx';
+    import { canMutateRecords } from '../lib/authPayload';
 
     interface PostDatedCheque extends PostDatedChequeType {
     date?: string; // Formatted date for display
@@ -151,6 +152,7 @@
     };
 
     export default function GCECpdc() {
+    const canMutate = canMutateRecords();
     const navigate = useNavigate();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -677,14 +679,16 @@ console.log("hello")
                     <Download className="w-4 h-4" />
                     <span>Download Excel</span>
                 </Button>
-                <Button
-                onClick={handleAddNew}
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
-                disabled={loading}
-                >
-                <Plus className="w-4 h-4 text-black" />
-                <span>Add New</span>
-                </Button>
+                {canMutate && (
+                  <Button
+                    onClick={handleAddNew}
+                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                    disabled={loading}
+                  >
+                    <Plus className="w-4 h-4 text-black" />
+                    <span>Add New</span>
+                  </Button>
+                )}
             </div>
         </div>
 
@@ -752,29 +756,31 @@ console.log("hello")
                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                         Image
                     </TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                        Actions
-                    </TableHead>
+                    {canMutate && (
+                        <TableHead className="font-semibold text-black text-sm text-left py-2">
+                            Actions
+                        </TableHead>
+                    )}
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {loading ? (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center py-4">
+                        <TableCell colSpan={canMutate ? 7 : 6} className="text-center py-4">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                         <p className="text-sm text-gray-500">Loading cheques...</p>
                         </TableCell>
                     </TableRow>
                     ) : !Array.isArray(cheques) || cheques.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center py-4">
+                        <TableCell colSpan={canMutate ? 7 : 6} className="text-center py-4">
                         <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                         <p className="text-sm text-gray-400">Click "Add New" to create your first cheque.</p>
                         </TableCell>
                     </TableRow>
                     ) : filteredCheques.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={7} className="text-center py-4">
+                        <TableCell colSpan={canMutate ? 7 : 6} className="text-center py-4">
                         <p className="text-sm text-gray-500 mb-1">No cheques found.</p>
                         </TableCell>
                     </TableRow>
@@ -809,33 +815,35 @@ console.log("hello")
                                 attachmentUrl={cheque.attachmentUrl}
                                 attachmentName={cheque.attachmentName}
                                 variant="default"
-                                onEditClick={() => handleEdit(cheque)}
+                                onEditClick={canMutate ? () => handleEdit(cheque) : undefined}
                             />
                             </TableCell>
-                            <TableCell className="text-sm py-2 text-left ">
-                            <div className="flex items-center space-x-2">
-                                <button
-                                onClick={() => handleEdit(cheque)}
-                                className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
-                                    'text-black hover:bg-gray-100 focus:ring-gray-500'
-                                }`}
-                                title="Edit cheque"
-                                aria-label={`Edit ${cheque.chequeNumber}`}
-                                >
-                                <Edit className="w-4 h-4" />
-                                </button>
-                                <button
-                                onClick={() => handleDeleteClick(String(cheque.id))}
-                                className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
-                                    'text-black hover:bg-gray-100 focus:ring-gray-500'
-                                }`}
-                                title="Delete cheque"
-                                aria-label={`Delete ${cheque.chequeNumber}`}
-                                >
-                                <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-                            </TableCell>
+                            {canMutate && (
+                                <TableCell className="text-sm py-2 text-left ">
+                                  <div className="flex items-center space-x-2">
+                                    <button
+                                      onClick={() => handleEdit(cheque)}
+                                      className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                                          'text-black hover:bg-gray-100 focus:ring-gray-500'
+                                      }`}
+                                      title="Edit cheque"
+                                      aria-label={`Edit ${cheque.chequeNumber}`}
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteClick(String(cheque.id))}
+                                      className={`p-2 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                                          'text-black hover:bg-gray-100 focus:ring-gray-500'
+                                      }`}
+                                      title="Delete cheque"
+                                      aria-label={`Delete ${cheque.chequeNumber}`}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </TableCell>
+                            )}
                         </TableRow>
                         );
                     })
@@ -932,7 +940,9 @@ console.log("hello")
                                 placeholder="dd/mm/yyyy"
                                 value={field.value}
                                 onChange={(e) => {
-                                    let value = e.target.value.replace(/\D/g, '');
+                                    let value = e.target.value
+                                      .replace(/[^0-9.]/g, '')
+                                      .replace(/(\..*)\./g, '$1');
                                     if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                     if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                     field.onChange(value);
@@ -985,7 +995,13 @@ console.log("hello")
                             inputMode="numeric"
                             placeholder="2401"
                             {...field}
-                            onChange={(e) => field.onChange(e.target.value.replace(/\D/g, ''))}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value
+                                  .replace(/[^0-9.]/g, '')
+                                  .replace(/(\..*)\./g, '$1')
+                              )
+                            }
                             disabled={isSubmitting}
                         />
                         </FormControl>
@@ -1055,10 +1071,18 @@ console.log("hello")
                         </FormLabel>
                         <FormControl>
                         <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="0.00"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            placeholder="0"
                             {...field}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value
+                                  .replace(/[^0-9.]/g, '')
+                                  .replace(/(\..*)\./g, '$1')
+                              )
+                            }
                             disabled={isSubmitting}
                         />
                         </FormControl>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { transactionService } from '../services/transactionService';
 import api, { type ApiResponse } from '../lib/api';
-import { formatIsoDateDisplay, formatJsDateDisplay } from '../lib/formatDisplayDate';
+import { formatIsoDateDisplay } from '../lib/formatDisplayDate';
 import {
   remarksForDailyLedgerDisplay,
   isBouncedChequeRemarks,
@@ -127,17 +127,136 @@ const OTHER_TRANSACTION_FILTER_OPTIONS: Array<{
 ];
 
 const parseTransactionDate = (value: string): Date | null => {
-  const parsed = new Date(value);
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
   if (!isNaN(parsed.getTime())) return parsed;
 
   // Fallback for dd/mm/yyyy values.
-  const parts = value.split('/');
+  const parts = raw.split('/');
   if (parts.length === 3) {
     const day = Number(parts[0]);
     const month = Number(parts[1]) - 1;
     const year = Number(parts[2]);
     const fallback = new Date(year, month, day);
     if (!isNaN(fallback.getTime())) return fallback;
+  }
+
+  // Fallback for dd-mmm-yy / dd-mmm-yyyy values.
+  const mmm = raw.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2}|\d{4})$/);
+  if (mmm) {
+    const day = Number(mmm[1]);
+    const monthText = mmm[2].toLowerCase();
+    const yearText = mmm[3];
+    const monthIndex = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(
+      monthText
+    );
+    if (monthIndex >= 0) {
+      const year = yearText.length === 2 ? 2000 + Number(yearText) : Number(yearText);
+      const fallback = new Date(year, monthIndex, day);
+      if (
+        !isNaN(fallback.getTime()) &&
+        fallback.getFullYear() === year &&
+        fallback.getMonth() === monthIndex &&
+        fallback.getDate() === day
+      ) {
+        return fallback;
+      }
+    }
+  }
+
+  return null;
+};
+
+const getRecordValue = (record: Record<string, unknown>, keys: string[]): unknown => {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
+};
+
+const toText = (value: unknown): string => (value == null ? '' : String(value));
+
+const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
+  if (!row || typeof row !== 'object') return null;
+  const record = row as Record<string, unknown>;
+  const rawType = toText(getRecordValue(record, ['transactionType', 'transaction_type'])).trim();
+
+  if (rawType === 'Daily Transaction') {
+    return {
+      id: Number(getRecordValue(record, ['id']) ?? 0),
+      date: toText(getRecordValue(record, ['date'])),
+      transactionType: 'Daily Transaction',
+      category: toText(getRecordValue(record, ['category'])),
+      paymentType: toText(getRecordValue(record, ['paymentType', 'payment_type'])),
+      chequeNumber: toText(getRecordValue(record, ['chequeNumber', 'cheque_number'])) || null,
+      debit: toText(getRecordValue(record, ['debit', 'debit_amount'])) || null,
+      credit: toText(getRecordValue(record, ['credit', 'credit_amount'])) || null,
+      balance: toText(getRecordValue(record, ['balance'])),
+      remarks: toText(getRecordValue(record, ['remarks'])) || null,
+      pdcType: toText(getRecordValue(record, ['pdcType', 'pdc_type'])) || undefined,
+      pdc_type: toText(getRecordValue(record, ['pdc_type', 'pdcType'])) || undefined,
+      createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
+      createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
+      createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+    };
+  }
+
+  if (rawType === 'GCEC PDC') {
+    return {
+      id: Number(getRecordValue(record, ['id']) ?? 0),
+      date: toText(getRecordValue(record, ['date'])),
+      transactionType: 'GCEC PDC',
+      customerName: toText(getRecordValue(record, ['customerName', 'customer_name'])),
+      chequeNumber: toText(getRecordValue(record, ['chequeNumber', 'cheque_number'])),
+      chequeType: toText(getRecordValue(record, ['chequeType', 'cheque_type'])),
+      amount: toText(getRecordValue(record, ['amount'])),
+      description: toText(getRecordValue(record, ['description'])) || null,
+      approved: Boolean(getRecordValue(record, ['approved'])),
+      ledgerApproved: Boolean(getRecordValue(record, ['ledgerApproved', 'ledger_approved'])),
+      showLedgerApprovalCheckbox: Boolean(getRecordValue(record, ['showLedgerApprovalCheckbox', 'show_ledger_approval_checkbox'])),
+      createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
+      createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
+      createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+    };
+  }
+
+  if (rawType === 'Customer PDC') {
+    return {
+      id: Number(getRecordValue(record, ['id']) ?? 0),
+      date: toText(getRecordValue(record, ['date'])),
+      transactionType: 'Customer PDC',
+      customerName: toText(getRecordValue(record, ['customerName', 'customer_name'])),
+      chequeNumber: toText(getRecordValue(record, ['chequeNumber', 'cheque_number'])),
+      chequeType: toText(getRecordValue(record, ['chequeType', 'cheque_type'])),
+      amount: toText(getRecordValue(record, ['amount'])),
+      description: toText(getRecordValue(record, ['description'])) || null,
+      approved: Boolean(getRecordValue(record, ['approved'])),
+      ledgerApproved: Boolean(getRecordValue(record, ['ledgerApproved', 'ledger_approved'])),
+      createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
+      createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
+      createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+    };
+  }
+
+  if (rawType === 'Purchase Bill') {
+    return {
+      id: Number(getRecordValue(record, ['id']) ?? 0),
+      date: toText(getRecordValue(record, ['date'])),
+      transactionType: 'Purchase Bill',
+      vendorName: toText(getRecordValue(record, ['vendorName', 'vendor_name'])),
+      invoiceNumber: toText(getRecordValue(record, ['invoiceNumber', 'invoice_number'])),
+      billNumber: toText(getRecordValue(record, ['billNumber', 'bill_number'])) || null,
+      paymentMethod: toText(getRecordValue(record, ['paymentMethod', 'payment_method'])),
+      amount: toText(getRecordValue(record, ['amount'])),
+      description: toText(getRecordValue(record, ['description'])) || null,
+      paymentStatus: toText(getRecordValue(record, ['paymentStatus', 'payment_status'])),
+      createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
+      createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
+      createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+    };
   }
 
   return null;
@@ -182,6 +301,23 @@ const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] =
   });
 };
 
+const sortTransactionsByDateAsc = (items: AllTransaction[]): AllTransaction[] => {
+  return [...items].sort((a, b) => {
+    const aDate = parseTransactionDate(a.date);
+    const bDate = parseTransactionDate(b.date);
+
+    if (!aDate && !bDate) return a.id - b.id;
+    // Keep no-date rows at the top instead of bottom.
+    if (!aDate) return -1;
+    if (!bDate) return 1;
+
+    const byDate = aDate.getTime() - bDate.getTime();
+    if (byDate !== 0) return byDate;
+
+    return a.id - b.id;
+  });
+};
+
 const isUnapprovedGcecPdc = (transaction: AllTransaction): transaction is GCECPDC => {
   if (transaction.transactionType !== 'GCEC PDC') return false;
   const ledgerApproved = Boolean(transaction.ledgerApproved ?? transaction.approved);
@@ -196,7 +332,7 @@ const displayTransactionDate = (date: string | null | undefined): string => {
 // Helper function to format amounts
 const formatAmount = (value: string | number | null | undefined): string => {
   if (value === null || value === undefined) return '-';
-  const numValue = typeof value === 'number' ? value : parseFloat(String(value || 0));
+  const numValue = typeof value === 'number' ? value : parseFloat(String(value || 0).replace(/,/g, '').trim());
   return numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
@@ -206,15 +342,19 @@ const ensurePdfFilename = (name: string | null | undefined): string => {
   return /\.pdf$/i.test(trimmed) ? trimmed : `${trimmed}.pdf`;
 };
 
-// Helper function to format date for Excel (DD-MMM-YYYY, same as Daily Transaction)
+const EXCEL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+// Helper function to format date for Excel (DD-MMM-YYYY)
 const formatDateForExcel = (date: Date | string | null): string => {
   if (!date) return '';
-  if (typeof date === 'string') {
-    const s = formatIsoDateDisplay(date);
-    return s === '—' ? '' : s;
-  }
-  const s = formatJsDateDisplay(date);
-  return s === '—' ? '' : s;
+
+  const parsed = typeof date === 'string' ? parseTransactionDate(date) : date;
+  if (!parsed || Number.isNaN(parsed.getTime())) return '';
+
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = EXCEL_MONTHS[parsed.getMonth()];
+  const year = parsed.getFullYear();
+  return `${day}-${month}-${year}`;
 };
 
 function dailyTxnPdcType(txn: DailyTransaction): string | undefined {
@@ -447,7 +587,11 @@ export default function ViewAllTranstion() {
           summaryData = responseData.summary || null;
         }
         
-        setTransactions(sortTransactionsByDateDesc(transactionsData));
+        const normalizedTransactions = transactionsData
+          .map((item) => normalizeTransactionRow(item))
+          .filter((item): item is AllTransaction => item !== null);
+
+        setTransactions(sortTransactionsByDateDesc(normalizedTransactions));
         setSummary(summaryData);
         setCurrentPage(1); // Reset to first page when filters change
       } else {
@@ -592,7 +736,7 @@ export default function ViewAllTranstion() {
     const transactionOrder = ['Daily Transaction', 'GCEC PDC', 'Customer PDC', 'Purchase Bill'];
     
     transactionOrder.forEach((type) => {
-      const typeTransactions = groupedTransactions[type] || [];
+      const typeTransactions = sortTransactionsByDateAsc(groupedTransactions[type] || []);
       if (typeTransactions.length > 0) {
         const displayName = getTransactionTypeDisplayName(type);
         addRow([displayName], {

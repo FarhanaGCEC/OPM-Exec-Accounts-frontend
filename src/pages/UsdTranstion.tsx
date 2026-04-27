@@ -34,6 +34,7 @@ import {
 } from '../components/ui/table';
 import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
+import { canMutateRecords } from '../lib/authPayload';
 
 interface UsdTransaction {
   id?: string | number;
@@ -84,6 +85,7 @@ const parseUsdTransactionDate = (value: string): Date | null => {
 };
 
 export default function UsdTranstion() {
+  const canMutate = canMutateRecords();
   const [loading, setLoading] = useState(false);
   const [transactions, setTransactions] = useState<UsdTransaction[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -742,14 +744,16 @@ export default function UsdTranstion() {
             <FileSpreadsheet className="w-4 h-4" />
             <span>Download Excel</span>
           </Button>
-          <Button
-            onClick={handleAddNew}
-            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
-            disabled={loading}
-          >
-            <Plus className="w-4 h-4 text-black" />
-            <span>Add New</span>
-          </Button>
+          {canMutate && (
+            <Button
+              onClick={handleAddNew}
+              className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+              disabled={loading}
+            >
+              <Plus className="w-4 h-4 text-black" />
+              <span>Add New</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -804,7 +808,9 @@ export default function UsdTranstion() {
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Bank Charges</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Credit</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Balance</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Actions</TableHead>
+                    {canMutate && (
+                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -845,28 +851,30 @@ export default function UsdTranstion() {
                           );
                         })()}
                       </TableCell>
-                      <TableCell className="text-sm py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(transaction)}
-                            disabled={loading}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteClick(transaction)}
-                            disabled={loading}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-600" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                      {canMutate && (
+                        <TableCell className="text-sm py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEdit(transaction)}
+                              disabled={loading}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteClick(transaction)}
+                              disabled={loading}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-600" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1047,22 +1055,38 @@ export default function UsdTranstion() {
               <Label htmlFor="amount">Amount</Label>
               <Input
                 id="amount"
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                placeholder="0.00"
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    amount: e.target.value
+                      .replace(/[^0-9.]/g, '')
+                      .replace(/(\..*)\./g, '$1'),
+                  })
+                }
+                placeholder="0"
               />
             </div>
             <div>
               <Label htmlFor="bank_charges">Bank Charges</Label>
               <Input
                 id="bank_charges"
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={formData.bankCharges}
-                onChange={(e) => setFormData({ ...formData, bankCharges: e.target.value })}
-                placeholder="0.00"
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    bankCharges: e.target.value
+                      .replace(/[^0-9.]/g, '')
+                      .replace(/(\..*)\./g, '$1'),
+                  })
+                }
+                placeholder="0"
               />
             </div>
             <div className="flex justify-end gap-2 pt-4">

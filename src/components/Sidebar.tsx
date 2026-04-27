@@ -122,14 +122,7 @@ const menuItems: MenuItem[] = [
   },
   { id: 'category', label: 'Debtors List', icon: ListOrdered, path: '/category', sidebarKey: 'debtors_list' },
 
-  {
-    id: 'user-management',
-    label: 'User Accounts Management',
-    icon: Users,
-    path: '/admin/users',
-    sidebarKey: 'user_accounts_management',
-    adminOnly: true,
-  },
+
   {
     id: 'my-change-requests',
     label: 'My change requests',
@@ -152,6 +145,14 @@ const menuItems: MenuItem[] = [
     path: '/monthly-bank-statements',
     sidebarKey: 'monthly_bank_statements',
     adminOrAccountantOnly: true,
+  },
+  {
+    id: 'user-management',
+    label: 'User Accounts Management',
+    icon: Users,
+    path: '/admin/users',
+    sidebarKey: 'user_accounts_management',
+    adminOnly: true,
   },
 ];
 

@@ -43,6 +43,7 @@ import {
   Upload,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
+import { applyArialToExcelJsWorkbook } from '../lib/excelExportFont';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
   Tooltip,
@@ -67,7 +68,7 @@ import {
   isChangeRequestSubmittedEnvelope,
   userMessageFromChangeRequestSubmit,
 } from '../lib/changeRequestUi';
-import { canApprovePdcDailyLedger } from '../lib/authPayload';
+import { canApprovePdcDailyLedger, canMutateRecords } from '../lib/authPayload';
 import {
   remarksForDailyLedgerDisplay,
   rowIsGcecPdcHighlight,
@@ -625,8 +626,14 @@ function ledgerExportDetailsColumn(t: BankTransaction): string {
   return '';
 }
 
+function isPdcDueId(id: string | number | undefined | null): boolean {
+  if (id === undefined || id === null) return false;
+  return String(id).trim().toLowerCase().startsWith('pdc-due-');
+}
+
 // Zod validation schema
 const transactionSchema = z.object({
+  editMode: z.enum(['ledger', 'pdcDue']).default('ledger'),
   date: z.string()
     .min(10, 'Date is required')
     .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
@@ -640,6 +647,10 @@ const transactionSchema = z.object({
   }),
   chequeNumber: z.string().optional(),
   remarks: z.string().optional(),
+  customerName: z.string().optional(),
+  pdcType: z.enum(['GCEC PDC', 'Customer PDC', 'Custom PDC']).optional(),
+  chequeType: z.enum(['Payment Cheque', 'Security Cheque']).optional(),
+  description: z.string().optional(),
   amount: z.string()
     .min(1, 'Amount is required')
     .refine((val) => {
@@ -648,13 +659,50 @@ const transactionSchema = z.object({
     }, 'Amount must be greater than 0'),
 }).refine((data) => {
   // If payment type is cheque, chequeNumber is required
-  if (data.paymentType === 'cheque') {
+  if (data.editMode !== 'pdcDue' && data.paymentType === 'cheque') {
     return data.chequeNumber && data.chequeNumber.trim().length > 0;
   }
   return true;
 }, {
   message: 'Cheque number is required when payment type is cheque',
   path: ['chequeNumber'],
+}).superRefine((data, ctx) => {
+  if (data.editMode !== 'pdcDue') return;
+  if (!data.chequeNumber || !data.chequeNumber.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['chequeNumber'],
+      message: 'Cheque number is required',
+    });
+  }
+  if (!data.customerName || !data.customerName.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['customerName'],
+      message: 'Customer name is required',
+    });
+  }
+  if (!data.pdcType) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['pdcType'],
+      message: 'PDC type is required',
+    });
+  }
+  if (!data.chequeType) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['chequeType'],
+      message: 'Cheque type is required',
+    });
+  }
+  if (data.pdcType === 'Custom PDC' && !data.description?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['description'],
+      message: 'Description is required for Custom PDC',
+    });
+  }
 });
 
 type TransactionFormData = z.infer<typeof transactionSchema>;
@@ -677,6 +725,7 @@ const formatDate = (dateString: string): string => {
 };
 
 export default function BankTransaction() {
+  const canMutate = canMutateRecords();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<BankTransaction | null>(null);
@@ -713,25 +762,38 @@ export default function BankTransaction() {
   const form = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
+      editMode: 'ledger',
       date: '',
       type: 'Debit',
       categoryId: '',
       paymentType: 'cash',
       chequeNumber: '',
       remarks: '',
+      customerName: '',
+      pdcType: 'GCEC PDC',
+      chequeType: 'Payment Cheque',
+      description: '',
       amount: '',
     },
   });
 
   const paymentType = form.watch('paymentType');
   const transactionType = form.watch('type');
+  const editingPdcDue = !!editingTransaction && isPdcDueId(editingTransaction.id);
+  const editingPdcType = form.watch('pdcType');
+
+  const notifyTransactionDataChanged = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('gcec:transactions-updated'));
+    }
+  }, []);
 
   // Clear cheque number when payment type changes away from cheque
   useEffect(() => {
-    if (paymentType !== 'cheque') {
+    if (!editingPdcDue && paymentType !== 'cheque') {
       form.setValue('chequeNumber', '');
     }
-  }, [paymentType, form]);
+  }, [editingPdcDue, paymentType, form]);
 
   // Clear category when transaction type changes
   useEffect(() => {
@@ -800,7 +862,10 @@ export default function BankTransaction() {
         const transactionsData: BankTransaction[] = ledgerResponse.data.map((transaction) => {
           const row = transaction as BankTransactionType & Record<string, unknown>;
           const flags = readPdcLedgerRowFlags(row);
-          const apiDate = row.date;
+          const apiDate = (row.date ?? row.transaction_date ?? row.created_at) as
+            | string
+            | null
+            | undefined;
           const isFooterDup = flags.approvalPendingFooterDuplicate;
           const isoForEdit =
             apiDate && !isFooterDup && typeof apiDate === 'string' ? apiDate : undefined;
@@ -808,29 +873,48 @@ export default function BankTransaction() {
           const formattedDate =
             apiDate && !isFooterDup ? formatDate(String(apiDate)) : '';
 
-          const debitAmount = transaction.debit
-            ? transaction.debit.toLocaleString('en-US', {
+          const normalizedDebit = parseLedgerAmount(
+            row.debit ?? row.debit_amount ?? row.debitAmount ?? transaction.debit
+          );
+          const normalizedCredit = parseLedgerAmount(
+            row.credit ?? row.credit_amount ?? row.creditAmount ?? transaction.credit
+          );
+          const rawBalance = row.balance ?? row.running_balance ?? transaction.balance;
+
+          const debitAmount = normalizedDebit
+            ? normalizedDebit.toLocaleString('en-US', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })
             : null;
-          const creditAmount = transaction.credit
-            ? transaction.credit.toLocaleString('en-US', {
+          const creditAmount = normalizedCredit
+            ? normalizedCredit.toLocaleString('en-US', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })
             : null;
 
           const formattedBalance =
-            typeof transaction.balance === 'number'
-              ? transaction.balance.toLocaleString('en-US', {
+            typeof rawBalance === 'number'
+              ? rawBalance.toLocaleString('en-US', {
                   minimumFractionDigits: 0,
                   maximumFractionDigits: 2,
                 })
-              : String(transaction.balance || '0');
+              : parseLedgerAmount(rawBalance).toLocaleString('en-US', {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 2,
+                });
 
           const frontendPaymentType =
-            transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
+            (String(row.paymentType ?? row.payment_type ?? transaction.paymentType ?? '')
+              .trim()
+              .toLowerCase() === 'online'
+              ? 'banktransfer'
+              : String(row.paymentType ?? row.payment_type ?? transaction.paymentType ?? '')) as
+              | 'creditcard'
+              | 'cheque'
+              | 'cash'
+              | 'banktransfer';
 
           const remarksRaw = row.remarks;
           const remarks =
@@ -842,15 +926,11 @@ export default function BankTransaction() {
             id: String(transaction.id ?? ''),
             date: formattedDate,
             originalDate: isoForEdit,
-            categoryName: transaction.category || 'N/A',
+            categoryName: String(row.category ?? row.category_name ?? transaction.category ?? 'N/A'),
             categoryId: (row.categoryId ?? row.category_id) as string | number | undefined,
-            paymentType: frontendPaymentType as
-              | 'creditcard'
-              | 'cheque'
-              | 'cash'
-              | 'banktransfer',
-            debit: transaction.debit,
-            credit: transaction.credit,
+            paymentType: frontendPaymentType,
+            debit: normalizedDebit,
+            credit: normalizedCredit,
             debitFormatted: debitAmount,
             creditFormatted: creditAmount,
             balance: formattedBalance,
@@ -1070,7 +1150,37 @@ export default function BankTransaction() {
 
       let response: ApiResponse<BankTransactionType>;
 
-      if (editingTransaction) {
+      if (editingTransaction && isPdcDueId(editingTransaction.id)) {
+        const normalizeDate = (value: string): string => {
+          const s = String(value || '').trim();
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+          const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+          if (dmY) {
+            const day = dmY[1].padStart(2, '0');
+            const month = dmY[2].padStart(2, '0');
+            return `${dmY[3]}-${month}-${day}`;
+          }
+          return s;
+        };
+
+        const pdcPayload: Record<string, unknown> = {
+          date: normalizeDate(data.date),
+          chequeDate: normalizeDate(data.date),
+          amount: amountNumber,
+          chequeNumber: data.chequeNumber?.trim() || '',
+          customerName: data.customerName?.trim() || '',
+          category: data.customerName?.trim() || '',
+          chequeType: data.chequeType || 'Payment Cheque',
+          pdcType: data.pdcType || 'GCEC PDC',
+          description: data.description?.trim() || '',
+        };
+
+        pendingEditPayload = { ...pdcPayload };
+        response = await transactionService.updateBankTransaction(
+          String(editingTransaction.id),
+          pdcPayload
+        );
+      } else if (editingTransaction) {
         pendingEditPayload = { ...payload };
         // Update existing transaction
         response = await transactionService.updateBankTransaction(String(editingTransaction.id), payload);
@@ -1093,7 +1203,9 @@ export default function BankTransaction() {
           maximumFractionDigits: 2,
         });
 
-        if (editingTransaction) {
+        if (editingTransaction && isPdcDueId(editingTransaction.id)) {
+          setSuccessMessage('PDC due transaction updated successfully.');
+        } else if (editingTransaction) {
           // Format balance with commas
           const balanceValue = typeof response.data.balance === 'number' 
             ? response.data.balance 
@@ -1133,18 +1245,24 @@ export default function BankTransaction() {
 
         // Reset form and close modal
         form.reset({
+          editMode: 'ledger',
           date: '',
           type: 'Debit',
           categoryId: '',
           paymentType: 'cash',
           chequeNumber: '',
           remarks: '',
+          customerName: '',
+          pdcType: 'GCEC PDC',
+          chequeType: 'Payment Cheque',
+          description: '',
           amount: '',
         });
         setEditingTransaction(null);
         setIsModalOpen(false);
         // Refetch to ensure data is in sync
         await fetchTransactions();
+        notifyTransactionDataChanged();
       } else {
         setError(response.message || `Failed to ${editingTransaction ? 'update' : 'create'} transaction`);
       }
@@ -1162,12 +1280,17 @@ export default function BankTransaction() {
         setIsModalOpen(false);
         setEditingTransaction(null);
         form.reset({
+          editMode: 'ledger',
           date: '',
           type: 'Debit',
           categoryId: '',
           paymentType: 'cash',
           chequeNumber: '',
           remarks: '',
+          customerName: '',
+          pdcType: 'GCEC PDC',
+          chequeType: 'Payment Cheque',
+          description: '',
           amount: '',
         });
         setError(null);
@@ -1207,12 +1330,17 @@ export default function BankTransaction() {
         setIsModalOpen(false);
         setEditingTransaction(null);
         form.reset({
+          editMode: 'ledger',
           date: '',
           type: 'Debit',
           categoryId: '',
           paymentType: 'cash',
           chequeNumber: '',
           remarks: '',
+          customerName: '',
+          pdcType: 'GCEC PDC',
+          chequeType: 'Payment Cheque',
+          description: '',
           amount: '',
         });
       }
@@ -1229,7 +1357,10 @@ export default function BankTransaction() {
   };
 
   const handleEdit = useCallback((transaction: BankTransaction) => {
-    if (transaction.syntheticFromPdc || transaction.approvalPendingFooterDuplicate) {
+    if (
+      (transaction.syntheticFromPdc && !isPdcDueId(transaction.id)) ||
+      transaction.approvalPendingFooterDuplicate
+    ) {
       return;
     }
 
@@ -1332,16 +1463,31 @@ export default function BankTransaction() {
     console.log('[handleEdit] Final categoryId:', categoryId);
     
     // Ensure paymentType is 'banktransfer' not 'online' for form
-    const formPaymentType = transaction.paymentType === 'online' ? 'banktransfer' : transaction.paymentType;
+    const formPaymentType = isPdcDueId(transaction.id)
+      ? 'cheque'
+      : transaction.paymentType === 'online'
+      ? 'banktransfer'
+      : transaction.paymentType;
+    const initialPdcType =
+      transaction.pdcType === 'Custom PDC' || transaction.pdcType === 'Customer PDC'
+        ? transaction.pdcType
+        : rowIsGcecPdcHighlight(transaction.remarks, transaction.pdcType)
+        ? 'GCEC PDC'
+        : 'Customer PDC';
     
     // Reset form with all values
     form.reset({
+      editMode: isPdcDueId(transaction.id) ? 'pdcDue' : 'ledger',
       date: dateValue,
       type: transactionType as 'Debit' | 'Credit',
       categoryId: categoryId,
       paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
       chequeNumber: transaction.chequeNumber && transaction.chequeNumber !== '-' ? transaction.chequeNumber : '' ,
       remarks: transaction.remarks || '',
+      customerName: transaction.categoryName || '',
+      pdcType: initialPdcType,
+      chequeType: 'Payment Cheque',
+      description: transaction.remarks || '',
       amount: amountValue,
     });
     
@@ -1359,7 +1505,11 @@ export default function BankTransaction() {
   const handleDeleteClick = useCallback(
     (id: string) => {
       const t = transactions.find((x) => String(x.id) === id);
-      if (t?.syntheticFromPdc || t?.approvalPendingFooterDuplicate) return;
+      if (
+        (t?.syntheticFromPdc && !isPdcDueId(t.id)) ||
+        t?.approvalPendingFooterDuplicate
+      )
+        return;
       setDeletingTransactionId(id);
       setError(null);
       setIsDeleteModalOpen(true);
@@ -1392,6 +1542,7 @@ export default function BankTransaction() {
           setIsDeleteModalOpen(false);
           // Refetch to ensure data is in sync
           await fetchTransactions();
+          notifyTransactionDataChanged();
         }
       } else {
         setError(response.message || 'Failed to delete transaction');
@@ -1410,18 +1561,23 @@ export default function BankTransaction() {
     } finally {
       setIsDeleting(false);
     }
-  }, [deletingTransactionId, fetchTransactions]);
+  }, [deletingTransactionId, fetchTransactions, notifyTransactionDataChanged]);
 
   const handleAddNew = useCallback(() => {
     setEditingTransaction(null);
     setError(null);
     form.reset({
+      editMode: 'ledger',
       date: '',
       type: 'Debit',
       categoryId: '',
       paymentType: 'cash',
       chequeNumber: '',
       remarks: '',
+      customerName: '',
+      pdcType: 'GCEC PDC',
+      chequeType: 'Payment Cheque',
+      description: '',
       amount: '',
     });
     setIsModalOpen(true);
@@ -1949,6 +2105,7 @@ export default function BankTransaction() {
       ];
 
       const fileName = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.xlsx`;
+      applyArialToExcelJsWorkbook(workbook);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -1975,14 +2132,16 @@ export default function BankTransaction() {
       
           <h2 className="text-2xl font-bold text-gray-900"> Daily Transactions Details</h2>
        </div>
-            <Button
-            onClick={handleAddNew}
-            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
-            disabled={loading}
-            >
-            <Plus className="w-4 h-4 text-black" />
-            <span>Add New</span>
-            </Button>
+            {canMutate && (
+              <Button
+                onClick={handleAddNew}
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+                disabled={loading}
+              >
+                <Plus className="w-4 h-4 text-black" />
+                <span>Add New</span>
+              </Button>
+            )}
         </div>
  
  <Card className="bg-white border border-gray-200 shadow-sm rounded-lg mt-18 m-4">
@@ -2000,7 +2159,9 @@ export default function BankTransaction() {
            
             value={startDate}
             onChange={(e) => {
-              let value = e.target.value.replace(/\D/g, '');
+              let value = e.target.value
+                .replace(/[^0-9.]/g, '')
+                .replace(/(\..*)\./g, '$1');
               if (value.length >= 2) value = value.slice(0, 2) + '-' + value.slice(2);
               if (value.length >= 6) value = value.slice(0, 6) + '-' + value.slice(6, 10);
               setStartDate(value);
@@ -2046,7 +2207,9 @@ export default function BankTransaction() {
          
             value={endDate}
             onChange={(e) => {
-              let value = e.target.value.replace(/\D/g, '');
+              let value = e.target.value
+                .replace(/[^0-9.]/g, '')
+                .replace(/(\..*)\./g, '$1');
               if (value.length >= 2) value = value.slice(0, 2) + '-' + value.slice(2);
               if (value.length >= 6) value = value.slice(0, 6) + '-' + value.slice(6, 10);
               setEndDate(value);
@@ -2309,22 +2472,24 @@ export default function BankTransaction() {
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Remarks
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
-                      Actions
-                    </th>
+                    {canMutate && (
+                      <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
+                        Actions
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="[&_tr:last-child]:border-0">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-4 px-4 align-middle">
+                    <td colSpan={canMutate ? 8 : 7} className="text-center py-4 px-4 align-middle">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                       <p className="text-sm text-gray-500">Loading transactions...</p>
                     </td>
                   </tr>
                 ) : !Array.isArray(filteredTransactions) || filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-4 px-4 align-middle">
+                    <td colSpan={canMutate ? 8 : 7} className="text-center py-4 px-4 align-middle">
                       <p className="text-sm text-gray-500 mb-1">No transactions found.</p>
                       <p className="text-sm text-gray-400">Click "Add New" to create your first transaction.</p>
                     </td>
@@ -2518,8 +2683,9 @@ export default function BankTransaction() {
                                 Awaiting ledger approval (admin / accountant)
                               </span>
                             )}
-                          {!clientPendingBottomDup &&
-                            !transaction.syntheticFromPdc &&
+                          {canMutate &&
+                            !clientPendingBottomDup &&
+                            (!transaction.syntheticFromPdc || isPdcDueId(transaction.id)) &&
                             !transaction.approvalPendingFooterDuplicate && (
                               <>
                                 <button
@@ -2562,12 +2728,17 @@ export default function BankTransaction() {
         setIsModalOpen(open);
         if (!open) {
           form.reset({
+            editMode: 'ledger',
             date: '',
             type: 'Debit',
             categoryId: '',
             paymentType: 'cash',
             chequeNumber: '',
             remarks: '',
+            customerName: '',
+            pdcType: 'GCEC PDC',
+            chequeType: 'Payment Cheque',
+            description: '',
             amount: '',
           });
           setEditingTransaction(null);
@@ -2654,7 +2825,9 @@ export default function BankTransaction() {
                               placeholder="dd/mm/yyyy"
                               value={field.value}
                               onChange={(e) => {
-                                let value = e.target.value.replace(/\D/g, '');
+                                let value = e.target.value
+                                  .replace(/[^0-9.]/g, '')
+                                  .replace(/(\..*)\./g, '$1');
                                 if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                 if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                 field.onChange(value);
@@ -2692,125 +2865,194 @@ export default function BankTransaction() {
                 }}
               />
 
-              {/* Type Field */}
-              <FormField
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-lg font-medium text-gray-700">
-                      Type
-                    </FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Debit">Debit</SelectItem>
-                        <SelectItem value="Credit">Credit</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {!editingPdcDue ? (
+                <>
+                  {/* Type Field */}
+                  <FormField
+                    control={form.control}
+                    name="type"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-lg font-medium text-gray-700">
+                          Type
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Debit">Debit</SelectItem>
+                            <SelectItem value="Credit">Credit</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              {/* Category Field */}
-              <FormField
-                control={form.control}
-                name="categoryId"
-                render={({ field }) => {
-                  // Ensure the field value is properly set when editing
-                  useEffect(() => {
-                    if (editingTransaction && field.value) {
-                      // Force update if value exists but not showing
-                      const currentValue = field.value;
-                      const availableCategories = getAvailableCategories();
-                      const categoryExists = availableCategories.some(cat => String(cat.id) === String(currentValue));
-                      if (!categoryExists && availableCategories.length > 0) {
-                        console.log('[Category Field] Value not found in available categories, clearing:', currentValue);
-                        field.onChange('');
-                      }
-                    }
-                    // eslint-disable-next-line react-hooks/exhaustive-deps
-                  }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
-                  
-                  return (
-                    <FormItem>
-                      <FormLabel className="text-lg font-medium text-gray-700">
-                        Category
-                      </FormLabel>
-                      <FormControl>
-                        {loadingCategories ? (
-                          <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-base">
-                            <span className="text-muted-foreground">Loading categories...</span>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          </div>
-                        ) : getAvailableCategories().length === 0 ? (
-                          <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
-                            {transactionType === 'Debit' 
-                              ? 'No payables categories found. Please add categories in Payables List.'
-                              : 'No receivables categories found. Please add categories in Receivables List.'}
-                          </div>
-                        ) : (
-                          <SearchableSelect
-                            value={field.value || ''}
-                            onValueChange={(value) => {
-                              console.log('[Category Field] Value changed:', value);
-                              field.onChange(value);
-                            }}
-                            placeholder={loadingCategories ? "Loading categories..." : "Select category"}
-                            disabled={loadingCategories}
-                            searchPlaceholder="Search category..."
-                          >
-                            {getAvailableCategories().map((category) => (
-                              <SelectItem key={String(category.id)} value={String(category.id)}>
-                                {category.name}
-                              </SelectItem>
-                            ))}
-                          </SearchableSelect>
-                        )}
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
-              />
+                  {/* Category Field */}
+                  <FormField
+                    control={form.control}
+                    name="categoryId"
+                    render={({ field }) => {
+                      // Ensure the field value is properly set when editing
+                      useEffect(() => {
+                        if (editingTransaction && field.value) {
+                          // Force update if value exists but not showing
+                          const currentValue = field.value;
+                          const availableCategories = getAvailableCategories();
+                          const categoryExists = availableCategories.some(cat => String(cat.id) === String(currentValue));
+                          if (!categoryExists && availableCategories.length > 0) {
+                            console.log('[Category Field] Value not found in available categories, clearing:', currentValue);
+                            field.onChange('');
+                          }
+                        }
+                        // eslint-disable-next-line react-hooks/exhaustive-deps
+                      }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
+                      
+                      return (
+                        <FormItem>
+                          <FormLabel className="text-lg font-medium text-gray-700">
+                            Category
+                          </FormLabel>
+                          <FormControl>
+                            {loadingCategories ? (
+                              <div className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-base">
+                                <span className="text-muted-foreground">Loading categories...</span>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              </div>
+                            ) : getAvailableCategories().length === 0 ? (
+                              <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
+                                {transactionType === 'Debit' 
+                                  ? 'No payables categories found. Please add categories in Payables List.'
+                                  : 'No receivables categories found. Please add categories in Receivables List.'}
+                              </div>
+                            ) : (
+                              <SearchableSelect
+                                value={field.value || ''}
+                                onValueChange={(value) => {
+                                  console.log('[Category Field] Value changed:', value);
+                                  field.onChange(value);
+                                }}
+                                placeholder={loadingCategories ? "Loading categories..." : "Select category"}
+                                disabled={loadingCategories}
+                                searchPlaceholder="Search category..."
+                              >
+                                {getAvailableCategories().map((category) => (
+                                  <SelectItem key={String(category.id)} value={String(category.id)}>
+                                    {category.name}
+                                  </SelectItem>
+                                ))}
+                              </SearchableSelect>
+                            )}
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
 
-              {/* Payment Type Field */}
-              <FormField
-                control={form.control}
-                name="paymentType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-lg font-medium text-gray-700">
-                      Payment Type
-                    </FormLabel>
-                    <Select
-                      onValueChange={(value) => field.onChange(value === 'blank' ? '' : value)}
-                      value={field.value || 'blank'}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select payment type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="cheque">Cheque</SelectItem>
-                        <SelectItem value="blank">Blank</SelectItem>
-                        <SelectItem value="banktransfer">Online</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  {/* Payment Type Field */}
+                  <FormField
+                    control={form.control}
+                    name="paymentType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-lg font-medium text-gray-700">
+                          Payment Type
+                        </FormLabel>
+                        <Select
+                          onValueChange={(value) => field.onChange(value === 'blank' ? '' : value)}
+                          value={field.value || 'blank'}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select payment type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="cash">Cash</SelectItem>
+                            <SelectItem value="cheque">Cheque</SelectItem>
+                            <SelectItem value="blank">Blank</SelectItem>
+                            <SelectItem value="banktransfer">Online</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="customerName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-lg font-medium text-gray-700">
+                          Customer Name
+                        </FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter customer name" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="pdcType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-lg font-medium text-gray-700">
+                          PDC Type
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select PDC type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="GCEC PDC">GCEC PDC</SelectItem>
+                            <SelectItem value="Customer PDC">Customer PDC</SelectItem>
+                            <SelectItem value="Custom PDC">Custom PDC</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="chequeType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-lg font-medium text-gray-700">
+                          Cheque Type
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select cheque type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Payment Cheque">Payment Cheque</SelectItem>
+                            <SelectItem value="Security Cheque">Security Cheque</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
 
               {/* Cheque Number Field - Conditional */}
-              {paymentType === 'cheque' && (
+              {(paymentType === 'cheque' || editingPdcDue) && (
                 <FormField
                   control={form.control}
                   name="chequeNumber"
@@ -2832,24 +3074,44 @@ export default function BankTransaction() {
               )}
 
               {/* Remarks Field */}
-              <FormField
-                control={form.control}
-                name="remarks"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-lg font-medium text-gray-700">
-                      Remarks (Optional)
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Enter remarks"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {!editingPdcDue && (
+                <FormField
+                  control={form.control}
+                  name="remarks"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-lg font-medium text-gray-700">
+                        Remarks (Optional)
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Enter remarks"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {editingPdcDue && (
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-lg font-medium text-gray-700">
+                        Description {editingPdcType === 'Custom PDC' ? '(Required)' : '(Optional)'}
+                      </FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter description" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               {/* Amount Field */}
               <FormField
@@ -2862,10 +3124,17 @@ export default function BankTransaction() {
                     </FormLabel>
                     <FormControl>
                       <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="0"
                         {...field}
+                        onChange={(e) => {
+                          const amountValue = e.target.value
+                            .replace(/[^0-9.]/g, '')
+                            .replace(/(\..*)\./g, '$1');
+                          field.onChange(amountValue);
+                        }}
                       />
                     </FormControl>
                     <FormMessage />

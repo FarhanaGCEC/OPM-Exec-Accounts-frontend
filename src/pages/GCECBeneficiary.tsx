@@ -29,6 +29,7 @@ import {
     TableRow,
 } from '../components/ui/table';
 import { Plus } from 'lucide-react';
+import { canMutateRecords } from '../lib/authPayload';
 
 interface Beneficiary {
     id: string;
@@ -48,6 +49,7 @@ const beneficiarySchema = z.object({
 type BeneficiaryFormData = z.infer<typeof beneficiarySchema>;
 
 export default function GCECBeneficiary() {
+    const canMutate = canMutateRecords();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([
         { id: '1', name: 'John Doe Services', bankName: 'Emirates NBD' },
@@ -77,13 +79,15 @@ export default function GCECBeneficiary() {
         <Layout>
             <div className="mb-6 flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-gray-900">GCEC Beneficiary</h2>
-                <Button
-                    onClick={() => setIsModalOpen(true)}
-                    className="bg-[#f7c46d] text-white flex items-center space-x-2"
-                >
-                    <Plus className="w-4 h-4" />
-                    <span>Add New Beneficiary</span>
-                </Button>
+                {canMutate && (
+                    <Button
+                        onClick={() => setIsModalOpen(true)}
+                        className="bg-[#f7c46d] text-white flex items-center space-x-2"
+                    >
+                        <Plus className="w-4 h-4" />
+                        <span>Add New Beneficiary</span>
+                    </Button>
+                )}
             </div>
 
             <Card className="bg-white border border-gray-200">

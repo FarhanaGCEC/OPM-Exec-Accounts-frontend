@@ -43,6 +43,7 @@ import {
     mapApiResponseToCreditCardDetail,
     type CreditCardDetail 
 } from '../services/creditCardService';
+import { canMutateRecords } from '../lib/authPayload';
 
 const creditCardSchema = z.object({
     issuingBank: z.string().min(1, 'Issuing Bank is required').trim(),
@@ -63,6 +64,7 @@ const creditCardSchema = z.object({
 type CreditCardFormData = z.infer<typeof creditCardSchema>;
 
 export default function CreditCardDetails() {
+    const canMutate = canMutateRecords();
     const [creditCards, setCreditCards] = useState<CreditCardDetail[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -367,14 +369,16 @@ export default function CreditCardDetails() {
                 <div className="flex items-center gap-4 ml-16">
                     <h2 className="text-2xl font-bold text-gray-900">Credit Card Details</h2>
                 </div>
-                <Button
-                    onClick={handleAddClick}
-                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
-                    disabled={loading}
-                >
-                    <Plus className="w-4 h-4 text-black" />
-                    <span>Add New</span>
-                </Button>
+                {canMutate && (
+                    <Button
+                        onClick={handleAddClick}
+                        className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+                        disabled={loading}
+                    >
+                        <Plus className="w-4 h-4 text-black" />
+                        <span>Add New</span>
+                    </Button>
+                )}
             </div>
 
             {error && (
@@ -432,9 +436,11 @@ export default function CreditCardDetails() {
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Status
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                        Actions
-                                    </TableHead>
+                                    {canMutate && (
+                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                            Actions
+                                        </TableHead>
+                                    )}
                                   
                                 </TableRow>
                             </TableHeader>
@@ -502,36 +508,38 @@ export default function CreditCardDetails() {
                                                     {card.isActive ? 'Active' : 'Deactive'}
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                <div className="flex items-center gap-2">
-                                                    {card.isActive ? (
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => {
-                                                                setDeletingCardId(card.id);
-                                                                setIsDeleteModalOpen(true);
-                                                            }}
-                                                            className="text-red-600 hover:text-red-700 "
-                                                            disabled={isDeleting}
-                                                        >
-                                                            <CircleMinus className="w-4 h-4 mr-1" />
-                                                          
-                                                        </Button>
-                                                    ) : (
-                                                        <Button
-                                                            variant="outline" 
-                                                            size="sm"
-                                                            onClick={() => handleActivate(card.id)}
-                                                            className="text-green-600 hover:text-green-700 "
-                                                            disabled={isActivating}
-                                                        >
-                                                            <Power className="w-4 h-4 mr-1" />
-                                                           
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </TableCell>
+                                            {canMutate && (
+                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    <div className="flex items-center gap-2">
+                                                        {card.isActive ? (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    setDeletingCardId(card.id);
+                                                                    setIsDeleteModalOpen(true);
+                                                                }}
+                                                                className="text-red-600 hover:text-red-700 "
+                                                                disabled={isDeleting}
+                                                            >
+                                                                <CircleMinus className="w-4 h-4 mr-1" />
+                                                              
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                variant="outline" 
+                                                                size="sm"
+                                                                onClick={() => handleActivate(card.id)}
+                                                                className="text-green-600 hover:text-green-700 "
+                                                                disabled={isActivating}
+                                                            >
+                                                                <Power className="w-4 h-4 mr-1" />
+                                                               
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ));
                                 })()}
@@ -735,13 +743,16 @@ export default function CreditCardDetails() {
                                         </FormLabel>
                                         <FormControl>
                                             <Input
-                                                type="number"
-                                                step="0.01"
+                                                type="text"
+                                                inputMode="numeric"
+                                                pattern="[0-9]*"
                                                 placeholder="Enter Amount Limit"
                                                 disabled={isSubmitting}
                                                 value={field.value !== null && field.value !== undefined ? String(field.value) : ''}
                                                 onChange={(e) => {
-                                                    const value = e.target.value;
+                                                    const value = e.target.value
+                                                      .replace(/[^0-9.]/g, '')
+                                                      .replace(/(\..*)\./g, '$1');
                                                     if (value === '' || value === null || value === undefined) {
                                                         field.onChange(null);
                                                     } else {

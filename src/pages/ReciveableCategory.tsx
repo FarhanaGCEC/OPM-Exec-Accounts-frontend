@@ -47,6 +47,7 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
+import { canMutateRecords } from '../lib/authPayload';
 
 const RECEIVABLES_RESOURCE_TYPE = 'receivables_category';
 
@@ -66,6 +67,7 @@ const categorySchema = z.object({
 type CategoryFormData = z.infer<typeof categorySchema>;
 
 export default function ReciveableCategory() {
+    const canMutate = canMutateRecords();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [editingCategory, setEditingCategory] = useState<ReceivablesCategory | null>(null);
@@ -431,14 +433,16 @@ export default function ReciveableCategory() {
                     <Upload className="w-4 h-4" />
                     <span>Bulk import</span>
                 </Button>
-                <Button
-                onClick={handleAddNew}
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
-                disabled={loading}
-                >
-                <Plus className="w-4 h-4 text-black" />
-                <span>Add New</span>
-                </Button>
+                {canMutate && (
+                    <Button
+                    onClick={handleAddNew}
+                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                    disabled={loading}
+                    >
+                    <Plus className="w-4 h-4 text-black" />
+                    <span>Add New</span>
+                    </Button>
+                )}
             </div>
         </div>
 
@@ -472,9 +476,11 @@ export default function ReciveableCategory() {
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Name
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                        Actions
-                                    </TableHead>
+                                    {canMutate && (
+                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                            Actions
+                                        </TableHead>
+                                    )}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -507,26 +513,28 @@ export default function ReciveableCategory() {
                                             <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
                                                 {category.name}
                                             </TableCell>
-                                            <TableCell className="text-sm py-2 text-left">
-                                                <div className="flex items-center space-x-2">
-                                                    <button
-                                                        onClick={() => handleEdit(category)}
-                                                        className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-                                                        title="Edit category"
-                                                        aria-label={`Edit ${category.name}`}
-                                                    >
-                                                        <Edit className="w-4 h-4" />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteClick(String(category.id))}
-                                                        className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
-                                                        title="Delete Creditors"
-                                                        aria-label={`Delete ${category.name}`}
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                            </TableCell>
+                                            {canMutate && (
+                                                <TableCell className="text-sm py-2 text-left">
+                                                    <div className="flex items-center space-x-2">
+                                                        <button
+                                                            onClick={() => handleEdit(category)}
+                                                            className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+                                                            title="Edit category"
+                                                            aria-label={`Edit ${category.name}`}
+                                                        >
+                                                            <Edit className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteClick(String(category.id))}
+                                                            className="p-2 text-black hover:bg-gray-100 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1"
+                                                            title="Delete Creditors"
+                                                            aria-label={`Delete ${category.name}`}
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ))
                                 )}

@@ -99,6 +99,16 @@ export function isAccountantRole(role: string | null | undefined): boolean {
   return role?.toLowerCase().trim() === 'accountant';
 }
 
+export function isViewerRole(role: string | null | undefined): boolean {
+  const normalized = role?.toLowerCase().trim();
+  return normalized === 'viewer' || normalized === 'vierer';
+}
+
+/** Viewer is read-only; all other roles can perform mutating actions in UI. */
+export function canMutateRecords(): boolean {
+  return !isViewerRole(syncUserRoleFromSession());
+}
+
 /** Daily-ledger PDC approval PATCH is allowed for admin and accountant (matches backend). */
 export function canApprovePdcDailyLedger(): boolean {
   const r = syncUserRoleFromSession();
@@ -113,6 +123,7 @@ export function showMyChangeRequestsInNav(): boolean {
   const role = syncUserRoleFromSession();
   if (isAdminRole(role)) return false;
   if (isAccountantRole(role)) return false;
+  if (isViewerRole(role)) return false;
   if (isCurrentUserAdmin()) return false;
   return true;
 }
@@ -124,6 +135,7 @@ export function showMyChangeRequestsInNav(): boolean {
 export function hasSidebarPermission(key: SidebarPermissionKey): boolean {
   const role = syncUserRoleFromSession();
   if (isAdminRole(role) || isAccountantRole(role)) return true;
+  if (isViewerRole(role)) return true;
   const perms = readStoredAuthUser()?.sidebarPermissions;
   if (!perms) return false;
   return perms[key] === true;

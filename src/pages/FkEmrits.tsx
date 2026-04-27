@@ -35,6 +35,7 @@ import {
 import { Checkbox } from '../components/ui/checkbox';
 import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
+import { canMutateRecords } from '../lib/authPayload';
 
 interface FkEmritsTransaction {
   id?: string | number;
@@ -52,6 +53,7 @@ interface FkEmritsTransaction {
 type Currency = 'AED' | 'USD' | 'GBP';
 
 export default function FkEmrits() {
+  const canMutate = canMutateRecords();
   const [loading, setLoading] = useState(false);
   const [allTransactions, setAllTransactions] = useState<FkEmritsTransaction[]>([]);
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>('AED');
@@ -759,7 +761,8 @@ export default function FkEmrits() {
             <Upload className="w-4 h-4" />
             <span>Bulk upload</span>
           </Button>
-          <Button
+          {canMutate && (
+            <Button
             type="button"
             onClick={() => {
               setError(null);
@@ -771,15 +774,18 @@ export default function FkEmrits() {
           >
             <Trash2 className="w-4 h-4" />
             <span>Bulk delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}</span>
-          </Button>
-          <Button
+            </Button>
+          )}
+          {canMutate && (
+            <Button
             onClick={handleAddNew}
             className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
             disabled={isBusy}
           >
             <Plus className="w-4 h-4 text-black" />
             <span>Add New</span>
-          </Button>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -823,7 +829,7 @@ export default function FkEmrits() {
         </div>
       )}
 
-      {filteredTransactions.length > 0 && (
+      {canMutate && filteredTransactions.length > 0 && (
         <div className="mx-8 mb-2 flex flex-wrap items-center gap-2">
           <Button
             type="button"
@@ -864,7 +870,8 @@ export default function FkEmrits() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-[#f7c46d] border-0">
-                    <TableHead className="w-10 py-3 px-2">
+                    {canMutate && (
+                      <TableHead className="w-10 py-3 px-2">
                       <Checkbox
                         disabled={selectableInView.length === 0 || isBusy}
                         checked={
@@ -880,7 +887,8 @@ export default function FkEmrits() {
                         }}
                         aria-label="Select all visible rows"
                       />
-                    </TableHead>
+                      </TableHead>
+                    )}
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Date</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Description</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Details</TableHead>
@@ -890,7 +898,9 @@ export default function FkEmrits() {
                     )}
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Credit</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Balance</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Actions</TableHead>
+                    {canMutate && (
+                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -901,14 +911,16 @@ export default function FkEmrits() {
                         : null;
                     return (
                     <TableRow key={rowId ?? `${transaction.date}-${transaction.description}-${transaction.balance}`} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
-                      <TableCell className="py-3 px-2">
+                      {canMutate && (
+                        <TableCell className="py-3 px-2">
                         <Checkbox
                           disabled={!rowId || isBusy}
                           checked={rowId ? selectedIds.has(rowId) : false}
                           onCheckedChange={() => rowId && toggleRowSelected(rowId)}
                           aria-label={`Select row ${transaction.description || ''}`}
                         />
-                      </TableCell>
+                        </TableCell>
+                      )}
                       <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(transaction.date)}</TableCell>
                       <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{transaction.description}</TableCell>
                       <TableCell className="text-gray-600 text-sm py-3 px-4">{transaction.details}</TableCell>
@@ -946,7 +958,8 @@ export default function FkEmrits() {
                           );
                         })()}
                       </TableCell>
-                      <TableCell className="text-sm py-3 px-4">
+                      {canMutate && (
+                        <TableCell className="text-sm py-3 px-4">
                         <div className="flex items-center gap-2">
                           <Button
                             variant="ghost"
@@ -967,7 +980,8 @@ export default function FkEmrits() {
                             <Trash2 className="w-4 h-4 text-red-600" />
                           </Button>
                         </div>
-                      </TableCell>
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                   })}
@@ -1093,11 +1107,19 @@ export default function FkEmrits() {
               <Label htmlFor="amount">Amount</Label>
               <Input
                 id="amount"
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                placeholder="0.00"
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    amount: e.target.value
+                      .replace(/[^0-9.]/g, '')
+                      .replace(/(\..*)\./g, '$1'),
+                  })
+                }
+                placeholder="0"
               />
             </div>
             {shouldShowBankCharges && (
@@ -1105,11 +1127,19 @@ export default function FkEmrits() {
                 <Label htmlFor="bank_charges">Bank Charges</Label>
                 <Input
                   id="bank_charges"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={formData.bankCharges}
-                  onChange={(e) => setFormData({ ...formData, bankCharges: e.target.value })}
-                  placeholder="0.00"
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      bankCharges: e.target.value
+                        .replace(/[^0-9.]/g, '')
+                        .replace(/(\..*)\./g, '$1'),
+                    })
+                  }
+                  placeholder="0"
                 />
               </div>
             )}
