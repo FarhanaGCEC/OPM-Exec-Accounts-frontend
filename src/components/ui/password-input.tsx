@@ -24,12 +24,12 @@ const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
           variant="ghost"
           size="icon"
           disabled={disabled}
-          className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 text-gray-500 hover:bg-transparent hover:text-gray-800"
+          className="absolute right-0.5 top-1/2 z-20 h-8 w-8 -translate-y-1/2 text-gray-500 hover:bg-transparent hover:text-gray-800"
           onClick={() => setShow((s) => !s)}
           tabIndex={-1}
           aria-label={show ? 'Hide password' : 'Show password'}
         >
-          {show ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+          {show ? <Eye className="h-4 w-4" aria-hidden /> : <EyeOff className="h-4 w-4" aria-hidden />}
         </Button>
       </div>
     );
