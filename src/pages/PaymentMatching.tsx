@@ -1160,7 +1160,7 @@ export default function PaymentMatching() {
                     <FormControl>
                       <Input
                         type="text"
-                        inputMode="numeric"
+                        inputMode="decimal"
                         placeholder="0"
                         {...field}
                         onChange={(e) =>

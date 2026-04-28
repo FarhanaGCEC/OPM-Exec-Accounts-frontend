@@ -1055,8 +1055,8 @@ export default function GbpTranstion() {
               <Input
                 id="amount"
                 type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
+                inputMode="decimal"
+                pattern="[0-9]*[.]?[0-9]*"
                 value={formData.amount}
                 onChange={(e) =>
                   setFormData({
@@ -1074,8 +1074,8 @@ export default function GbpTranstion() {
               <Input
                 id="bank_charges"
                 type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
+                inputMode="decimal"
+                pattern="[0-9]*[.]?[0-9]*"
                 value={formData.bankCharges}
                 onChange={(e) =>
                   setFormData({

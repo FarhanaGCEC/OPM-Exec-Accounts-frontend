@@ -744,8 +744,8 @@ export default function CreditCardDetails() {
                                         <FormControl>
                                             <Input
                                                 type="text"
-                                                inputMode="numeric"
-                                                pattern="[0-9]*"
+                                                inputMode="decimal"
+                                                pattern="[0-9]*[.]?[0-9]*"
                                                 placeholder="Enter Amount Limit"
                                                 disabled={isSubmitting}
                                                 value={field.value !== null && field.value !== undefined ? String(field.value) : ''}

@@ -60,10 +60,9 @@ export function remarksForDailyLedgerDisplay(
   remarks?: string | null,
   pdcType?: string
 ): string {
-  if (isCustomerPdcRemarksLabel(remarks)) return '';
   const r = String(remarks ?? '').trim();
   if (r) return r;
-  if (pdcType && normalizePdcTypeFromApi(pdcType) === 'Customer PDC') return '';
+  if (pdcType && normalizePdcTypeFromApi(pdcType) === 'Customer PDC') return 'Customer PDC';
   if (rowIsGcecPdcHighlight(remarks, pdcType)) return 'GCEC PDC';
   return '';
 }

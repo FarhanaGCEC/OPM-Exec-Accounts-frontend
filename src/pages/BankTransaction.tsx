@@ -178,6 +178,23 @@ function remarksForTableDisplay(remarks?: string | null, pdcType?: string): stri
   return remarksForExport(remarks, pdcType);
 }
 
+function sanitizePdcUserNote(note?: string | null): string {
+  const trimmed = String(note ?? '').trim();
+  if (!trimmed) return '';
+  const normalized = trimmed.toLowerCase().replace(/\s+/g, ' ');
+  if (
+    normalized === 'customer pdc' ||
+    normalized === 'gcec pdc' ||
+    normalized === 'custom pdc' ||
+    normalized === 'pdc customer' ||
+    normalized === 'pdc gcec' ||
+    normalized === 'pdc custom'
+  ) {
+    return '';
+  }
+  return trimmed;
+}
+
 /**
  * API may still send `approvalPendingFooterDuplicate` reminder rows (no date). We hide them:
  * the “no date” tail rows are **frontend-only** copies of unapproved PDC (`clientPendingBottomDup`)
@@ -431,13 +448,13 @@ function getDebitCreditDisplayForRow(
     if (d > 0) {
       return {
         debit: null,
-        credit: t.debitFormatted || d.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+        credit: t.debitFormatted || d.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       };
     }
     if (c > 0) {
       return {
         debit: null,
-        credit: t.creditFormatted || c.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+        credit: t.creditFormatted || c.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       };
     }
     return { debit: null, credit: null };
@@ -835,13 +852,23 @@ export default function BankTransaction() {
   }, [fetchCategories]);
 
   // Get categories based on transaction type
-  const getAvailableCategories = () => {
-    if (transactionType === 'Debit') {
-      return payablesCategories;
-    } else {
-      return receivablesCategories;
+  const availableCategories = useMemo(
+    () => (transactionType === 'Debit' ? payablesCategories : receivablesCategories),
+    [transactionType, payablesCategories, receivablesCategories]
+  );
+
+  // Keep selected category valid when edit/type/category-lists change.
+  useEffect(() => {
+    if (!editingTransaction) return;
+    const currentValue = form.getValues('categoryId');
+    if (!currentValue) return;
+    const categoryExists = availableCategories.some(
+      (cat) => String(cat.id) === String(currentValue)
+    );
+    if (!categoryExists && availableCategories.length > 0) {
+      form.setValue('categoryId', '');
     }
-  };
+  }, [editingTransaction, availableCategories, form]);
 
   // Fetch transactions on component mount
   const fetchTransactions = useCallback(async () => {
@@ -882,13 +909,13 @@ export default function BankTransaction() {
 
           const debitAmount = normalizedDebit
             ? normalizedDebit.toLocaleString('en-US', {
-                minimumFractionDigits: 0,
+                minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })
             : null;
           const creditAmount = normalizedCredit
             ? normalizedCredit.toLocaleString('en-US', {
-                minimumFractionDigits: 0,
+                minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })
             : null;
@@ -1162,6 +1189,7 @@ export default function BankTransaction() {
           return s;
         };
 
+        const pdcUserNote = sanitizePdcUserNote(data.description);
         const pdcPayload: Record<string, unknown> = {
           date: normalizeDate(data.date),
           chequeDate: normalizeDate(data.date),
@@ -1171,7 +1199,7 @@ export default function BankTransaction() {
           category: data.customerName?.trim() || '',
           chequeType: data.chequeType || 'Payment Cheque',
           pdcType: data.pdcType || 'GCEC PDC',
-          description: data.description?.trim() || '',
+          remarks: pdcUserNote,
         };
 
         pendingEditPayload = { ...pdcPayload };
@@ -1473,6 +1501,7 @@ export default function BankTransaction() {
         : rowIsGcecPdcHighlight(transaction.remarks, transaction.pdcType)
         ? 'GCEC PDC'
         : 'Customer PDC';
+    const initialPdcNote = String(transaction.remarks ?? '').trim();
     
     // Reset form with all values
     form.reset({
@@ -1486,7 +1515,7 @@ export default function BankTransaction() {
       customerName: transaction.categoryName || '',
       pdcType: initialPdcType,
       chequeType: 'Payment Cheque',
-      description: transaction.remarks || '',
+      description: initialPdcNote,
       amount: amountValue,
     });
     
@@ -2896,21 +2925,6 @@ export default function BankTransaction() {
                     control={form.control}
                     name="categoryId"
                     render={({ field }) => {
-                      // Ensure the field value is properly set when editing
-                      useEffect(() => {
-                        if (editingTransaction && field.value) {
-                          // Force update if value exists but not showing
-                          const currentValue = field.value;
-                          const availableCategories = getAvailableCategories();
-                          const categoryExists = availableCategories.some(cat => String(cat.id) === String(currentValue));
-                          if (!categoryExists && availableCategories.length > 0) {
-                            console.log('[Category Field] Value not found in available categories, clearing:', currentValue);
-                            field.onChange('');
-                          }
-                        }
-                        // eslint-disable-next-line react-hooks/exhaustive-deps
-                      }, [editingTransaction, transactionType, payablesCategories, receivablesCategories]);
-                      
                       return (
                         <FormItem>
                           <FormLabel className="text-lg font-medium text-gray-700">
@@ -2922,7 +2936,7 @@ export default function BankTransaction() {
                                 <span className="text-muted-foreground">Loading categories...</span>
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               </div>
-                            ) : getAvailableCategories().length === 0 ? (
+                            ) : availableCategories.length === 0 ? (
                               <div className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-2 text-base text-muted-foreground">
                                 {transactionType === 'Debit' 
                                   ? 'No payables categories found. Please add categories in Payables List.'
@@ -2939,7 +2953,7 @@ export default function BankTransaction() {
                                 disabled={loadingCategories}
                                 searchPlaceholder="Search category..."
                               >
-                                {getAvailableCategories().map((category) => (
+                                {availableCategories.map((category) => (
                                   <SelectItem key={String(category.id)} value={String(category.id)}>
                                     {category.name}
                                   </SelectItem>
@@ -3124,8 +3138,8 @@ export default function BankTransaction() {
                     <FormControl>
                       <Input
                         type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
+                        inputMode="decimal"
+                        pattern="[0-9]*[.]?[0-9]*"
                         placeholder="0"
                         {...field}
                         onChange={(e) => {

@@ -72,6 +72,40 @@ const normalizeRecord = (input: unknown): MonthlyStatementRecord | null => {
 
 const formatYearMonth = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
 
+const getUploadFieldName = (documentType: DocumentType): 'bank_statement' | 'monthly_invoice' =>
+  documentType === 'bank_statement' ? 'bank_statement' : 'monthly_invoice';
+
+const getPendingUploadKey = (
+  documentType: DocumentType
+): 'bankStatementFile' | 'monthlyInvoiceFile' =>
+  documentType === 'bank_statement' ? 'bankStatementFile' : 'monthlyInvoiceFile';
+
+const getDocumentDisplayName = (documentType: DocumentType) =>
+  documentType === 'bank_statement' ? 'bank statement' : 'monthly invoice';
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error) {
+    const err = error as Error & {
+      errors?: Record<string, string[] | string> | string[] | string;
+    };
+    const details = err.errors;
+    if (details && typeof details === 'object') {
+      if (Array.isArray(details)) {
+        const joined = details.map((item) => String(item).trim()).filter(Boolean).join(' ');
+        if (joined) return joined;
+      } else {
+        const messages = Object.values(details)
+          .flatMap((value) => (Array.isArray(value) ? value : [value]))
+          .map((value) => String(value).trim())
+          .filter(Boolean);
+        if (messages.length > 0) return messages.join(' ');
+      }
+    }
+    return err.message || fallback;
+  }
+  return fallback;
+};
+
 const getRecordFromBody = (body: unknown): MonthlyStatementRecord | null => {
   if (!body || typeof body !== 'object') return null;
   const direct = normalizeRecord(body);
@@ -219,34 +253,40 @@ export default function MonthlyBankStatements() {
   );
 
   const handleUpload = useCallback(
-    async (currency: CurrencyCode) => {
-      const files = pendingUploads[currency];
-      if (!files.bankStatementFile || !files.monthlyInvoiceFile) {
-        showToast('error', 'Please select both files: bank statement and monthly invoice.');
+    async (currency: CurrencyCode, documentType: DocumentType) => {
+      const pendingKey = getPendingUploadKey(documentType);
+      const selectedFile = pendingUploads[currency][pendingKey];
+      if (!selectedFile) {
+        showToast(
+          'error',
+          `Please select a ${getDocumentDisplayName(documentType)} PDF first.`
+        );
         return false;
       }
 
-      const key = `${currency}-upload`;
+      const key = `${currency}-upload-${documentType}`;
       try {
         setUploadingKey(key);
         const formData = new FormData();
         formData.append('month', formatYearMonth(selectedYear, selectedMonth));
         formData.append('currency', currency);
-        formData.append('bank_statement', files.bankStatementFile, files.bankStatementFile.name);
-        formData.append('monthly_invoice', files.monthlyInvoiceFile, files.monthlyInvoiceFile.name);
+        formData.append(getUploadFieldName(documentType), selectedFile, selectedFile.name);
         await api.post('/monthly-bank-statements', formData);
         await loadMonthlyStatements();
         setPendingUploads((prev) => ({
           ...prev,
           [currency]: {
-            bankStatementFile: null,
-            monthlyInvoiceFile: null,
+            ...prev[currency],
+            [pendingKey]: null,
           },
         }));
-        showToast('success', `${currency} monthly files uploaded successfully.`);
+        showToast(
+          'success',
+          `${currency} ${getDocumentDisplayName(documentType)} uploaded successfully.`
+        );
         return true;
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Upload failed.';
+        const message = getErrorMessage(error, 'Upload failed.');
         showToast('error', message);
         return false;
       } finally {
@@ -330,23 +370,25 @@ export default function MonthlyBankStatements() {
   );
 
   const handleDelete = useCallback(
-    async (currency: CurrencyCode) => {
-      if (!window.confirm(`Delete both PDFs for ${currency} in selected month?`)) {
+    async (currency: CurrencyCode, documentType: DocumentType) => {
+      const label = DOCUMENT_LABELS[documentType];
+      if (!window.confirm(`Delete ${label} for ${currency} in selected month?`)) {
         return;
       }
-      const key = `${currency}-delete`;
+      const key = `${currency}-delete-${documentType}`;
       try {
         setDeletingKey(key);
         await api.delete('/monthly-bank-statements', {
           params: {
             month: formatYearMonth(selectedYear, selectedMonth),
             currency,
+            type: documentType,
           },
         });
         await loadMonthlyStatements();
-        showToast('success', `${currency} monthly record deleted.`);
+        showToast('success', `${currency} ${label} deleted.`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Delete failed.';
+        const message = getErrorMessage(error, 'Delete failed.');
         showToast('error', message);
       } finally {
         setDeletingKey(null);
@@ -450,8 +492,8 @@ export default function MonthlyBankStatements() {
                 const row = selectedRow;
                 const bankKey = `${row.currency}-bank_statement`;
                 const invoiceKey = `${row.currency}-monthly_invoice`;
-                const uploadKey = `${row.currency}-upload`;
-                const deleteKey = `${row.currency}-delete`;
+                const uploadBankKey = `${row.currency}-upload-bank_statement`;
+                const uploadInvoiceKey = `${row.currency}-upload-monthly_invoice`;
                 const bankName = getMetaFileName(row.bankStatement);
                 const invoiceName = getMetaFileName(row.monthlyInvoice);
                 const pending = pendingUploads[row.currency];
@@ -471,20 +513,6 @@ export default function MonthlyBankStatements() {
                         >
                           <Upload className="mr-2 h-4 w-4" />
                           Upload Files
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void handleDelete(row.currency)}
-                          disabled={deletingKey === deleteKey}
-                          className="h-8 rounded-full text-red-600 hover:text-red-700"
-                        >
-                          {deletingKey === deleteKey ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="mr-2 h-4 w-4" />
-                          )}
-                          Delete
                         </Button>
                       </div>
                     </div>
@@ -560,6 +588,20 @@ export default function MonthlyBankStatements() {
                                       <Eye className="mr-2 h-4 w-4" />
                                       View
                                     </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 rounded-full text-red-600 hover:text-red-700"
+                                      onClick={() => void handleDelete(row.currency, type)}
+                                      disabled={!fileName || deletingKey === `${row.currency}-delete-${type}`}
+                                    >
+                                      {deletingKey === `${row.currency}-delete-${type}` ? (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                      )}
+                                      Delete
+                                    </Button>
                                   </div>
                                 </td>
                               </tr>
@@ -569,15 +611,15 @@ export default function MonthlyBankStatements() {
                       </table>
                     </div>
                     <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
-                      <DialogContent className="sm:max-w-xl">
+                      <DialogContent className="w-[95vw] max-w-xl overflow-hidden">
                         <DialogHeader>
                           <DialogTitle>Upload Monthly Files ({row.currency})</DialogTitle>
                         </DialogHeader>
-                        <div className="space-y-4">
+                        <div className="space-y-4 overflow-hidden">
                           <div className="space-y-3">
                             <p className="text-xs font-semibold text-gray-700">Select PDFs</p>
                             <div className="space-y-2">
-                              <div className="flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:flex-row sm:items-center">
+                              <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:flex-row sm:items-center">
                                 <input
                                   ref={(el) => {
                                     fileInputRefs.current[bankKey] = el;
@@ -594,21 +636,21 @@ export default function MonthlyBankStatements() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => fileInputRefs.current[bankKey]?.click()}
-                                  className="h-9 w-full rounded-full sm:h-8 sm:w-auto"
+                                  className="h-9 w-full shrink-0 rounded-full sm:h-8 sm:w-[140px]"
                                 >
                                   <Upload className="mr-2 h-4 w-4" />
                                   Bank PDF
                                 </Button>
                                 <span
-                                  className="inline-flex min-h-9 w-full items-center rounded-full bg-white px-3 py-1.5 text-xs text-gray-600 sm:min-h-8"
+                                  className="inline-flex min-h-9 min-w-0 flex-1 basis-0 items-center overflow-hidden rounded-full bg-white px-3 py-1.5 text-xs text-gray-600 sm:min-h-8"
                                   title={pending.bankStatementFile?.name || 'Not selected'}
                                 >
-                                  <span className="block w-full truncate">
+                                  <span className="block w-full min-w-0 truncate whitespace-nowrap">
                                     {pending.bankStatementFile?.name || 'Not selected'}
                                   </span>
                                 </span>
                               </div>
-                              <div className="flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:flex-row sm:items-center">
+                              <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:flex-row sm:items-center">
                                 <input
                                   ref={(el) => {
                                     fileInputRefs.current[invoiceKey] = el;
@@ -625,44 +667,70 @@ export default function MonthlyBankStatements() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => fileInputRefs.current[invoiceKey]?.click()}
-                                  className="h-9 w-full rounded-full sm:h-8 sm:w-auto"
+                                  className="h-9 w-full shrink-0 rounded-full sm:h-8 sm:w-[140px]"
                                 >
                                   <Upload className="mr-2 h-4 w-4" />
                                   Invoice PDF
                                 </Button>
                                 <span
-                                  className="inline-flex min-h-9 w-full items-center rounded-full bg-white px-3 py-1.5 text-xs text-gray-600 sm:min-h-8"
+                                  className="inline-flex min-h-9 min-w-0 flex-1 basis-0 items-center overflow-hidden rounded-full bg-white px-3 py-1.5 text-xs text-gray-600 sm:min-h-8"
                                   title={pending.monthlyInvoiceFile?.name || 'Not selected'}
                                 >
-                                  <span className="block w-full truncate">
+                                  <span className="block w-full min-w-0 truncate whitespace-nowrap">
                                     {pending.monthlyInvoiceFile?.name || 'Not selected'}
                                   </span>
                                 </span>
                               </div>
                             </div>
                           </div>
-                          <Button
-                            size="sm"
-                            onClick={async () => {
-                              const didUpload = await handleUpload(row.currency);
-                              if (didUpload) {
-                                setIsUploadModalOpen(false);
+                          <div className="grid min-w-0 grid-cols-1 gap-2">
+                            <Button
+                              size="sm"
+                              onClick={async () => {
+                                const didUpload = await handleUpload(
+                                  row.currency,
+                                  'bank_statement'
+                                );
+                                if (didUpload) {
+                                  setIsUploadModalOpen(false);
+                                }
+                              }}
+                              disabled={
+                                uploadingKey === uploadBankKey || !pending.bankStatementFile
                               }
-                            }}
-                            disabled={
-                              uploadingKey === uploadKey ||
-                              !pending.bankStatementFile ||
-                              !pending.monthlyInvoiceFile
-                            }
-                            className="h-10 w-full rounded-full bg-[#f7c46d] text-black hover:bg-[#c9a82f]"
-                          >
-                            {uploadingKey === uploadKey ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <Upload className="mr-2 h-4 w-4" />
-                            )}
-                            Upload Both
-                          </Button>
+                              className="h-10 w-full min-w-0 rounded-full bg-[#f7c46d] px-3 text-black hover:bg-[#c9a82f]"
+                            >
+                              {uploadingKey === uploadBankKey ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Upload className="mr-2 h-4 w-4" />
+                              )}
+                              <span className="truncate">Upload Bank Statement</span>
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={async () => {
+                                const didUpload = await handleUpload(
+                                  row.currency,
+                                  'monthly_invoice'
+                                );
+                                if (didUpload) {
+                                  setIsUploadModalOpen(false);
+                                }
+                              }}
+                              disabled={
+                                uploadingKey === uploadInvoiceKey || !pending.monthlyInvoiceFile
+                              }
+                              className="h-10 w-full min-w-0 rounded-full bg-[#f7c46d] px-3 text-black hover:bg-[#c9a82f]"
+                            >
+                              {uploadingKey === uploadInvoiceKey ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Upload className="mr-2 h-4 w-4" />
+                              )}
+                              <span className="truncate">Upload Monthly Invoice</span>
+                            </Button>
+                          </div>
                         </div>
                       </DialogContent>
                     </Dialog>

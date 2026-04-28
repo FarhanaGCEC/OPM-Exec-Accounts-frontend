@@ -1111,8 +1111,8 @@ export default function CustomerPDC() {
                     <FormControl>
                       <Input
                         type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
+                        inputMode="decimal"
+                        pattern="[0-9]*[.]?[0-9]*"
                         placeholder="0"
                         {...field}
                         onChange={(e) =>
