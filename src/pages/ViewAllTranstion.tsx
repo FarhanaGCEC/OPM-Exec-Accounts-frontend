@@ -128,15 +128,7 @@ type OtherTransactionFilterOption =
   | 'customer-credit-card-gbp'
   | 'customer-credit-card-fk-enbd';
 
-const OTHER_TRANSACTION_FILTER_OPTIONS: Array<{
-  value: OtherTransactionFilterOption;
-  label: string;
-}> = [
-  { value: 'all', label: 'All Other Transactions' },
-  { value: 'customer-credit-card-adcb-usd', label: 'Customer Credit Card - ADCB USD' },
-  { value: 'customer-credit-card-gbp', label: 'Customer Credit Card - GBP' },
-  { value: 'customer-credit-card-fk-enbd', label: 'Customer Credit Card - FK ENBD' },
-];
+
 
 const parseTransactionDate = (value: string): Date | null => {
   const raw = String(value || '').trim();
@@ -567,6 +559,14 @@ const ensurePdfFilename = (name: string | null | undefined): string => {
 
 const EXCEL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
+const getDefaultDateRange = (): { start: Date; end: Date } => {
+  // Default to current month; users can expand via filters.
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  return { start, end };
+};
+
 // Helper function to format date for Excel (DD-MMM-YYYY)
 const formatDateForExcel = (date: Date | string | null): string => {
   if (!date) return '';
@@ -626,11 +626,12 @@ const getTransactionTypeDisplayName = (type: string): string => {
 };
 
 export default function ViewAllTranstion() {
+  const defaultDateRange = getDefaultDateRange();
   const [transactions, setTransactions] = useState<AllTransaction[]>([]);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [startDate, setStartDate] = useState<Date | null>(defaultDateRange.start);
+  const [endDate, setEndDate] = useState<Date | null>(defaultDateRange.end);
   const [otherTransactionFilter, setOtherTransactionFilter] =
     useState<OtherTransactionFilterOption>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -646,6 +647,22 @@ export default function ViewAllTranstion() {
   const itemsPerPage = 10;
 
   const filteredTransactions = transactions.filter((transaction) => {
+    const txnDate = parseTransactionDate(transaction.date);
+    if (startDate && txnDate) {
+      const startOnly = new Date(startDate);
+      startOnly.setHours(0, 0, 0, 0);
+      const txnOnly = new Date(txnDate);
+      txnOnly.setHours(0, 0, 0, 0);
+      if (txnOnly.getTime() < startOnly.getTime()) return false;
+    }
+    if (endDate && txnDate) {
+      const endOnly = new Date(endDate);
+      endOnly.setHours(0, 0, 0, 0);
+      const txnOnly = new Date(txnDate);
+      txnOnly.setHours(0, 0, 0, 0);
+      if (txnOnly.getTime() > endOnly.getTime()) return false;
+    }
+
     if (transaction.transactionType === 'Daily Transaction') {
       const dailyTxn = transaction as DailyTransaction;
       const isGcecDailyRow = rowIsGcecPdcHighlight(dailyTxn.remarks, dailyTxnPdcType(dailyTxn));
@@ -843,8 +860,9 @@ export default function ViewAllTranstion() {
 
   // Clear filters function
   const clearFilters = () => {
-    setStartDate(null);
-    setEndDate(null);
+    const defaults = getDefaultDateRange();
+    setStartDate(defaults.start);
+    setEndDate(defaults.end);
     setOtherTransactionFilter('all');
   };
 
@@ -890,6 +908,17 @@ export default function ViewAllTranstion() {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  const getActiveMonthLabel = (): string => {
+    if (!startDate || !endDate) return 'All Transactions';
+    const sameMonth =
+      startDate.getFullYear() === endDate.getFullYear() &&
+      startDate.getMonth() === endDate.getMonth();
+    if (sameMonth) {
+      return startDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    }
+    return `${startDate.toLocaleDateString('en-GB')} - ${endDate.toLocaleDateString('en-GB')}`;
   };
 
   // Convert string to Date (from input)
@@ -1337,6 +1366,9 @@ export default function ViewAllTranstion() {
           {/* Action Bar */}
           <div className="bg-[#f7c46d] p-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="text-black font-bold text-lg">
+                {getActiveMonthLabel()}
+              </div>
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded font-semibold hover:bg-blue-50 transition-all shadow-md"
