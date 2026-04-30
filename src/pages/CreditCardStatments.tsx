@@ -34,7 +34,7 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords } from '../lib/authPayload';
+import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
 
 type StatementApprovalOffer =
     | {
@@ -61,7 +61,7 @@ interface StatementTotals {
 }
 
 export default function CreditCardStatements() {
-    const canMutate = canMutateRecords();
+    const canMutate = canMutateRecords() || isViewerRole(syncUserRoleFromSession());
     const [creditCards, setCreditCards] = useState<CreditCardStatement[]>([]);
     const [groupedStatements, setGroupedStatements] = useState<GroupedStatements>({});
     const [loading, setLoading] = useState(true);
@@ -1069,7 +1069,9 @@ export default function CreditCardStatements() {
                                                                 >
                                                                     <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
                                                                         <div className="w-full truncate" title={card.issuingBank || ''}>
-                                                                            {card.issuingBank}
+                                                                            <span className="text-black font-bold" style={{ fontWeight: 900 }}>
+                                                                                {card.issuingBank}
+                                                                            </span>
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
@@ -1330,7 +1332,7 @@ export default function CreditCardStatements() {
                                                     className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                                 >
                                                     <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                        <div className="w-full truncate" title={card.issuingBank || ''}>
+                                                        <div className="w-full truncate font-bold" title={card.issuingBank || ''}>
                                                             {card.issuingBank}
                                                         </div>
                                                     </TableCell>

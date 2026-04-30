@@ -67,7 +67,12 @@ import {
   isChangeRequestSubmittedEnvelope,
   userMessageFromChangeRequestSubmit,
 } from '../lib/changeRequestUi';
-import { canApprovePdcDailyLedger, canMutateRecords } from '../lib/authPayload';
+import {
+  canApprovePdcDailyLedger,
+  canMutateRecords,
+  isViewerRole,
+  syncUserRoleFromSession,
+} from '../lib/authPayload';
 import {
   remarksForDailyLedgerDisplay,
   rowIsGcecPdcHighlight,
@@ -493,6 +498,9 @@ interface BankTransaction extends BankTransactionType {
   remarks?: string | null; // Remarks for the transaction
   
   originalDate?: string; // Store original ISO date for editing
+  createdAtLocal?: string;
+  ledgerApprovedAt?: string;
+  ledgerApprovedAtLocal?: string;
 }
 
 function parseTransactionDateForSort(t: BankTransaction): Date | null {
@@ -509,6 +517,11 @@ function parseTransactionDateForSort(t: BankTransaction): Date | null {
       const fallback = new Date(year, month, day);
       if (!Number.isNaN(fallback.getTime())) return fallback;
     }
+  }
+  // Support API date format: yyyy-mm-dd
+  if (t.date && /^\d{4}-\d{2}-\d{2}$/.test(t.date)) {
+    const direct = new Date(`${t.date}T00:00:00`);
+    if (!Number.isNaN(direct.getTime())) return direct;
   }
   const parts = t.date?.split('-');
   if (parts?.length === 3) {
@@ -544,51 +557,156 @@ function parseTransactionDateForSort(t: BankTransaction): Date | null {
   return null;
 }
 
+function parseLocalDateTimeForSort(value: string | null | undefined): Date | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const localDateTime = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
+  );
+  if (localDateTime) {
+    const year = Number(localDateTime[1]);
+    const month = Number(localDateTime[2]) - 1;
+    const day = Number(localDateTime[3]);
+    const hour = Number(localDateTime[4]);
+    const minute = Number(localDateTime[5]);
+    const second = Number(localDateTime[6] ?? '0');
+    const parsed = new Date(year, month, day, hour, minute, second);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getTransactionDateOnlyTimestamp(t: BankTransaction): number | null {
+  const parsed = parseTransactionDateForSort(t);
+  if (!parsed) return null;
+  const only = new Date(parsed);
+  only.setHours(0, 0, 0, 0);
+  return only.getTime();
+}
+
+function getTransactionCreatedTimestamp(t: BankTransaction): number | null {
+  const local = parseLocalDateTimeForSort(t.createdAtLocal);
+  if (local) return local.getTime();
+  const created = parseLocalDateTimeForSort(t.createdAt);
+  if (created) return created.getTime();
+  const fromRowDate = parseTransactionDateForSort(t);
+  if (fromRowDate) return fromRowDate.getTime();
+  return null;
+}
+
+function getTransactionApprovalTimestamp(t: BankTransaction): number | null {
+  const approvedLocal = parseLocalDateTimeForSort(t.ledgerApprovedAtLocal);
+  if (approvedLocal) return approvedLocal.getTime();
+  const approved = parseLocalDateTimeForSort(t.ledgerApprovedAt);
+  if (approved) return approved.getTime();
+  return null;
+}
+
+function getTransactionStableSortId(t: BankTransaction): number {
+  if (typeof t.pdcId === 'number' && !Number.isNaN(t.pdcId)) return t.pdcId;
+  const raw = String(t.id ?? '').trim();
+  const direct = Number(raw);
+  if (!Number.isNaN(direct)) return direct;
+  const trailing = raw.match(/(\d+)\s*$/);
+  if (trailing) {
+    const n = Number(trailing[1]);
+    if (!Number.isNaN(n)) return n;
+  }
+  return 0;
+}
+
 function sortTransactionsOldestFirst(transactions: BankTransaction[]): BankTransaction[] {
   return [...transactions].sort((a, b) => {
-    const dateA = parseTransactionDateForSort(a);
-    const dateB = parseTransactionDateForSort(b);
-    if (!dateA && !dateB) {
-      return (
-        parseInt(String(a.id || '0'), 10) - parseInt(String(b.id || '0'), 10)
-      );
+    const dateA = getTransactionDateOnlyTimestamp(a);
+    const dateB = getTransactionDateOnlyTimestamp(b);
+
+    if (dateA == null && dateB == null) {
+      // continue to created-time tie-breaker
+    } else if (dateA == null) {
+      return 1;
+    } else if (dateB == null) {
+      return -1;
+    } else {
+      const byDate = dateA - dateB;
+      if (byDate !== 0) return byDate;
     }
-    if (!dateA) return 1;
-    if (!dateB) return -1;
-    const cmp = dateA.getTime() - dateB.getTime();
-    if (cmp !== 0) return cmp;
+
+    const createdA = getTransactionCreatedTimestamp(a);
+    const createdB = getTransactionCreatedTimestamp(b);
+    if (createdA != null && createdB != null) {
+      const byCreated = createdA - createdB;
+      if (byCreated !== 0) return byCreated;
+    } else if (createdA != null && createdB == null) {
+      return -1;
+    } else if (createdA == null && createdB != null) {
+      return 1;
+    }
+
     return (
-      parseInt(String(a.id || '0'), 10) - parseInt(String(b.id || '0'), 10)
+      getTransactionStableSortId(a) - getTransactionStableSortId(b)
     );
   });
 }
 
-function sortTransactionsNewestFirst(transactions: BankTransaction[]): BankTransaction[] {
+/** Strict ledger order for table: date desc, createdAt desc, id fallback. */
+function sortTransactionsStrictDesc(transactions: BankTransaction[]): BankTransaction[] {
   return [...transactions].sort((a, b) => {
-    const dateA = parseTransactionDateForSort(a);
-    const dateB = parseTransactionDateForSort(b);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const kindA = pdcKindFromTypeOrRemarks(a);
+    const kindB = pdcKindFromTypeOrRemarks(b);
+    const isComparablePdcPair =
+      (kindA === 'customer' || kindA === 'gcec') &&
+      (kindB === 'customer' || kindB === 'gcec');
 
-    const isFutureA = !!dateA && dateA.getTime() > today.getTime();
-    const isFutureB = !!dateB && dateB.getTime() > today.getTime();
+    // For PDC rows: keep unapproved on top, approved rows below.
+    if (isComparablePdcPair) {
+      const approvedA = !!a.ledgerApproved;
+      const approvedB = !!b.ledgerApproved;
+      if (approvedA !== approvedB) return approvedA ? 1 : -1;
 
-    // Keep future ("coming soon") rows at the start of the table.
-    if (isFutureA !== isFutureB) return isFutureA ? -1 : 1;
-
-    if (!dateA && !dateB) {
-      return (
-        parseInt(String(b.id || '0'), 10) - parseInt(String(a.id || '0'), 10)
-      );
+      // For approved rows, latest approval appears first.
+      if (approvedA && approvedB) {
+        const approvedAtA = getTransactionApprovalTimestamp(a);
+        const approvedAtB = getTransactionApprovalTimestamp(b);
+        if (approvedAtA != null && approvedAtB != null) {
+          const byApprovalTime = approvedAtB - approvedAtA;
+          if (byApprovalTime !== 0) return byApprovalTime;
+        } else if (approvedAtA != null && approvedAtB == null) {
+          return -1;
+        } else if (approvedAtA == null && approvedAtB != null) {
+          return 1;
+        }
+      }
     }
-    if (!dateA) return 1;
-    if (!dateB) return -1;
-    // Always keep newest date at top, including future-dated rows.
-    const cmp = dateB.getTime() - dateA.getTime();
-    if (cmp !== 0) return cmp;
-    return (
-      parseInt(String(b.id || '0'), 10) - parseInt(String(a.id || '0'), 10)
-    );
+
+    const dateA = getTransactionDateOnlyTimestamp(a);
+    const dateB = getTransactionDateOnlyTimestamp(b);
+
+    if (dateA == null && dateB == null) {
+      // continue to createdAt tie-breaker
+    } else if (dateA == null) {
+      return 1;
+    } else if (dateB == null) {
+      return -1;
+    } else {
+      const byDate = dateB - dateA;
+      if (byDate !== 0) return byDate;
+    }
+
+    const createdA = getTransactionCreatedTimestamp(a);
+    const createdB = getTransactionCreatedTimestamp(b);
+    if (createdA != null && createdB != null) {
+      const byCreated = createdB - createdA;
+      if (byCreated !== 0) return byCreated;
+    } else if (createdA == null && createdB != null) {
+      return 1;
+    } else if (createdA != null && createdB == null) {
+      return -1;
+    }
+
+    return getTransactionStableSortId(b) - getTransactionStableSortId(a);
   });
 }
 
@@ -742,6 +860,7 @@ const formatDate = (dateString: string): string => {
 
 export default function BankTransaction() {
   const canMutate = canMutateRecords();
+  const isViewer = isViewerRole(syncUserRoleFromSession());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<BankTransaction | null>(null);
@@ -952,6 +1071,30 @@ export default function BankTransaction() {
             id: String(transaction.id ?? ''),
             date: formattedDate,
             originalDate: isoForEdit,
+            createdAt: String(row.createdAt ?? row.created_at ?? transaction.createdAt ?? ''),
+            createdAtLocal: String(
+              row.createdAtLocal ?? row.created_at_local ?? ''
+            ) || undefined,
+            ledgerApprovedAt: String(
+              row.dailyLedgerApprovedAt ??
+                row.daily_ledger_approved_at ??
+                row.ledgerApprovedAt ??
+                row.ledger_approved_at ??
+                row.approvedAt ??
+                row.approved_at ??
+                row.updatedAt ??
+                row.updated_at ??
+                ''
+            ) || undefined,
+            ledgerApprovedAtLocal: String(
+              row.dailyLedgerApprovedAtDisplay ??
+                row.daily_ledger_approved_at_display ??
+                row.ledgerApprovedAtLocal ??
+                row.ledger_approved_at_local ??
+                row.approvedAtLocal ??
+                row.approved_at_local ??
+                ''
+            ) || undefined,
             categoryName: String(row.category ?? row.category_name ?? transaction.category ?? 'N/A'),
             categoryId: (row.categoryId ?? row.category_id) as string | number | undefined,
             paymentType: frontendPaymentType,
@@ -1482,8 +1625,13 @@ export default function BankTransaction() {
           const transName = transaction.categoryName?.trim().toLowerCase();
           return catName === transName;
         });
-        
-     
+
+        if (foundByName) {
+          categoryId = String(foundByName.id);
+          console.log('[handleEdit] Found in fallback list:', foundByName.name, '->', categoryId);
+        } else {
+          console.log('[handleEdit] Category name not found in either list:', transaction.categoryName);
+        }
       }
     }
     
@@ -1751,21 +1899,10 @@ export default function BankTransaction() {
     [filteredTransactions]
   );
 
-  // No pagination: render all rows in explicit UX order:
-  // 1) future dated rows, 2) frontend-only unapproved copies, 3) normal dated rows.
-  const bodyTransactions = sortTransactionsNewestFirst(
+  // No pagination: render all rows in strict reverse chronological order.
+  const bodyTransactions = sortTransactionsStrictDesc(
     filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t))
   );
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const futureDatedRows = bodyTransactions.filter((t) => {
-    const d = parseTransactionDateForSort(t);
-    return !!d && d.getTime() > today.getTime();
-  });
-  const normalDatedRows = bodyTransactions.filter((t) => {
-    const d = parseTransactionDateForSort(t);
-    return !d || d.getTime() <= today.getTime();
-  });
   const pdcPendingBottomRows = bodyTransactions.filter((t) => isUnapprovedPdcPinBottom(t));
 
   type PaginatedLedgerRow = {
@@ -1774,12 +1911,8 @@ export default function BankTransaction() {
   };
 
   const paginatedRows: PaginatedLedgerRow[] = [
-    ...futureDatedRows.map((t) => ({ transaction: t })),
-    ...pdcPendingBottomRows.map((t) => ({
-      transaction: t,
-      clientPendingBottomDup: true as const,
-    })),
-    ...normalDatedRows.map((t) => ({ transaction: t })),
+    ...bodyTransactions.map((t) => ({ transaction: t })),
+    ...pdcPendingBottomRows.map((t) => ({ transaction: t, clientPendingBottomDup: true as const })),
   ];
 
   useEffect(() => {
@@ -1793,9 +1926,9 @@ export default function BankTransaction() {
         within15: isWithinUpcomingDays(t, 15),
       }));
     // #region agent log
-    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H4',location:'BankTransaction.tsx:rowsLayout',message:'Row buckets after filtering',data:{totalTransactions:transactions.length,filteredCount:filteredTransactions.length,futureCount:futureDatedRows.length,pendingDupCount:pdcPendingBottomRows.length,normalCount:normalDatedRows.length,paginatedCount:paginatedRows.length,gcecFutureRows,startDate,endDate,activeTab},timestamp:Date.now()})}).catch(()=>{});
+    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H4',location:'BankTransaction.tsx:rowsLayout',message:'Row buckets after filtering',data:{totalTransactions:transactions.length,filteredCount:filteredTransactions.length,futureCount:0,pendingDupCount:pdcPendingBottomRows.length,normalCount:bodyTransactions.length,paginatedCount:paginatedRows.length,gcecFutureRows,startDate,endDate,activeTab},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
-  }, [transactions.length, filteredTransactions, futureDatedRows.length, pdcPendingBottomRows.length, normalDatedRows.length, paginatedRows.length, startDate, endDate, activeTab]);
+  }, [transactions.length, filteredTransactions, pdcPendingBottomRows.length, paginatedRows.length, startDate, endDate, activeTab]);
 
   // Clear all filters
   const handleClearFilters = () => {
@@ -2706,6 +2839,7 @@ export default function BankTransaction() {
                           {transaction.showLedgerApprovalCheckbox &&
                             !transaction.approvalPendingFooterDuplicate &&
                             !canApprovePdcDailyLedger() &&
+                            !isViewer &&
                             !transaction.ledgerApproved && (
                               <span className="text-xs text-amber-800 max-w-[140px] leading-tight">
                                 Awaiting ledger approval (admin / accountant)

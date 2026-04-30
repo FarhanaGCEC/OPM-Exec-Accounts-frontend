@@ -48,13 +48,15 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords } from '../lib/authPayload';
+import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
 
 export interface CreditCardPayment {
     id: string;
+    createdAt?: string;
     paymentDate: string;
     cardHolder: string;
     cardNo: string;
+    issuingBank?: string;
     amount: number;
     paidAgainst?: string;
     remarks: string;
@@ -80,7 +82,7 @@ const paymentSchema = z.object({
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
 export default function CreditCardPaymentsPage() {
-    const canMutate = canMutateRecords();
+    const canMutate = canMutateRecords() || isViewerRole(syncUserRoleFromSession());
     const [creditCards, setCreditCards] = useState<CreditCardPayment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -373,9 +375,24 @@ export default function CreditCardPaymentsPage() {
         return `${day}-${month}-${year}`;
     };
 
-    // Helper function to parse date for sorting
+    // Helper function to parse date/time for sorting (supports local datetime too)
     const parseDateForSort = useCallback((paymentDate: string): Date | null => {
         if (!paymentDate) return null;
+
+        // Handle local datetime format explicitly: "YYYY-MM-DD HH:mm:ss"
+        const localDateTime = paymentDate.match(
+            /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
+        );
+        if (localDateTime) {
+            const year = Number(localDateTime[1]);
+            const month = Number(localDateTime[2]) - 1;
+            const day = Number(localDateTime[3]);
+            const hour = Number(localDateTime[4]);
+            const minute = Number(localDateTime[5]);
+            const second = Number(localDateTime[6] ?? '0');
+            const date = new Date(year, month, day, hour, minute, second);
+            return !isNaN(date.getTime()) ? date : null;
+        }
         
         // Handle ISO 8601 format: "2026-01-08T20:00:00.000Z"
         if (paymentDate.includes('T')) {
@@ -406,20 +423,37 @@ export default function CreditCardPaymentsPage() {
         return !isNaN(date.getTime()) ? date : null;
     }, []);
 
-    // Sort credit cards by date in descending order (newest first - Dec first, Jan last)
+    // Sort payments by creation time (newest first), then payment date as fallback.
     const sortedCreditCards = useMemo(() => {
         if (!creditCards || creditCards.length === 0) return [];
-        
-        return [...creditCards].sort((a, b) => {
+
+        const filteredCards = creditCards.filter((card) => {
+            const bank = (card.issuingBank || '').trim().toLowerCase();
+            return bank !== 'scb infinite';
+        });
+
+        return [...filteredCards].sort((a, b) => {
+            const createdAtA = parseDateForSort(a.createdAt || '');
+            const createdAtB = parseDateForSort(b.createdAt || '');
             const dateA = parseDateForSort(a.paymentDate);
             const dateB = parseDateForSort(b.paymentDate);
-            
-            // If both have valid dates, sort descending (newest first)
-            if (dateA && dateB) {
-                return dateB.getTime() - dateA.getTime(); // Descending order
+
+            // Primary sort: createdAt descending (newly added first)
+            if (createdAtA && createdAtB) {
+                const createdAtDiff = createdAtB.getTime() - createdAtA.getTime();
+                if (createdAtDiff !== 0) return createdAtDiff;
+            } else if (createdAtA && !createdAtB) {
+                return -1;
+            } else if (!createdAtA && createdAtB) {
+                return 1;
             }
             
-            // If only one has a valid date, prioritize it
+            // Fallback: paymentDate descending
+            if (dateA && dateB) {
+                return dateB.getTime() - dateA.getTime();
+            }
+            
+            // If only one has a valid payment date, prioritize it
             if (dateA && !dateB) return -1;
             if (!dateA && dateB) return 1;
             
@@ -695,6 +729,9 @@ export default function CreditCardPaymentsPage() {
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Card Holder
                                     </TableHead>
+                                    <TableHead className="text-black text-sm text-left py-2" style={{ fontWeight: 900 }}>
+                                        Issuing Bank
+                                    </TableHead>
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Card No
                                     </TableHead>
@@ -738,6 +775,11 @@ export default function CreditCardPaymentsPage() {
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
                                             {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                <span className="text-black" style={{ fontWeight: 900 }}>
+                                                    {card.issuingBank }
+                                                </span>
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                 {card.cardNo}

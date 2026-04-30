@@ -25,7 +25,7 @@ import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExport
 
 // Transaction type definitions
 interface DailyTransaction {
-  id: number;
+  id: string | number;
   date: string;
   transactionType: 'Daily Transaction';
   category: string;
@@ -41,10 +41,15 @@ interface DailyTransaction {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtLocal?: string;
+  ledgerApproved?: boolean;
+  ledgerApprovedAt?: string;
+  ledgerApprovedAtLocal?: string;
+  affectsBalance?: boolean;
 }
 
 interface GCECPDC {
-  id: number;
+  id: string | number;
   date: string;
   transactionType: 'GCEC PDC';
   customerName: string;
@@ -58,10 +63,13 @@ interface GCECPDC {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtLocal?: string;
+  ledgerApprovedAt?: string;
+  ledgerApprovedAtLocal?: string;
 }
 
 interface CustomerPDC {
-  id: number;
+  id: string | number;
   date: string;
   transactionType: 'Customer PDC';
   customerName: string;
@@ -74,10 +82,13 @@ interface CustomerPDC {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtLocal?: string;
+  ledgerApprovedAt?: string;
+  ledgerApprovedAtLocal?: string;
 }
 
 interface PurchaseBill {
-  id: number;
+  id: string | number;
   date: string;
   transactionType: 'Purchase Bill';
   vendorName: string;
@@ -90,6 +101,7 @@ interface PurchaseBill {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtLocal?: string;
 }
 
 type AllTransaction = DailyTransaction | GCECPDC | CustomerPDC | PurchaseBill;
@@ -169,6 +181,81 @@ const parseTransactionDate = (value: string): Date | null => {
   return null;
 };
 
+const parseLocalDateTimeForSort = (value: string): Date | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  // Handle "YYYY-MM-DD HH:mm:ss" explicitly as local time.
+  const localDateTime = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
+  );
+  if (localDateTime) {
+    const year = Number(localDateTime[1]);
+    const month = Number(localDateTime[2]) - 1;
+    const day = Number(localDateTime[3]);
+    const hour = Number(localDateTime[4]);
+    const minute = Number(localDateTime[5]);
+    const second = Number(localDateTime[6] ?? '0');
+    const parsed = new Date(year, month, day, hour, minute, second);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+
+  return parseTransactionDate(raw);
+};
+
+const getTransactionSortTimestamp = (item: AllTransaction): number | null => {
+  const localCreated = parseLocalDateTimeForSort((item as any).createdAtLocal ?? '');
+  if (localCreated) return localCreated.getTime();
+  const created = parseLocalDateTimeForSort((item as any).createdAt ?? '');
+  if (created) return created.getTime();
+  const dateOnly = parseTransactionDate(item.date);
+  if (dateOnly) return dateOnly.getTime();
+  return null;
+};
+
+const getTransactionApprovalTimestamp = (item: AllTransaction): number | null => {
+  const localApproved = parseLocalDateTimeForSort((item as any).ledgerApprovedAtLocal ?? '');
+  if (localApproved) return localApproved.getTime();
+  const approved = parseLocalDateTimeForSort((item as any).ledgerApprovedAt ?? '');
+  if (approved) return approved.getTime();
+  return null;
+};
+
+const isPdcTransaction = (item: AllTransaction): item is GCECPDC | CustomerPDC =>
+  item.transactionType === 'GCEC PDC' || item.transactionType === 'Customer PDC';
+
+const isLedgerApprovedPdc = (item: GCECPDC | CustomerPDC): boolean =>
+  Boolean(item.ledgerApproved ?? item.approved);
+
+const isDailyTxnPdc = (item: AllTransaction): item is DailyTransaction => {
+  if (item.transactionType !== 'Daily Transaction') return false;
+  const t = String((item as DailyTransaction).pdcType ?? (item as DailyTransaction).pdc_type ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+  return t === 'customer pdc' || t === 'gcec pdc';
+};
+
+const getTransactionDateOnlyTimestamp = (item: AllTransaction): number | null => {
+  const date = parseTransactionDate(item.date);
+  if (!date) return null;
+  const only = new Date(date);
+  only.setHours(0, 0, 0, 0);
+  return only.getTime();
+};
+
+const getTransactionStableSortId = (item: AllTransaction): number => {
+  const raw = String(item.id ?? '').trim();
+  const direct = Number(raw);
+  if (!Number.isNaN(direct)) return direct;
+  const trailing = raw.match(/(\d+)\s*$/);
+  if (trailing) {
+    const n = Number(trailing[1]);
+    if (!Number.isNaN(n)) return n;
+  }
+  return 0;
+};
+
 const getRecordValue = (record: Record<string, unknown>, keys: string[]): unknown => {
   for (const key of keys) {
     const value = record[key];
@@ -186,7 +273,7 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
 
   if (rawType === 'Daily Transaction') {
     return {
-      id: Number(getRecordValue(record, ['id']) ?? 0),
+      id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
       transactionType: 'Daily Transaction',
       category: toText(getRecordValue(record, ['category'])),
@@ -201,12 +288,38 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
+      ledgerApproved: Boolean(getRecordValue(record, ['ledgerApproved', 'ledger_approved'])),
+      ledgerApprovedAt: toText(
+        getRecordValue(record, [
+          'dailyLedgerApprovedAt',
+          'daily_ledger_approved_at',
+          'ledgerApprovedAt',
+          'ledger_approved_at',
+          'approvedAt',
+          'approved_at',
+        ])
+      ) || undefined,
+      ledgerApprovedAtLocal: toText(
+        getRecordValue(record, [
+          'dailyLedgerApprovedAtDisplay',
+          'daily_ledger_approved_at_display',
+          'ledgerApprovedAtLocal',
+          'ledger_approved_at_local',
+          'approvedAtLocal',
+          'approved_at_local',
+        ])
+      ) || undefined,
+      affectsBalance:
+        getRecordValue(record, ['affectsBalance', 'affects_balance']) === undefined
+          ? undefined
+          : Boolean(getRecordValue(record, ['affectsBalance', 'affects_balance'])),
     };
   }
 
   if (rawType === 'GCEC PDC') {
     return {
-      id: Number(getRecordValue(record, ['id']) ?? 0),
+      id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
       transactionType: 'GCEC PDC',
       customerName: toText(getRecordValue(record, ['customerName', 'customer_name'])),
@@ -216,16 +329,37 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       description: toText(getRecordValue(record, ['description'])) || null,
       approved: Boolean(getRecordValue(record, ['approved'])),
       ledgerApproved: Boolean(getRecordValue(record, ['ledgerApproved', 'ledger_approved'])),
+      ledgerApprovedAt: toText(
+        getRecordValue(record, [
+          'dailyLedgerApprovedAt',
+          'daily_ledger_approved_at',
+          'ledgerApprovedAt',
+          'ledger_approved_at',
+          'approvedAt',
+          'approved_at',
+        ])
+      ) || undefined,
+      ledgerApprovedAtLocal: toText(
+        getRecordValue(record, [
+          'dailyLedgerApprovedAtDisplay',
+          'daily_ledger_approved_at_display',
+          'ledgerApprovedAtLocal',
+          'ledger_approved_at_local',
+          'approvedAtLocal',
+          'approved_at_local',
+        ])
+      ) || undefined,
       showLedgerApprovalCheckbox: Boolean(getRecordValue(record, ['showLedgerApprovalCheckbox', 'show_ledger_approval_checkbox'])),
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
     };
   }
 
   if (rawType === 'Customer PDC') {
     return {
-      id: Number(getRecordValue(record, ['id']) ?? 0),
+      id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
       transactionType: 'Customer PDC',
       customerName: toText(getRecordValue(record, ['customerName', 'customer_name'])),
@@ -235,15 +369,36 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       description: toText(getRecordValue(record, ['description'])) || null,
       approved: Boolean(getRecordValue(record, ['approved'])),
       ledgerApproved: Boolean(getRecordValue(record, ['ledgerApproved', 'ledger_approved'])),
+      ledgerApprovedAt: toText(
+        getRecordValue(record, [
+          'dailyLedgerApprovedAt',
+          'daily_ledger_approved_at',
+          'ledgerApprovedAt',
+          'ledger_approved_at',
+          'approvedAt',
+          'approved_at',
+        ])
+      ) || undefined,
+      ledgerApprovedAtLocal: toText(
+        getRecordValue(record, [
+          'dailyLedgerApprovedAtDisplay',
+          'daily_ledger_approved_at_display',
+          'ledgerApprovedAtLocal',
+          'ledger_approved_at_local',
+          'approvedAtLocal',
+          'approved_at_local',
+        ])
+      ) || undefined,
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
     };
   }
 
   if (rawType === 'Purchase Bill') {
     return {
-      id: Number(getRecordValue(record, ['id']) ?? 0),
+      id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
       transactionType: 'Purchase Bill',
       vendorName: toText(getRecordValue(record, ['vendorName', 'vendor_name'])),
@@ -256,6 +411,7 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
     };
   }
 
@@ -284,39 +440,104 @@ const isFutureDate = (value: string): boolean => {
   return dateOnly.getTime() > today.getTime();
 };
 
-const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] => {
-  return [...items].sort((a, b) => {
-    const aDate = parseTransactionDate(a.date);
-    const bDate = parseTransactionDate(b.date);
-
-    if (!aDate && !bDate) return b.id - a.id;
-    // Keep no-date rows at the top instead of bottom.
-    if (!aDate) return -1;
-    if (!bDate) return 1;
-
-    const byDate = bDate.getTime() - aDate.getTime();
-    if (byDate !== 0) return byDate;
-
-    return b.id - a.id;
-  });
-};
-
 const sortTransactionsByDateAsc = (items: AllTransaction[]): AllTransaction[] => {
   return [...items].sort((a, b) => {
-    const aDate = parseTransactionDate(a.date);
-    const bDate = parseTransactionDate(b.date);
+    const aDateTs = getTransactionDateOnlyTimestamp(a);
+    const bDateTs = getTransactionDateOnlyTimestamp(b);
+    const aTs = getTransactionSortTimestamp(a);
+    const bTs = getTransactionSortTimestamp(b);
 
-    if (!aDate && !bDate) return a.id - b.id;
-    // Keep no-date rows at the top instead of bottom.
-    if (!aDate) return -1;
-    if (!bDate) return 1;
+    // Primary sort: transaction date only (older date first).
+    if (aDateTs == null && bDateTs == null) {
+      // continue to timestamp tie-breakers
+    } else if (aDateTs == null) {
+      return -1;
+    } else if (bDateTs == null) {
+      return 1;
+    } else {
+      const byDateOnly = aDateTs - bDateTs;
+      if (byDateOnly !== 0) return byDateOnly;
+    }
 
-    const byDate = aDate.getTime() - bDate.getTime();
-    if (byDate !== 0) return byDate;
+    if (aTs == null && bTs == null) return getTransactionStableSortId(b) - getTransactionStableSortId(a);
+    if (aTs == null) return -1;
+    if (bTs == null) return 1;
 
-    return a.id - b.id;
+    // Secondary sort: datetime (createdAtLocal/createdAt) within same date.
+    const byTs = aTs - bTs;
+    if (byTs !== 0) return byTs;
+
+    return getTransactionStableSortId(b) - getTransactionStableSortId(a);
   });
 };
+
+const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] => {
+  return [...items].sort((a, b) => {
+    if (isDailyTxnPdc(a) && isDailyTxnPdc(b)) {
+      const approvedA = Boolean(a.ledgerApproved);
+      const approvedB = Boolean(b.ledgerApproved);
+      if (approvedA !== approvedB) return approvedA ? 1 : -1;
+
+      if (approvedA && approvedB) {
+        const approvedAtA = getTransactionApprovalTimestamp(a);
+        const approvedAtB = getTransactionApprovalTimestamp(b);
+        if (approvedAtA != null && approvedAtB != null) {
+          const byApprovalTime = approvedAtB - approvedAtA;
+          if (byApprovalTime !== 0) return byApprovalTime;
+        } else if (approvedAtA != null && approvedAtB == null) {
+          return -1;
+        } else if (approvedAtA == null && approvedAtB != null) {
+          return 1;
+        }
+      }
+    }
+
+    if (isPdcTransaction(a) && isPdcTransaction(b)) {
+      const approvedA = isLedgerApprovedPdc(a);
+      const approvedB = isLedgerApprovedPdc(b);
+      if (approvedA !== approvedB) return approvedA ? 1 : -1;
+
+      if (approvedA && approvedB) {
+        const approvedAtA = getTransactionApprovalTimestamp(a);
+        const approvedAtB = getTransactionApprovalTimestamp(b);
+        if (approvedAtA != null && approvedAtB != null) {
+          const byApprovalTime = approvedAtB - approvedAtA;
+          if (byApprovalTime !== 0) return byApprovalTime;
+        } else if (approvedAtA != null && approvedAtB == null) {
+          return -1;
+        } else if (approvedAtA == null && approvedAtB != null) {
+          return 1;
+        }
+      }
+    }
+
+    const aDateTs = getTransactionDateOnlyTimestamp(a);
+    const bDateTs = getTransactionDateOnlyTimestamp(b);
+    const aTs = getTransactionSortTimestamp(a);
+    const bTs = getTransactionSortTimestamp(b);
+
+    if (aDateTs == null && bDateTs == null) {
+      // continue to timestamp tie-breakers
+    } else if (aDateTs == null) {
+      return 1;
+    } else if (bDateTs == null) {
+      return -1;
+    } else {
+      const byDateOnly = bDateTs - aDateTs;
+      if (byDateOnly !== 0) return byDateOnly;
+    }
+
+    if (aTs == null && bTs == null) return getTransactionStableSortId(a) - getTransactionStableSortId(b);
+    if (aTs == null) return 1;
+    if (bTs == null) return -1;
+
+    const byTs = bTs - aTs;
+    if (byTs !== 0) return byTs;
+
+    return getTransactionStableSortId(a) - getTransactionStableSortId(b);
+  });
+};
+
 
 const isUnapprovedGcecPdc = (transaction: AllTransaction): transaction is GCECPDC => {
   if (transaction.transactionType !== 'GCEC PDC') return false;
@@ -335,6 +556,8 @@ const formatAmount = (value: string | number | null | undefined): string => {
   const numValue = typeof value === 'number' ? value : parseFloat(String(value || 0).replace(/,/g, '').trim());
   return numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+
+
 
 const ensurePdfFilename = (name: string | null | undefined): string => {
   const trimmed = String(name || '').trim();
@@ -454,6 +677,8 @@ export default function ViewAllTranstion() {
     }
     return searchable.includes('fk enbd') || searchable.includes('fk emirates nbd');
   });
+
+
 
   // Group transactions by type (for export/summary blocks)
   const groupedTransactions = filteredTransactions.reduce((acc, transaction) => {
@@ -591,6 +816,7 @@ export default function ViewAllTranstion() {
           .map((item) => normalizeTransactionRow(item))
           .filter((item): item is AllTransaction => item !== null);
 
+        // Latest transaction first in View All.
         setTransactions(sortTransactionsByDateDesc(normalizedTransactions));
         setSummary(summaryData);
         setCurrentPage(1); // Reset to first page when filters change
@@ -1182,25 +1408,7 @@ export default function ViewAllTranstion() {
                     className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
                   />
                 </div>
-                <div className="flex-1 min-w-[260px]">
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Other Transactions
-                  </label>
-                  <select
-                    value={otherTransactionFilter}
-                    onChange={(e) =>
-                      setOtherTransactionFilter(e.target.value as OtherTransactionFilterOption)
-                    }
-                    className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl focus:border-blue-500 focus:outline-none transition-colors bg-white"
-                  >
-                    {OTHER_TRANSACTION_FILTER_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
+              
                 <button
                   onClick={clearFilters}
                   className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-300 transition-colors"

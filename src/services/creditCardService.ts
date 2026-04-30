@@ -496,9 +496,11 @@ export const creditCardService = {
       // Map snake_case API response to camelCase
       const mappedData = response.data.map((item: any) => ({
         id: String(item.id || ''),
+        createdAt: item.created_at || item.createdAt || '',
         paymentDate: item.payment_date || '',
         cardHolder: item.card_holder || '',
         cardNo: item.card_no || item.card_number || '',
+        issuingBank: item.issuing_bank || '',
         amount: item.amount !== null && item.amount !== undefined ? Number(item.amount) : 0,
         paidAgainst: item.paid_against || item.paidAgainst || '',
         remarks: item.remarks || '',

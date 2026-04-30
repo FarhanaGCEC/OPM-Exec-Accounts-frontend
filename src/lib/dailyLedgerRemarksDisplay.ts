@@ -53,8 +53,8 @@ export function isCustomerPdcRemarksLabel(remarks?: string | null): boolean {
 
 /**
  * **Daily Transaction** remarks for table/export: show **GCEC PDC** when applicable
- * (including when remarks are empty but `pdcType` is GCEC). Hide **Customer PDC**
- * label-only / empty Customer PDC rows; keep other remark text.
+ * (including when remarks are empty but `pdcType` is GCEC). For Customer PDC,
+ * only real remarks text is shown; no auto "Customer PDC" label is injected.
  */
 export function remarksForDailyLedgerDisplay(
   remarks?: string | null,
@@ -62,7 +62,6 @@ export function remarksForDailyLedgerDisplay(
 ): string {
   const r = String(remarks ?? '').trim();
   if (r) return r;
-  if (pdcType && normalizePdcTypeFromApi(pdcType) === 'Customer PDC') return 'Customer PDC';
   if (rowIsGcecPdcHighlight(remarks, pdcType)) return 'GCEC PDC';
   return '';
 }

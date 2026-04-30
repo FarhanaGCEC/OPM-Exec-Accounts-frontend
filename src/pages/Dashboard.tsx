@@ -126,7 +126,7 @@ export default function Dashboard() {
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
               <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">Monthly Total Debit</p>
+                  <p className="text-sm font-medium text-gray-600 mb-2">Total Debit</p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-xl font-bold text-gray-900">
                       AED {formatAmount(totalDebitValue)}
@@ -139,7 +139,7 @@ export default function Dashboard() {
             <Card className="bg-white hover:shadow-lg transition-all duration-300 border border-gray-200 rounded-lg overflow-hidden">
               <CardContent className="p-4">
                 <div className="flex flex-col items-center justify-center text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">Monthly Total Credit</p>
+                  <p className="text-sm font-medium text-gray-600 mb-2">Total Credit</p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-xl font-bold text-gray-900">
                       AED {formatAmount(totalCreditValue)}

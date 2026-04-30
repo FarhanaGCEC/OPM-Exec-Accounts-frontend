@@ -43,7 +43,7 @@ import {
     mapApiResponseToCreditCardDetail,
     type CreditCardDetail 
 } from '../services/creditCardService';
-import { canMutateRecords } from '../lib/authPayload';
+import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
 
 const creditCardSchema = z.object({
     issuingBank: z.string().min(1, 'Issuing Bank is required').trim(),
@@ -64,7 +64,7 @@ const creditCardSchema = z.object({
 type CreditCardFormData = z.infer<typeof creditCardSchema>;
 
 export default function CreditCardDetails() {
-    const canMutate = canMutateRecords();
+    const canMutate = canMutateRecords() || isViewerRole(syncUserRoleFromSession());
     const [creditCards, setCreditCards] = useState<CreditCardDetail[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
