@@ -94,8 +94,10 @@ export default function CreditCardPaymentsPage() {
     
     // Period selection state
     const currentDate = new Date();
-    const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth());
+    const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
     const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
+    const [appliedMonth, setAppliedMonth] = useState<number | 'all'>('all');
+    const [appliedYear, setAppliedYear] = useState<number>(currentDate.getFullYear());
     const monthOptions = useMemo(
         () => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
         []
@@ -118,14 +120,13 @@ export default function CreditCardPaymentsPage() {
     });
 
  
-    const fetchCreditCards = useCallback(async (year: number, months: number[]) => {
+    const fetchCreditCards = useCallback(async (year: number, months?: number[]) => {
         try {
             setLoading(true);
             setError(null);
-            const response = await creditCardService.getCreditCardPayments({
-                year: year,
-                months: months // Array of month indices (0-11)
-            });
+            const response = await creditCardService.getCreditCardPayments(
+                months && months.length > 0 ? { year, months } : { year }
+            );
             
             if (response.success && response.data) {
                 setCreditCards(response.data);
@@ -163,8 +164,12 @@ export default function CreditCardPaymentsPage() {
  
 
     useEffect(() => {
-        fetchCreditCards(selectedYear, [selectedMonth]);
-    }, [fetchCreditCards, selectedMonth, selectedYear]);
+        if (appliedMonth === 'all') {
+            void fetchCreditCards(appliedYear);
+        } else {
+            void fetchCreditCards(appliedYear, [appliedMonth]);
+        }
+    }, [appliedMonth, appliedYear, fetchCreditCards]);
 
     useEffect(() => {
         fetchAvailableCreditCards();
@@ -304,7 +309,10 @@ export default function CreditCardPaymentsPage() {
                 setEditingPayment(null);
                 form.reset();
                 // Refresh the list
-                await fetchCreditCards(selectedYear, [selectedMonth]);
+                await fetchCreditCards(
+                    appliedYear,
+                    appliedMonth === 'all' ? undefined : [appliedMonth]
+                );
             } else {
                 setError(response.error || (editingPayment ? 'Failed to update payment' : 'Failed to create payment'));
             }
@@ -638,6 +646,11 @@ export default function CreditCardPaymentsPage() {
 
     }, [creditCards]);
 
+    const handleApplyFilters = useCallback(() => {
+        setAppliedMonth(selectedMonth);
+        setAppliedYear(selectedYear);
+    }, [selectedMonth, selectedYear]);
+
     return (
         <Layout>
       <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
@@ -649,7 +662,7 @@ export default function CreditCardPaymentsPage() {
             <Button
             onClick={handleDownloadExcel}
             variant="outline"
-            className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 flex items-center space-x-2 transition-colors rounded-lg"
+            className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 flex items-center space-x-2 transition-colors rounded-lg font-semibold"
             disabled={loading || !creditCards || creditCards.length === 0}
             >
             <Download className="w-4 h-4" />
@@ -673,9 +686,13 @@ export default function CreditCardPaymentsPage() {
                     <label className="text-xs font-medium text-gray-600">Month</label>
                     <select
                         value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                        onChange={(e) => {
+                            const value = e.target.value;
+                            setSelectedMonth(value === 'all' ? 'all' : Number(value));
+                        }}
                         className="h-10 min-w-32 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
                     >
+                        <option value="all">All Months</option>
                         {monthOptions.map((month, index) => (
                             <option key={month} value={index}>
                                 {month}
@@ -697,9 +714,20 @@ export default function CreditCardPaymentsPage() {
                         ))}
                     </select>
                 </div>
+                <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleApplyFilters}
+                    className="h-10 border border-gray-300 bg-white text-black hover:bg-gray-50"
+                    disabled={loading}
+                >
+                    Apply Filter
+                </Button>
             </div>
             <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
-                <p className="text-xs font-medium text-gray-600">Total Payment ({monthOptions[selectedMonth]} {selectedYear})</p>
+                <p className="text-xs font-medium text-gray-600">
+                    Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {appliedYear})
+                </p>
                 <p className="text-lg font-semibold text-gray-900">
                     {new Intl.NumberFormat('en-AE', {
                         style: 'currency',

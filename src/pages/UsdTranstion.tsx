@@ -718,7 +718,7 @@ export default function UsdTranstion() {
           <Button
             onClick={handleDownloadStatementPdf}
             variant="outline"
-            className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black"
+            className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
             disabled={statementLoading}
             title="Download bank statement"
           >
@@ -738,7 +738,7 @@ export default function UsdTranstion() {
           <Button
             onClick={handleDownloadExcel}
             variant="outline"
-            className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+            className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
             disabled={loading || filteredTransactions.length === 0}
           >
             <Download className="w-4 h-4" />

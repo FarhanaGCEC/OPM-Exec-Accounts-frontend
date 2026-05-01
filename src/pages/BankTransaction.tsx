@@ -2307,7 +2307,7 @@ export default function BankTransaction() {
             {canMutate && (
               <Button
                 onClick={handleAddNew}
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4 font-semibold"
                 disabled={loading}
               >
                 <Plus className="w-4 h-4 text-black" />
@@ -2534,7 +2534,7 @@ export default function BankTransaction() {
        <div className="flex gap-2">
          <button
            onClick={() => setActiveTab('all')}
-           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'all'
+           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'all'
              ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
@@ -2543,7 +2543,7 @@ export default function BankTransaction() {
          </button>
          <button
            onClick={() => setActiveTab('online')}
-           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'online'
+           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'online'
              ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
@@ -2552,7 +2552,7 @@ export default function BankTransaction() {
          </button>
          <button
            onClick={() => setActiveTab('cheque')}
-           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cheque'
+           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'cheque'
              ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
@@ -2561,7 +2561,7 @@ export default function BankTransaction() {
          </button>
          <button
            onClick={() => setActiveTab('cash')}
-           className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cash'
+           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'cash'
              ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
@@ -2575,28 +2575,28 @@ export default function BankTransaction() {
         <Button
           onClick={() => setBulkUploadOpen(true)}
           variant="outline"
-          className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+          className="flex items-center font-semibold space-x-2 border-gray-300 hover:bg-gray-50 text-black"
           disabled={loading || loadingCategories}
         >
-          <Upload className="w-4 h-4" />
+          <Upload className="w-4 h-4 font-semibold" />
           <span>Bulk upload</span>
         </Button>
         <Button
           onClick={handleDownloadCSV}
           variant="outline"
-          className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+          className="flex items-center font-semibold space-x-2 border-gray-300 hover:bg-gray-50 text-black"
           disabled={loading || filteredTransactions.length === 0}
         >
-          <Download className="w-4 h-4" />
+          <Download className="w-4 h-4 font-semibold" />
           <span>Download CSV</span>
         </Button>
         <Button
           onClick={handleDownloadExcel}
           variant="outline"
-          className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+          className="flex items-center font-semibold space-x-2 border-gray-300 hover:bg-gray-50 text-black"
           disabled={loading || filteredTransactions.length === 0}
         >
-          <Download className="w-4 h-4" />
+          <Download className="w-4 h-4 font-semibold" />
           <span>Download Excel</span>
         </Button>
      
@@ -3309,7 +3309,7 @@ export default function BankTransaction() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-[#f7c46d] hover:bg-[#c9a82f] text-black py-3 mt-6"
+                className="w-full bg-[#f7c46d] hover:bg-[#c9a82f] text-black py-3 mt-6 font-semibold"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
@@ -3391,7 +3391,7 @@ export default function BankTransaction() {
             {approvalOffer?.mode === 'success' ? (
               <Button
                 type="button"
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto font-semibold"
                 onClick={() => setApprovalOffer(null)}
               >
                 Done
@@ -3408,7 +3408,7 @@ export default function BankTransaction() {
                 </Button>
                 <Button
                   type="button"
-                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black font-semibold"
                   onClick={() => void submitApprovalRequest()}
                   disabled={approvalSubmitting}
                 >

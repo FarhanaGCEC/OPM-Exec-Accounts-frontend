@@ -669,7 +669,7 @@ export default function CustomerPDC() {
             variant="outline"
             onClick={handleDownloadExcel}
             disabled={loading || filteredCheques.length === 0}
-            className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2"
+            className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2 font-semibold"
           >
             <Download className="w-4 h-4" />
             <span>Download Excel</span>

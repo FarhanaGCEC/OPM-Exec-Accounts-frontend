@@ -471,7 +471,8 @@ export const creditCardService = {
   // API Response interface for Credit Card Payments (snake_case from backend)
   getCreditCardPayments: async (options?: {
     year?: number;
-    months?: number[]; // Array of month indices (0-11)
+    /** Month indices 0–11. Omit (or pass full year) to fetch all months for the year — no `months` query param. */
+    months?: number[];
   }): Promise<ApiResponse<any[]>> => {
     let url = '/credit-card-payments';
     
@@ -481,9 +482,14 @@ export const creditCardService = {
       params.push(`year=${options.year}`);
     }
     if (options?.months && options.months.length > 0) {
-      // Convert month indices (0-11) to month numbers (1-12) for API
-      const monthNumbers = options.months.map(m => m + 1);
-      params.push(`months=${monthNumbers.join(',')}`);
+      const monthSet = new Set(options.months);
+      const isAllMonths =
+        monthSet.size === 12 && [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].every((m) => monthSet.has(m));
+      if (!isAllMonths) {
+        // Convert month indices (0-11) to month numbers (1-12) for API
+        const monthNumbers = [...monthSet].sort((a, b) => a - b).map((m) => m + 1);
+        params.push(`months=${monthNumbers.join(',')}`);
+      }
     }
     
     if (params.length > 0) {

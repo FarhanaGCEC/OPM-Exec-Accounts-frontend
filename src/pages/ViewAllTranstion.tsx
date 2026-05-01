@@ -17,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-import { Calendar, ChevronDown, Download, Upload, X } from 'lucide-react';
+import { Calendar, ChevronDown, Download, Eye, Upload, X } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 
@@ -531,12 +531,6 @@ const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] =
 };
 
 
-const isUnapprovedGcecPdc = (transaction: AllTransaction): transaction is GCECPDC => {
-  if (transaction.transactionType !== 'GCEC PDC') return false;
-  const ledgerApproved = Boolean(transaction.ledgerApproved ?? transaction.approved);
-  return !ledgerApproved;
-};
-
 const displayTransactionDate = (date: string | null | undefined): string => {
   if (!date || !parseTransactionDate(date)) return '';
   return formatIsoDateDisplay(date);
@@ -560,10 +554,10 @@ const ensurePdfFilename = (name: string | null | undefined): string => {
 const EXCEL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
 const getDefaultDateRange = (): { start: Date; end: Date } => {
-  // Default to current month; users can expand via filters.
+  // Default to current year.
   const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth(), 1);
-  const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const start = new Date(today.getFullYear(), 0, 1);
+  const end = new Date(today.getFullYear(), 11, 31);
   return { start, end };
 };
 
@@ -637,14 +631,25 @@ export default function ViewAllTranstion() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [reportFile, setReportFile] = useState<File | null>(null);
+  const [statementPreviewUrl, setStatementPreviewUrl] = useState<string | null>(null);
   const [statementMeta, setStatementMeta] = useState<DailyBankStatementMeta | null>(null);
   const [statementLoading, setStatementLoading] = useState(false);
   
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isViewingPdf, setIsViewingPdf] = useState(false);
   const itemsPerPage = 10;
+
+  useEffect(() => {
+    return () => {
+      if (statementPreviewUrl) {
+        window.URL.revokeObjectURL(statementPreviewUrl);
+      }
+    };
+  }, [statementPreviewUrl]);
 
   const filteredTransactions = transactions.filter((transaction) => {
     const txnDate = parseTransactionDate(transaction.date);
@@ -707,14 +712,8 @@ export default function ViewAllTranstion() {
     return acc;
   }, {} as Record<string, AllTransaction[]>);
 
-  // Table-only list: for unapproved GCEC PDC, show one no-date row first (like BankTransaction UX).
-  const tableTransactions: AllTransaction[] = filteredTransactions.flatMap<AllTransaction>((transaction) => {
-    if (isUnapprovedGcecPdc(transaction)) {
-      const pendingRow: GCECPDC = { ...transaction, date: '' };
-      return [pendingRow, transaction];
-    }
-    return [transaction];
-  });
+  // Table list: show each transaction only once.
+  const tableTransactions: AllTransaction[] = filteredTransactions;
 
   // Group table transactions by type
   const groupedTableTransactions = tableTransactions.reduce<Record<string, AllTransaction[]>>((acc, transaction) => {
@@ -879,6 +878,14 @@ export default function ViewAllTranstion() {
     setUploadError(null);
   }, []);
 
+  const closeViewModal = useCallback(() => {
+    setShowViewModal(false);
+    if (statementPreviewUrl) {
+      window.URL.revokeObjectURL(statementPreviewUrl);
+    }
+    setStatementPreviewUrl(null);
+  }, [statementPreviewUrl]);
+
   const loadStatementMeta = useCallback(async () => {
     try {
       setStatementLoading(true);
@@ -912,11 +919,9 @@ export default function ViewAllTranstion() {
 
   const getActiveMonthLabel = (): string => {
     if (!startDate || !endDate) return 'All Transactions';
-    const sameMonth =
-      startDate.getFullYear() === endDate.getFullYear() &&
-      startDate.getMonth() === endDate.getMonth();
-    if (sameMonth) {
-      return startDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    const sameYear = startDate.getFullYear() === endDate.getFullYear();
+    if (sameYear) {
+      return `Year ${startDate.getFullYear()}`;
     }
     return `${startDate.toLocaleDateString('en-GB')} - ${endDate.toLocaleDateString('en-GB')}`;
   };
@@ -1158,8 +1163,9 @@ export default function ViewAllTranstion() {
     window.URL.revokeObjectURL(url);
   }, [filteredTransactions, groupedTransactions, summary, startDate, endDate]);
 
-  const handleDownloadPdf = useCallback(async () => {
+  const handleViewPdf = useCallback(async () => {
     try {
+      setIsViewingPdf(true);
       setUploadError(null);
       setUploadSuccess(null);
       const token = localStorage.getItem('authToken');
@@ -1169,7 +1175,7 @@ export default function ViewAllTranstion() {
       });
 
       if (!response.ok) {
-        let errorMessage = 'Failed to download statement PDF.';
+        let errorMessage = 'Failed to open statement PDF.';
         try {
           const errorBody = await response.json();
           errorMessage = String(errorBody?.message || errorBody?.error || errorMessage);
@@ -1179,27 +1185,20 @@ export default function ViewAllTranstion() {
         throw new Error(errorMessage);
       }
 
-      let filename = 'bank-statement.pdf';
-      const disposition = String(response.headers.get('content-disposition') || '');
-      const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
-      filename = nameMatch?.[1]
-        ? decodeURIComponent(nameMatch[1]).replace(/"/g, '')
-        : filename;
       const blob = await response.blob();
-
-      filename = ensurePdfFilename(filename);
       const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.click();
-      window.URL.revokeObjectURL(url);
-      setUploadSuccess('Statement PDF downloaded successfully.');
+      if (statementPreviewUrl) {
+        window.URL.revokeObjectURL(statementPreviewUrl);
+      }
+      setStatementPreviewUrl(url);
+      setShowViewModal(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to download statement PDF.';
+      const message = error instanceof Error ? error.message : 'Failed to open statement PDF.';
       setUploadError(message);
+    } finally {
+      setIsViewingPdf(false);
     }
-  }, []);
+  }, [statementPreviewUrl]);
 
   const handleReportUpload = useCallback(async () => {
     if (!reportFile) {
@@ -1382,13 +1381,13 @@ export default function ViewAllTranstion() {
               <div className="flex items-right gap-2">
               <button
                 type="button"
-                onClick={handleDownloadPdf}
-                disabled={loading || statementLoading || !statementMeta}
+                onClick={handleViewPdf}
+                disabled={loading || statementLoading || isViewingPdf || !statementMeta}
                 className="flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="Download Bank Statement PDF"
+                aria-label="View Bank Statement PDF"
               >
-                <Download className="w-5 h-5" />
-                Download Bank Statement
+                <Eye className="w-5 h-5" />
+                {isViewingPdf ? 'Opening...' : 'View Bank Statement'}
               </button>
               <button
                 type="button"
@@ -1775,6 +1774,44 @@ export default function ViewAllTranstion() {
                 className="rounded bg-[#f7c46d] px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5b764] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isUploading ? 'Uploading...' : 'Upload'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showViewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-6xl rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="text-lg font-semibold text-gray-900">Bank Statement Preview</h3>
+              <button
+                onClick={closeViewModal}
+                className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close statement preview modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="h-[75vh] w-full bg-gray-100">
+              {statementPreviewUrl ? (
+                <iframe
+                  title="Bank Statement PDF"
+                  src={statementPreviewUrl}
+                  className="h-full w-full border-0"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                  Unable to load statement preview.
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t px-4 py-3">
+              <button
+                onClick={closeViewModal}
+                className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Close
               </button>
             </div>
           </div>

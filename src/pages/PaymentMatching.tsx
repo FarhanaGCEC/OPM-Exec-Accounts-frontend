@@ -791,7 +791,7 @@ export default function PaymentMatching() {
             <Button
               onClick={handleDownloadExcel}
               variant="outline"
-              className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black"
+              className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
               disabled={loading || filteredPayments.length === 0}
             >
               <Download className="w-4 h-4" />

@@ -561,7 +561,7 @@ export default function MonthlyBankStatements() {
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="h-8 rounded-full"
+                                      className="h-8 rounded-full font-semibold"
                                       onClick={() =>
                                         void handleDownload(
                                           row.currency,
