@@ -1093,7 +1093,6 @@ export default function BankTransaction() {
             transactionTime: String(
               row.transactionTime ??
                 row.transaction_time ??
-                (transaction as Record<string, unknown>).transactionTime ??
                 ''
             ) || undefined,
             createdAt: String(row.createdAt ?? row.created_at ?? transaction.createdAt ?? ''),

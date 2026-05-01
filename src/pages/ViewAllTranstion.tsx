@@ -41,6 +41,7 @@ interface DailyTransaction {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  transactionTime?: string;
   createdAtDisplay?: string;
   createdAtLocal?: string;
   ledgerApproved?: boolean;
@@ -64,6 +65,7 @@ interface GCECPDC {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  transactionTime?: string;
   createdAtDisplay?: string;
   createdAtLocal?: string;
   ledgerApprovedAt?: string;
@@ -84,6 +86,7 @@ interface CustomerPDC {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  transactionTime?: string;
   createdAtDisplay?: string;
   createdAtLocal?: string;
   ledgerApprovedAt?: string;
@@ -104,6 +107,7 @@ interface PurchaseBill {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  transactionTime?: string;
   createdAtDisplay?: string;
   createdAtLocal?: string;
 }
@@ -200,38 +204,28 @@ const parseLocalDateTimeForSort = (value: string): Date | null => {
 };
 
 const getTransactionSortTimestamp = (item: AllTransaction): number | null => {
+  const dateOnly = parseTransactionDate(item.date);
+  const timeRaw = String((item as any).transactionTime ?? '').trim();
+  const parsedTime = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeRaw);
+  if (dateOnly && parsedTime) {
+    const combined = new Date(dateOnly);
+    combined.setHours(
+      Number(parsedTime[1]),
+      Number(parsedTime[2]),
+      Number(parsedTime[3] ?? '0'),
+      0
+    );
+    if (!Number.isNaN(combined.getTime())) return combined.getTime();
+  }
+
   const localCreated = parseLocalDateTimeForSort((item as any).createdAtLocal ?? '');
   if (localCreated) return localCreated.getTime();
   const displayCreated = parseLocalDateTimeForSort((item as any).createdAtDisplay ?? '');
   if (displayCreated) return displayCreated.getTime();
   const created = parseLocalDateTimeForSort((item as any).createdAt ?? '');
   if (created) return created.getTime();
-  const dateOnly = parseTransactionDate(item.date);
   if (dateOnly) return dateOnly.getTime();
   return null;
-};
-
-const getTransactionApprovalTimestamp = (item: AllTransaction): number | null => {
-  const localApproved = parseLocalDateTimeForSort((item as any).ledgerApprovedAtLocal ?? '');
-  if (localApproved) return localApproved.getTime();
-  const approved = parseLocalDateTimeForSort((item as any).ledgerApprovedAt ?? '');
-  if (approved) return approved.getTime();
-  return null;
-};
-
-const isPdcTransaction = (item: AllTransaction): item is GCECPDC | CustomerPDC =>
-  item.transactionType === 'GCEC PDC' || item.transactionType === 'Customer PDC';
-
-const isLedgerApprovedPdc = (item: GCECPDC | CustomerPDC): boolean =>
-  Boolean(item.ledgerApproved ?? item.approved);
-
-const isDailyTxnPdc = (item: AllTransaction): item is DailyTransaction => {
-  if (item.transactionType !== 'Daily Transaction') return false;
-  const t = String((item as DailyTransaction).pdcType ?? (item as DailyTransaction).pdc_type ?? '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, ' ');
-  return t === 'customer pdc' || t === 'gcec pdc';
 };
 
 const getTransactionDateOnlyTimestamp = (item: AllTransaction): number | null => {
@@ -286,6 +280,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      transactionTime:
+        toText(getRecordValue(record, ['transactionTime', 'transaction_time'])) || undefined,
       createdAtDisplay:
         toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
@@ -353,6 +349,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      transactionTime:
+        toText(getRecordValue(record, ['transactionTime', 'transaction_time'])) || undefined,
       createdAtDisplay:
         toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
@@ -394,6 +392,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      transactionTime:
+        toText(getRecordValue(record, ['transactionTime', 'transaction_time'])) || undefined,
       createdAtDisplay:
         toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
@@ -415,6 +415,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      transactionTime:
+        toText(getRecordValue(record, ['transactionTime', 'transaction_time'])) || undefined,
       createdAtDisplay:
         toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
@@ -478,70 +480,8 @@ const sortTransactionsByDateAsc = (items: AllTransaction[]): AllTransaction[] =>
 };
 
 const sortTransactionsByDateDesc = (items: AllTransaction[]): AllTransaction[] => {
-  return [...items].sort((a, b) => {
-    if (isDailyTxnPdc(a) && isDailyTxnPdc(b)) {
-      const approvedA = Boolean(a.ledgerApproved);
-      const approvedB = Boolean(b.ledgerApproved);
-      if (approvedA !== approvedB) return approvedA ? 1 : -1;
-
-      if (approvedA && approvedB) {
-        const approvedAtA = getTransactionApprovalTimestamp(a);
-        const approvedAtB = getTransactionApprovalTimestamp(b);
-        if (approvedAtA != null && approvedAtB != null) {
-          const byApprovalTime = approvedAtB - approvedAtA;
-          if (byApprovalTime !== 0) return byApprovalTime;
-        } else if (approvedAtA != null && approvedAtB == null) {
-          return -1;
-        } else if (approvedAtA == null && approvedAtB != null) {
-          return 1;
-        }
-      }
-    }
-
-    if (isPdcTransaction(a) && isPdcTransaction(b)) {
-      const approvedA = isLedgerApprovedPdc(a);
-      const approvedB = isLedgerApprovedPdc(b);
-      if (approvedA !== approvedB) return approvedA ? 1 : -1;
-
-      if (approvedA && approvedB) {
-        const approvedAtA = getTransactionApprovalTimestamp(a);
-        const approvedAtB = getTransactionApprovalTimestamp(b);
-        if (approvedAtA != null && approvedAtB != null) {
-          const byApprovalTime = approvedAtB - approvedAtA;
-          if (byApprovalTime !== 0) return byApprovalTime;
-        } else if (approvedAtA != null && approvedAtB == null) {
-          return -1;
-        } else if (approvedAtA == null && approvedAtB != null) {
-          return 1;
-        }
-      }
-    }
-
-    const aDateTs = getTransactionDateOnlyTimestamp(a);
-    const bDateTs = getTransactionDateOnlyTimestamp(b);
-    const aTs = getTransactionSortTimestamp(a);
-    const bTs = getTransactionSortTimestamp(b);
-
-    if (aDateTs == null && bDateTs == null) {
-      // continue to timestamp tie-breakers
-    } else if (aDateTs == null) {
-      return 1;
-    } else if (bDateTs == null) {
-      return -1;
-    } else {
-      const byDateOnly = bDateTs - aDateTs;
-      if (byDateOnly !== 0) return byDateOnly;
-    }
-
-    if (aTs == null && bTs == null) return getTransactionStableSortId(a) - getTransactionStableSortId(b);
-    if (aTs == null) return 1;
-    if (bTs == null) return -1;
-
-    const byTs = bTs - aTs;
-    if (byTs !== 0) return byTs;
-
-    return getTransactionStableSortId(a) - getTransactionStableSortId(b);
-  });
+  // Keep backend sequence and show it in reverse (latest first).
+  return [...items].reverse();
 };
 
 
