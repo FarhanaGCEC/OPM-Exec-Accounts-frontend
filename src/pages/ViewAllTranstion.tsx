@@ -1210,13 +1210,13 @@ export default function ViewAllTranstion() {
               : 'hover:bg-gray-50'
           }`}
         >
-          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}>
+          <TableCell className="text-gray-700 text-sm py-2 px-4 text-left align-middle">
             {displayTransactionDate(txn.date)}
           </TableCell>
-          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}>
+          <TableCell className="text-gray-700 text-sm py-2 px-4 text-left align-middle">
             {txn.category}
           </TableCell>
-          <TableCell className={`${hasDebit ? 'text-red-600' : 'text-gray-600'} text-sm py-2 px-4 text-left align-middle`}>
+          <TableCell className="text-gray-600 text-sm py-2 px-4 text-left align-middle">
             {getDailyPaymentTypeDisplay(txn)}
           </TableCell>
 
