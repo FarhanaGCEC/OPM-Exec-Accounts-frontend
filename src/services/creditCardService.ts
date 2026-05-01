@@ -606,4 +606,9 @@ export const creditCardService = {
     
     return api.patch<any>(`/credit-card-payments/${id}`, payload);
   },
+
+  // Delete credit card payment
+  deleteCreditCardPayment: async (id: string | number): Promise<ApiResponse<void>> => {
+    return api.delete<void>(`/credit-card-payments/${id}`);
+  },
 };

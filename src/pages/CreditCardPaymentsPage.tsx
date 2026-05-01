@@ -35,7 +35,7 @@ import {
     SelectItem,
 } from '../components/ui/select';
 import Calendar from '../components/ui/calendar-tailwind';
-import { Loader2, Plus, Calendar as CalendarIcon, Download } from 'lucide-react';
+import { Loader2, Plus, Calendar as CalendarIcon, Download, Trash2 } from 'lucide-react';
 import { 
     creditCardService, 
     mapApiResponseToCreditCardDetail,
@@ -88,6 +88,9 @@ export default function CreditCardPaymentsPage() {
     const [error, setError] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [paymentToDelete, setPaymentToDelete] = useState<CreditCardPayment | null>(null);
     const [availableCreditCards, setAvailableCreditCards] = useState<CreditCardDetail[]>([]);
     const [loadingCreditCards, setLoadingCreditCards] = useState(false);
     const [editingPayment, setEditingPayment] = useState<CreditCardPayment | null>(null);
@@ -325,7 +328,46 @@ export default function CreditCardPaymentsPage() {
         }
     };
 
-  
+    const handleDeletePayment = async (payment: CreditCardPayment) => {
+        try {
+            setDeletingPaymentId(payment.id);
+            setError(null);
+            const response = await creditCardService.deleteCreditCardPayment(payment.id);
+            if (!response.success) {
+                setError(response.error || 'Failed to delete payment');
+                return;
+            }
+            await fetchCreditCards(
+                appliedYear,
+                appliedMonth === 'all' ? undefined : [appliedMonth]
+            );
+        } catch (err: any) {
+            const errorMessage = err?.message || 'Failed to delete credit card payment';
+            console.error('Error deleting payment:', err);
+            setError(errorMessage);
+        } finally {
+            setDeletingPaymentId(null);
+        }
+    };
+
+    const openDeleteDialog = (payment: CreditCardPayment) => {
+        setPaymentToDelete(payment);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const closeDeleteDialog = () => {
+        if (deletingPaymentId) return;
+        setIsDeleteDialogOpen(false);
+        setPaymentToDelete(null);
+    };
+
+    const confirmDeletePayment = async () => {
+        if (!paymentToDelete) return;
+        await handleDeletePayment(paymentToDelete);
+        setIsDeleteDialogOpen(false);
+        setPaymentToDelete(null);
+    };
+
 
 
 
@@ -822,13 +864,30 @@ export default function CreditCardPaymentsPage() {
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">    {card.remarks}</TableCell>
                                             {canMutate && (
                                                 <TableCell className="text-gray-700 text-sm py-2 text-left"> 
-                                                       <Button 
-                                                           variant="outline" 
-                                                           className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                                                           onClick={() => handleEditClick(card)}
-                                                       >
-                                                           Edit
-                                                       </Button>
+                                                    <div className="flex items-center gap-2">
+                                                        <Button 
+                                                            variant="outline" 
+                                                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                                            onClick={() => handleEditClick(card)}
+                                                            disabled={isSubmitting || deletingPaymentId === card.id}
+                                                        >
+                                                            Edit
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            className="border-red-200 text-red-600 hover:bg-red-50"
+                                                            onClick={() => {
+                                                                openDeleteDialog(card);
+                                                            }}
+                                                            disabled={isSubmitting || deletingPaymentId === card.id}
+                                                        >
+                                                            {deletingPaymentId === card.id ? (
+                                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                            ) : (
+                                                                <Trash2 className="w-4 h-4" />
+                                                            )}
+                                                        </Button>
+                                                    </div>
                                                 </TableCell>
                                             )}
                                         </TableRow>
@@ -1131,6 +1190,48 @@ export default function CreditCardPaymentsPage() {
                             </DialogFooter>
                         </form>
                     </Form>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isDeleteDialogOpen} onOpenChange={(open) => {
+                if (!open) closeDeleteDialog();
+            }}>
+                <DialogContent className="sm:max-w-[420px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-semibold text-gray-900">
+                            Are you sure you want to delete?
+                        </DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-gray-600">
+                        This will permanently delete the selected credit card payment transaction.
+                    </p>
+                    <DialogFooter className="pt-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={closeDeleteDialog}
+                            disabled={Boolean(deletingPaymentId)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            onClick={() => {
+                                void confirmDeletePayment();
+                            }}
+                            disabled={Boolean(deletingPaymentId)}
+                        >
+                            {deletingPaymentId ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                'Delete'
+                            )}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </Layout>
