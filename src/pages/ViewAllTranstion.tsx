@@ -1305,15 +1305,16 @@ export default function ViewAllTranstion() {
         <TableRow key={txn.id} className="border-b border-gray-100 bg-[#f3efc4] hover:bg-[#ece6ad] transition-colors">
           <TableCell className="text-red-600 text-sm py-2 px-4">{displayTransactionDate(txn.date)}</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">{txn.customerName}</TableCell>
-          <TableCell className="text-red-600 text-sm py-2 px-4">-</TableCell>
-          <TableCell className="text-red-600 text-sm py-2 px-4">{txn.chequeNumber}</TableCell>
+          <TableCell className="text-sm py-2 px-4">
+            <span className="text-red-600">{txn.chequeNumber || '-'}</span>
+          </TableCell>
+          <TableCell className="text-sm py-2 px-4">
+            <span className="text-red-600">AED {formatAmount(txn.amount)}</span>
+          </TableCell>
           <TableCell className="text-sm py-2 px-4">
             <span className="text-red-600">AED 0.00</span>
           </TableCell>
-          <TableCell className="text-sm py-2 px-4">
-            <span className="text-red-600">AED{formatAmount(txn.amount)}</span>
-          </TableCell>
-          <TableCell className="text-red-600 text-sm py-2 px-4">-</TableCell>
+          <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
         </TableRow>
       );
@@ -1323,13 +1324,14 @@ export default function ViewAllTranstion() {
         <TableRow key={txn.id} className="border-b border-gray-100 hover:bg-purple-50 transition-colors">
           <TableCell className="text-gray-700 text-sm py-2 px-4">{displayTransactionDate(txn.date)}</TableCell>
           <TableCell className="text-gray-700 text-sm py-2 px-4">{txn.customerName}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
-          <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.chequeNumber}</TableCell>
+          <TableCell className="text-sm py-2 px-4">
+            <span className="text-gray-600">{txn.chequeNumber || '-'}</span>
+          </TableCell>
           <TableCell className="text-sm py-2 px-4">
             <span className="text-red-600">AED 0.00</span>
           </TableCell>
           <TableCell className="text-sm py-2 px-4">
-            <span className=" text-black">AED{formatAmount(txn.amount)}</span>
+            <span className="text-black">AED {formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>

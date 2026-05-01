@@ -2186,6 +2186,7 @@ export default function BankTransaction() {
 
       for (const { transaction: t, clientPendingBottomDup } of exportRows) {
         const details = ledgerExportDetailsColumn(t);
+        const remarksText = remarksForExport(t.remarks, t.pdcType);
         const { debit: debitValue, credit: creditValue } = getLedgerDebitCreditNumeric(
           t,
           clientPendingBottomDup
@@ -2208,9 +2209,11 @@ export default function BankTransaction() {
         row.getCell(5).numFmt = '#,##0.00';
         row.getCell(6).value = suppressBal ? null : balanceValue;
         row.getCell(6).numFmt = '#,##0.00';
-        row.getCell(7).value = remarksForExport(t.remarks, t.pdcType);
+        row.getCell(7).value = remarksText;
 
         const fillStyle = ledgerRowFill(t);
+        const isAvailableBalanceRemark =
+          remarksText.trim().toLowerCase() === 'available balance';
         for (let c = 1; c <= 7; c++) {
           const cell = row.getCell(c);
           if (fillStyle) {
@@ -2225,12 +2228,6 @@ export default function BankTransaction() {
           bold: false,
           color: { argb: 'FFDC2626' },
         };
-        if (debitValue > 0) {
-          const debitRowRed = { name: 'Calibri', size: 11, color: { argb: 'FFDC2626' } };
-          row.getCell(1).font = debitRowRed;
-          row.getCell(2).font = debitRowRed;
-          row.getCell(3).font = debitRowRed;
-        }
         row.getCell(5).font = {
           name: 'Calibri',
           size: 11,
@@ -2249,6 +2246,20 @@ export default function BankTransaction() {
             name: 'Calibri',
             size: 11,
             color: { argb: 'FF9CA3AF' },
+          };
+        }
+        if (isAvailableBalanceRemark) {
+          row.getCell(7).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD1FAE5' },
+          };
+          row.getCell(7).font = {
+            ...(row.getCell(7).font ?? {}),
+            name: 'Calibri',
+            size: 11,
+            bold: true,
+            color: { argb: 'FF000000' },
           };
         }
 
@@ -2708,12 +2719,12 @@ export default function BankTransaction() {
                       }`}
                     >
                       <td
-                        className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}
+                        className="text-gray-700 text-sm py-2 px-4 text-left align-middle"
                       >
                         {displayTransactionDate(transaction, !!clientPendingBottomDup)}
                       </td>
                       <td
-                        className={`${hasDebit ? 'text-red-600' : 'text-gray-700'} text-sm py-2 px-4 text-left align-middle`}
+                        className="text-gray-700 text-sm py-2 px-4 text-left align-middle"
                       >
                         {(() => {
                           const description = transaction.categoryName || 'N/A';
@@ -2740,7 +2751,7 @@ export default function BankTransaction() {
                         })()}
                       </td>
                       <td
-                        className={`${hasDebit ? 'text-red-600' : 'text-gray-600'} text-sm py-2 px-4 text-left align-middle`}
+                        className="text-gray-600 text-sm py-2 px-4 text-left align-middle"
                       >
                         {transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
                           ? `${transaction.chequeNumber}`
@@ -3122,7 +3133,7 @@ export default function BankTransaction() {
                           <SelectContent>
                             <SelectItem value="cash">Cash</SelectItem>
                             <SelectItem value="cheque">Cheque</SelectItem>
-                            <SelectItem value="blank">Blank</SelectItem>
+                           
                             <SelectItem value="banktransfer">Online</SelectItem>
                           </SelectContent>
                         </Select>

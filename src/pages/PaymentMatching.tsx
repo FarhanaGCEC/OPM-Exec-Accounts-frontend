@@ -580,7 +580,6 @@ export default function PaymentMatching() {
     // Add table headers
     excelData.push([
       'Payment Date',
-      'Invoice Number',
       'Customer Name',
       'Payment Method',
       'Amount (AED)',
@@ -674,7 +673,6 @@ export default function PaymentMatching() {
     // Set column widths
     worksheet['!cols'] = [
       { wch: 15 }, // Payment Date
-      { wch: 20 }, // Invoice Number
       { wch: 30 }, // Customer Name
       { wch: 18 }, // Payment Method
       { wch: 18 }, // Amount (AED)
@@ -1077,7 +1075,7 @@ export default function PaymentMatching() {
                 }}
               />
 
-              {/* Invoice Number Field */}
+            
             
 
               {/* Customer Name Field */}
