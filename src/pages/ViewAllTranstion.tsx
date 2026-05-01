@@ -41,6 +41,7 @@ interface DailyTransaction {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtDisplay?: string;
   createdAtLocal?: string;
   ledgerApproved?: boolean;
   ledgerApprovedAt?: string;
@@ -63,6 +64,7 @@ interface GCECPDC {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtDisplay?: string;
   createdAtLocal?: string;
   ledgerApprovedAt?: string;
   ledgerApprovedAtLocal?: string;
@@ -82,6 +84,7 @@ interface CustomerPDC {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtDisplay?: string;
   createdAtLocal?: string;
   ledgerApprovedAt?: string;
   ledgerApprovedAtLocal?: string;
@@ -101,6 +104,7 @@ interface PurchaseBill {
   createdBy: number;
   createdByUsername: string;
   createdAt: string;
+  createdAtDisplay?: string;
   createdAtLocal?: string;
 }
 
@@ -198,6 +202,8 @@ const parseLocalDateTimeForSort = (value: string): Date | null => {
 const getTransactionSortTimestamp = (item: AllTransaction): number | null => {
   const localCreated = parseLocalDateTimeForSort((item as any).createdAtLocal ?? '');
   if (localCreated) return localCreated.getTime();
+  const displayCreated = parseLocalDateTimeForSort((item as any).createdAtDisplay ?? '');
+  if (displayCreated) return displayCreated.getTime();
   const created = parseLocalDateTimeForSort((item as any).createdAt ?? '');
   if (created) return created.getTime();
   const dateOnly = parseTransactionDate(item.date);
@@ -280,6 +286,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtDisplay:
+        toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
       ledgerApproved: Boolean(getRecordValue(record, ['ledgerApproved', 'ledger_approved'])),
       ledgerApprovedAt: toText(
@@ -345,6 +353,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtDisplay:
+        toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
     };
   }
@@ -384,6 +394,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtDisplay:
+        toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
     };
   }
@@ -403,6 +415,8 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
       createdBy: Number(getRecordValue(record, ['createdBy', 'created_by']) ?? 0),
       createdByUsername: toText(getRecordValue(record, ['createdByUsername', 'created_by_username'])),
       createdAt: toText(getRecordValue(record, ['createdAt', 'created_at'])),
+      createdAtDisplay:
+        toText(getRecordValue(record, ['createdAtDisplay', 'created_at_display'])) || undefined,
       createdAtLocal: toText(getRecordValue(record, ['createdAtLocal', 'created_at_local'])) || undefined,
     };
   }

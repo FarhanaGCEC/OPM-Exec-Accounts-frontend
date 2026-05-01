@@ -158,7 +158,9 @@ function isExplicitGcecPdcType(pdcType?: string): boolean {
   );
 }
 
-function pdcKindFromTypeOrRemarks(t: Pick<BankTransaction, 'pdcType' | 'remarks'>): 'gcec' | 'customer' | 'other' {
+function pdcKindFromTypeOrRemarks(
+  t: Pick<BankTransactionType, 'pdcType' | 'remarks'>
+): 'gcec' | 'customer' | 'other' {
   if (isExplicitGcecPdcType(t.pdcType) || rowIsGcecPdcHighlight(t.remarks, t.pdcType)) {
     return 'gcec';
   }
@@ -498,6 +500,7 @@ interface BankTransaction extends BankTransactionType {
   remarks?: string | null; // Remarks for the transaction
   
   originalDate?: string; // Store original ISO date for editing
+  transactionTime?: string;
   createdAtLocal?: string;
   ledgerApprovedAt?: string;
   ledgerApprovedAtLocal?: string;
@@ -588,11 +591,25 @@ function getTransactionDateOnlyTimestamp(t: BankTransaction): number | null {
 }
 
 function getTransactionCreatedTimestamp(t: BankTransaction): number | null {
+  const dateOnly = parseTransactionDateForSort(t);
+  const timeRaw = String(t.transactionTime || '').trim();
+  const parsedTime = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeRaw);
+  if (dateOnly && parsedTime) {
+    const combined = new Date(dateOnly);
+    combined.setHours(
+      Number(parsedTime[1]),
+      Number(parsedTime[2]),
+      Number(parsedTime[3] ?? '0'),
+      0
+    );
+    if (!Number.isNaN(combined.getTime())) return combined.getTime();
+  }
+
   const local = parseLocalDateTimeForSort(t.createdAtLocal);
   if (local) return local.getTime();
   const created = parseLocalDateTimeForSort(t.createdAt);
   if (created) return created.getTime();
-  const fromRowDate = parseTransactionDateForSort(t);
+  const fromRowDate = dateOnly;
   if (fromRowDate) return fromRowDate.getTime();
   return null;
 }
@@ -651,7 +668,7 @@ function sortTransactionsOldestFirst(transactions: BankTransaction[]): BankTrans
   });
 }
 
-/** Strict ledger order for table: date desc, createdAt desc, id fallback. */
+/** Strict ledger order for table: date desc, transaction-time desc, id fallback. */
 function sortTransactionsStrictDesc(transactions: BankTransaction[]): BankTransaction[] {
   return [...transactions].sort((a, b) => {
     const kindA = pdcKindFromTypeOrRemarks(a);
@@ -771,6 +788,7 @@ const transactionSchema = z.object({
   date: z.string()
     .min(10, 'Date is required')
     .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
+  entryTime: z.string().optional(),
   type: z.enum(['Debit', 'Credit'], {
     required_error: 'Please select a type',
   }),
@@ -899,6 +917,7 @@ export default function BankTransaction() {
     defaultValues: {
       editMode: 'ledger',
       date: '',
+      entryTime: '',
       type: 'Debit',
       categoryId: '',
       paymentType: 'cash',
@@ -1071,6 +1090,12 @@ export default function BankTransaction() {
             id: String(transaction.id ?? ''),
             date: formattedDate,
             originalDate: isoForEdit,
+            transactionTime: String(
+              row.transactionTime ??
+                row.transaction_time ??
+                (transaction as Record<string, unknown>).transactionTime ??
+                ''
+            ) || undefined,
             createdAt: String(row.createdAt ?? row.created_at ?? transaction.createdAt ?? ''),
             createdAtLocal: String(
               row.createdAtLocal ?? row.created_at_local ?? ''
@@ -1288,9 +1313,21 @@ export default function BankTransaction() {
       // Prepare payload for API
       // Convert 'banktransfer' to 'online' for API
       const apiPaymentType = data.paymentType === 'banktransfer' ? 'online' : data.paymentType;
+      const normalizeDate = (value: string): string => {
+        const s = String(value || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+        const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+        if (dmY) {
+          const day = dmY[1].padStart(2, '0');
+          const month = dmY[2].padStart(2, '0');
+          return `${dmY[3]}-${month}-${day}`;
+        }
+        return s;
+      };
       
       const payload: {
         date: string;
+        transactionTime?: string;
         type: 'Debit' | 'Credit';
         categoryId: string | number;
         paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
@@ -1298,7 +1335,7 @@ export default function BankTransaction() {
         remarks?: string;
         amount: number;
       } = {
-        date: data.date, // Format: dd/mm/yyyy
+        date: normalizeDate(data.date),
         type: data.type,
         categoryId: data.categoryId,
         paymentType: apiPaymentType as 'creditcard' | 'cheque' | 'cash' | 'online',
@@ -1314,24 +1351,15 @@ export default function BankTransaction() {
       if (data.remarks && data.remarks.trim()) {
         payload.remarks = data.remarks.trim();
       }
+      if (data.entryTime && data.entryTime.trim()) {
+        payload.transactionTime = data.entryTime.trim();
+      }
 
       console.log('[BankTransaction] Sending payload:', payload);
 
       let response: ApiResponse<BankTransactionType>;
 
       if (editingTransaction && isPdcDueId(editingTransaction.id)) {
-        const normalizeDate = (value: string): string => {
-          const s = String(value || '').trim();
-          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-          const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
-          if (dmY) {
-            const day = dmY[1].padStart(2, '0');
-            const month = dmY[2].padStart(2, '0');
-            return `${dmY[3]}-${month}-${day}`;
-          }
-          return s;
-        };
-
         const pdcUserNote = sanitizePdcUserNote(data.description);
         const pdcPayload: Record<string, unknown> = {
           date: normalizeDate(data.date),
@@ -1417,6 +1445,7 @@ export default function BankTransaction() {
         form.reset({
           editMode: 'ledger',
           date: '',
+          entryTime: '',
           type: 'Debit',
           categoryId: '',
           paymentType: 'cash',
@@ -1452,6 +1481,7 @@ export default function BankTransaction() {
         form.reset({
           editMode: 'ledger',
           date: '',
+          entryTime: '',
           type: 'Debit',
           categoryId: '',
           paymentType: 'cash',
@@ -1502,6 +1532,7 @@ export default function BankTransaction() {
         form.reset({
           editMode: 'ledger',
           date: '',
+          entryTime: '',
           type: 'Debit',
           categoryId: '',
           paymentType: 'cash',
@@ -1539,6 +1570,7 @@ export default function BankTransaction() {
     
     // Convert original ISO date to dd/mm/yyyy format for form
     let dateValue = '';
+    let entryTimeValue = '';
     if (transaction.originalDate) {
       const date = new Date(transaction.originalDate);
       if (!isNaN(date.getTime())) {
@@ -1557,6 +1589,27 @@ export default function BankTransaction() {
         };
         const month = months[parts[1]] || '01';
         dateValue = `${parts[0]}/${month}/${parts[2]}`;
+      }
+    }
+
+    const sourceTime = String(transaction.transactionTime || '').trim();
+    const normalizedTime = sourceTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (normalizedTime) {
+      entryTimeValue = `${normalizedTime[1].padStart(2, '0')}:${normalizedTime[2]}`;
+    } else {
+      const sourceDateTime = String(
+        transaction.createdAtLocal ?? transaction.createdAt ?? ''
+      ).trim();
+      if (sourceDateTime) {
+        const parsedDateTime = parseLocalDateTimeForSort(sourceDateTime);
+        if (parsedDateTime) {
+          entryTimeValue = `${String(parsedDateTime.getHours()).padStart(2, '0')}:${String(
+            parsedDateTime.getMinutes()
+          ).padStart(2, '0')}`;
+        } else {
+          const extracted = sourceDateTime.match(/\b(\d{2}):(\d{2})\b/);
+          if (extracted) entryTimeValue = `${extracted[1]}:${extracted[2]}`;
+        }
       }
     }
     
@@ -1655,6 +1708,7 @@ export default function BankTransaction() {
     form.reset({
       editMode: isPdcDueId(transaction.id) ? 'pdcDue' : 'ledger',
       date: dateValue,
+      entryTime: entryTimeValue,
       type: transactionType as 'Debit' | 'Credit',
       categoryId: categoryId,
       paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
@@ -1745,6 +1799,7 @@ export default function BankTransaction() {
     form.reset({
       editMode: 'ledger',
       date: '',
+      entryTime: '',
       type: 'Debit',
       categoryId: '',
       paymentType: 'cash',
@@ -2824,11 +2879,13 @@ export default function BankTransaction() {
                           {transaction.showLedgerApprovalCheckbox &&
                             !transaction.approvalPendingFooterDuplicate &&
                             transaction.pdcId != null &&
+                            !transaction.ledgerApproved &&
                             canApprovePdcDailyLedger() && (
                               <label className="flex items-center gap-1.5 text-xs text-gray-800 whitespace-nowrap">
                                 <input
                                   type="checkbox"
                                   className="rounded border-gray-400 text-[#f7c46d] focus:ring-[#f7c46d] disabled:opacity-60"
+                                  aria-label="Ledger approval"
                                   checked={!!transaction.ledgerApproved}
                                   disabled={
                                     !!transaction.ledgerApproved ||
@@ -2844,7 +2901,6 @@ export default function BankTransaction() {
                                     setPdcApproveDialogOpen(true);
                                   }}
                                 />
-                                <span>Approved</span>
                               </label>
                             )}
                           {transaction.showLedgerApprovalCheckbox &&
@@ -2903,6 +2959,7 @@ export default function BankTransaction() {
           form.reset({
             editMode: 'ledger',
             date: '',
+            entryTime: '',
             type: 'Debit',
             categoryId: '',
             paymentType: 'cash',
@@ -3037,6 +3094,29 @@ export default function BankTransaction() {
                   );
                 }}
               />
+
+              {!editingPdcDue && (
+                <FormField
+                  control={form.control}
+                  name="entryTime"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-lg font-medium text-gray-700">
+                        Time
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          type="time"
+                          step={60}
+                          value={field.value || ''}
+                          onChange={(e) => field.onChange(e.target.value)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               {!editingPdcDue ? (
                 <>
