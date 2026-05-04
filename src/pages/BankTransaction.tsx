@@ -2267,14 +2267,24 @@ export default function BankTransaction() {
 
         const fillStyle = ledgerRowFill(t);
         const isAvailableBalanceRemark =
-          remarksText.trim().toLowerCase() === 'available balance';
+          remarksText.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
         for (let c = 1; c <= 7; c++) {
           const cell = row.getCell(c);
           if (fillStyle) {
             cell.fill = fillStyle;
           }
-          cell.font = { name: 'Calibri', size: 11, color: { argb: 'FF000000' } };
         }
+
+        // Date, Description, Details, Remarks: black. Debit: red. Credit: black.
+        const blackFont: Partial<ExcelJS.Font> = {
+          name: 'Calibri',
+          size: 11,
+          color: { argb: 'FF000000' },
+        };
+        row.getCell(1).font = blackFont as ExcelJS.Font;
+        row.getCell(2).font = blackFont as ExcelJS.Font;
+        row.getCell(3).font = blackFont as ExcelJS.Font;
+        row.getCell(7).font = blackFont as ExcelJS.Font;
 
         row.getCell(4).font = {
           name: 'Calibri',
@@ -2302,18 +2312,12 @@ export default function BankTransaction() {
             color: { argb: 'FF9CA3AF' },
           };
         }
-        if (isAvailableBalanceRemark) {
-          row.getCell(7).fill = {
+        // Match on-screen ledger: green background on Balance column for "Available balance" rows.
+        if (isAvailableBalanceRemark && !suppressBal) {
+          row.getCell(6).fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFD1FAE5' },
-          };
-          row.getCell(7).font = {
-            ...(row.getCell(7).font ?? {}),
-            name: 'Calibri',
-            size: 11,
-            bold: true,
-            color: { argb: 'FF000000' },
+            fgColor: { argb: 'FF91D34D' },
           };
         }
 
@@ -2744,7 +2748,7 @@ export default function BankTransaction() {
                         : 'Upcoming'
                       : remarksDisplay;
                     const isAvailableBalanceRemark =
-                      remarksDisplay.trim().toLowerCase() === 'available balance';
+                      remarksDisplay.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
                     const rowTone = isBouncedCheque
                       ? 'bounce'
                       : isGcecPdc
@@ -3214,6 +3218,7 @@ export default function BankTransaction() {
                             <SelectItem value="cheque">Cheque</SelectItem>
                            
                             <SelectItem value="banktransfer">Online</SelectItem>
+                            <SelectItem value="other">DD</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

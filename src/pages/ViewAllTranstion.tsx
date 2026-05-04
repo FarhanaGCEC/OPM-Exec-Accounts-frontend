@@ -971,7 +971,7 @@ export default function ViewAllTranstion() {
         } else if (type === 'Customer PDC') {
           headers = ['Date', 'Debtor', 'Cheque Number', 'Cheque Type', 'Amount'];
         } else if (type === 'Purchase Bill') {
-          headers = ['Date', 'Vendor Name', 'Invoice Number', 'Payment Method', 'Amount'];
+          headers = ['Date', 'Vendor Name', 'Payment Method', 'Amount'];
         }
         addRow(headers, { font: { bold: true } });
 
@@ -1074,12 +1074,10 @@ export default function ViewAllTranstion() {
             const row = addRow([
               formatDateForExcel(txn.date),
               txn.vendorName,
-              txn.invoiceNumber || '',
               txn.paymentMethod,
               amountValue,
-             
             ]);
-            row.getCell(5).numFmt = '#,##0.00';
+            row.getCell(4).numFmt = '#,##0.00';
      
           }
         });
@@ -1297,8 +1295,6 @@ export default function ViewAllTranstion() {
           <TableCell className="text-gray-700 text-sm py-2 px-4">{displayTransactionDate(txn.date)}</TableCell>
           <TableCell className="text-gray-700 text-sm py-2 px-4">{txn.vendorName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.paymentMethod}</TableCell>
-          <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.invoiceNumber || '-'}</TableCell>
-         
           <TableCell className="text-sm py-2 px-4">
             <span className="text-red-600">AED 0.00</span>
           </TableCell>
