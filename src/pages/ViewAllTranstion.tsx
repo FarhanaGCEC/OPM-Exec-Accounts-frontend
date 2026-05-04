@@ -1004,19 +1004,22 @@ export default function ViewAllTranstion() {
             row.getCell(5).numFmt = '#,##0.00'; // Credit
             row.getCell(6).numFmt = '#,##0.00'; // Balance
 
-            // Debit column should always be red in exports.
+            // Debit column red; Date, Description, Details, Credit, Remarks black (match on-screen ledger).
             row.getCell(4).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
-            // If row has debit, Date/Description/Details should also be red.
-            if (debitValue > 0) {
-              row.getCell(1).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
-              row.getCell(2).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
-              row.getCell(3).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
-            }
+            const blackExportFont = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
+            row.getCell(1).font = blackExportFont;
+            row.getCell(2).font = blackExportFont;
+            row.getCell(3).font = blackExportFont;
+            row.getCell(5).font = blackExportFont;
+            row.getCell(7).font = blackExportFont;
             // Balance should be blue, but red when negative.
             row.getCell(6).font = excelExportFont({
               bold: true,
               color: { argb: balanceValue < 0 ? 'FFFF0000' : 'FF0003EB' },
             }) as ExcelJS.Font;
+
+            const isAvailableBalanceRemark =
+              remarksCell.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
 
             // Apply background color if bounced/returned cheque
             if (isBouncedOrReturned) {
@@ -1027,6 +1030,12 @@ export default function ViewAllTranstion() {
                   fgColor: { argb: 'FF95DCF7' }
                 };
               });
+            } else if (isAvailableBalanceRemark) {
+              row.getCell(6).fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF91D34D' },
+              };
             }
           } else if (type === 'GCEC PDC') {
             const txn = transaction as GCECPDC;
@@ -1194,7 +1203,8 @@ export default function ViewAllTranstion() {
           ? `${remarksDisplay} (Upcoming)`
           : 'Upcoming'
         : remarksDisplay;
-      const isAvailableBalanceRemark = remarksDisplay.trim().toLowerCase() === 'available balance';
+      const isAvailableBalanceRemark =
+        remarksDisplay.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
       const debitAmount = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
       const hasDebit = !Number.isNaN(debitAmount) && debitAmount > 0;
       return (
