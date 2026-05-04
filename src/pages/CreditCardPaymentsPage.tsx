@@ -69,13 +69,12 @@ const paymentSchema = z.object({
     cardNo: z.string().optional(),
     cardHolder: z.string().optional(),
     creditCardId: z.string().optional(),
-    amount: z.number()
-        .min(0.01, 'Amount must be greater than 0')
-        .or(z.string().transform((val) => {
-            const num = parseFloat(val);
-            if (isNaN(num) || num <= 0) throw new Error('Amount must be greater than 0');
-            return num;
-        })),
+    amount: z.string()
+        .min(1, 'Amount is required')
+        .refine((val) => {
+            const num = parseFloat(val.replace(/,/g, ''));
+            return !isNaN(num) && num > 0;
+        }, 'Amount must be greater than 0'),
     remarks: z.string().optional(),
 });
 
@@ -117,7 +116,7 @@ export default function CreditCardPaymentsPage() {
             cardNo: '',
             cardHolder: '',
             creditCardId: '',
-            amount: 0,
+            amount: '',
             remarks: '',
         },
     });
@@ -185,7 +184,7 @@ export default function CreditCardPaymentsPage() {
             cardNo: '',
             cardHolder: '',
             creditCardId: '',
-            amount: 0,
+            amount: '',
             remarks: '',
         });
         setIsModalOpen(true);
@@ -246,7 +245,7 @@ export default function CreditCardPaymentsPage() {
             cardNo: payment.cardNo || '',
             cardHolder: displayCreditCardHolderName(payment.cardHolder || ''),
             creditCardId: creditCardId,
-            amount: payment.amount || 0,
+            amount: payment.amount != null ? String(payment.amount) : '',
             remarks: payment.remarks || '',
         });
         setIsModalOpen(true);
@@ -279,7 +278,7 @@ export default function CreditCardPaymentsPage() {
 
             const payload: any = {
                 paymentDate: formattedDate,
-                amount: typeof data.amount === 'string' ? parseFloat(data.amount) : data.amount,
+                amount: parseFloat(data.amount.replace(/,/g, '')),
             };
 
             if (data.cardNo) {
@@ -1123,16 +1122,15 @@ export default function CreditCardPaymentsPage() {
                                                 inputMode="decimal"
                                                 pattern="[0-9]*[.]?[0-9]*"
                                                 placeholder="0"
-                                                {...field}
+                                                value={field.value ?? ''}
+                                                onBlur={field.onBlur}
+                                                name={field.name}
+                                                ref={field.ref}
                                                 onChange={(e) => {
                                                     const value = e.target.value
                                                       .replace(/[^0-9.]/g, '')
                                                       .replace(/(\..*)\./g, '$1');
-                                                    if (value === '') {
-                                                        field.onChange(0);
-                                                    } else {
-                                                        field.onChange(parseFloat(value));
-                                                    }
+                                                    field.onChange(value);
                                                 }}
                                                 disabled={isSubmitting}
                                             />

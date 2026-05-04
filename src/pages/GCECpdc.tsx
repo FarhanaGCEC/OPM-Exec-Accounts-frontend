@@ -597,7 +597,7 @@ console.log("hello")
         excelData.push([]);
 
         // Add table headers
-        excelData.push(['Date', 'Payee', 'Cheque No', 'Amount']);
+        excelData.push(['Date', 'Payee', 'Cheque No', 'Amount', 'Cheque Type']);
 
         // Add cheque rows
         filteredCheques.forEach((cheque) => {
@@ -611,7 +611,8 @@ console.log("hello")
                 cheque.date || formatDateForDisplay(cheque.chequeDate),
                 cheque.customerName || '-',
                 cheque.chequeNumber || '',
-                amountValue
+                amountValue,
+                cheque.chequeType === 'Payment Cheque' ? '' : 'Security Cheque',
             ]);
         });
 
@@ -624,11 +625,12 @@ console.log("hello")
             { wch: 25 }, // Payee
             { wch: 15 }, // Cheque No
             { wch: 18 }, // Amount
+            { wch: 18 }, // Cheque Type
         ];
 
         // Format header row (row 2, 0-indexed)
         const headerRow = 2;
-        for (let col = 0; col <= 3; col++) {
+        for (let col = 0; col <= 4; col++) {
             const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
             if (worksheet[headerCellRef]) {
                 if (!worksheet[headerCellRef].s) {

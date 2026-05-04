@@ -220,8 +220,8 @@ function hasLedgerTransactionDatePassed(t: BankTransaction): boolean {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Duplicate only after the transaction date has fully passed.
-  return transactionDay.getTime() < today.getTime();
+  // Cheque / ledger date has arrived (today or earlier — not strictly before).
+  return transactionDay.getTime() <= today.getTime();
 }
 
 function isFutureLedgerTransaction(t: BankTransaction): boolean {
@@ -235,55 +235,95 @@ function isFutureLedgerTransaction(t: BankTransaction): boolean {
 }
 
 /**
- * GCEC / Customer PDC not yet ledger-approved: duplicated at table bottom (until approved).
- * Original row stays in chronological place with date; bottom copy has no date (purely client render).
+ * Customer PDC not yet ledger-approved: extra copy at table bottom without date (until approved).
  */
 function isUnapprovedPdcPinBottom(t: BankTransaction): boolean {
   if (isPdcLedgerFooterRow(t)) return false;
   if (t.ledgerApproved) return false;
   if (!hasLedgerTransactionDatePassed(t)) return false;
-  if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) return true;
-  if (rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) return true;
-  return false;
+  return rowIsCustomerPdcHighlight(t.remarks, t.pdcType);
+}
+
+/** Unapproved GCEC PDC (cheque date arrived): extra copy at top without date until approved; dated row stays in list. */
+function isUnapprovedGcecPdcPinTop(t: BankTransaction): boolean {
+  if (isPdcLedgerFooterRow(t)) return false;
+  if (t.ledgerApproved) return false;
+  if (!hasLedgerTransactionDatePassed(t)) return false;
+  return rowIsGcecPdcHighlight(t.remarks, t.pdcType);
 }
 
 function shouldHideLedgerDateColumn(
   t: BankTransaction,
-  clientPendingBottomDup = false
+  clientPendingBottomDup = false,
+  clientPendingTopDup = false
 ): boolean {
   if (isPdcLedgerFooterRow(t)) return true;
   if (clientPendingBottomDup) return true;
+  if (clientPendingTopDup) return true;
   return false;
 }
 
-/** Date in grid / exports. Use `clientPendingBottomDup` for the extra copy at the end (no date). */
+/** Date in grid / exports. Bottom or top pending copy hides the date column. */
 function displayTransactionDate(
   t: BankTransaction,
-  clientPendingBottomDup = false
+  clientPendingBottomDup = false,
+  clientPendingTopDup = false
 ): string {
-  return shouldHideLedgerDateColumn(t, clientPendingBottomDup)
+  return shouldHideLedgerDateColumn(t, clientPendingBottomDup, clientPendingTopDup)
     ? ''
     : t.date || '';
 }
 
-/** Omit balance on no-date / reminder rows so totals are not doubled. */
+/**
+ * Omit balance on no-date / reminder rows so totals are not doubled — except unapproved GCEC PDC
+ * and upcoming GCEC forecast rows, where credit and balance must stay visible.
+ */
 function shouldSuppressBalanceForDisplay(
   t: BankTransaction,
-  clientPendingBottomDup = false
+  clientPendingBottomDup = false,
+  clientPendingTopDup = false
 ): boolean {
   // Upcoming GCEC rows should always show backend-provided forecast balance.
   if (rowIsGcecPdcHighlight(t.remarks, t.pdcType) && isFutureLedgerTransaction(t)) {
     return false;
   }
-  return shouldHideLedgerDateColumn(t, clientPendingBottomDup);
+  const gcecAwaitingApproval =
+    rowIsGcecPdcHighlight(t.remarks, t.pdcType) && !t.ledgerApproved;
+  if (gcecAwaitingApproval) return false;
+  return shouldHideLedgerDateColumn(t, clientPendingBottomDup, clientPendingTopDup);
+}
+
+/** Bottom copy of unapproved GCEC PDC: show amount as credit (not debit) until ledger approval. */
+function isGcecPendingBottomCreditPresentation(
+  t: BankTransaction,
+  clientPendingBottomDup: boolean
+): boolean {
+  return (
+    clientPendingBottomDup &&
+    rowIsGcecPdcHighlight(t.remarks, t.pdcType) &&
+    !t.ledgerApproved
+  );
 }
 
 function shouldAffectRunningBalance(
-  _t: BankTransaction,
-  clientPendingBottomDup = false
+  t: BankTransaction,
+  clientPendingBottomDup = false,
+  clientPendingTopDup = false
 ): boolean {
-  // Frontend duplicate rows are visual-only and should not affect running balance.
-  if (clientPendingBottomDup) return false;
+  if (clientPendingTopDup) return false;
+  // No-date bottom copy is display-only for running total (GCEC / Customer wait for ledger rules on the dated row).
+  if (clientPendingBottomDup) {
+    return false;
+  }
+
+  // GCEC PDC & Customer PDC: running balance moves only after ledger approval (upcoming GCEC never, until dated).
+  const kind = pdcKindFromTypeOrRemarks(t);
+  if (kind === 'gcec') {
+    if (isFutureLedgerTransaction(t)) return false;
+    return !!t.ledgerApproved;
+  }
+  if (kind === 'customer') return !!t.ledgerApproved;
+
   return true;
 }
 
@@ -354,7 +394,9 @@ function buildLedgerBalanceMaps(filtered: BankTransaction[]): {
   const ordered = sortTransactionsOldestFirst(filtered);
   const { afterById: bodyAfterById, finalRunning } =
     computeRunningBalanceAfterById(ordered);
-  const pendingRows = filtered.filter((t) => isUnapprovedPdcPinBottom(t));
+  const pendingRows = filtered.filter(
+    (t) => isUnapprovedPdcPinBottom(t) || isUnapprovedGcecPdcPinTop(t)
+  );
   const pendingDupAfterById = computePendingDupBalanceById(finalRunning, pendingRows);
   let statementClosing = finalRunning;
   for (const t of pendingRows) {
@@ -370,16 +412,21 @@ function balanceAfterForDisplay(
   t: BankTransaction,
   clientPendingBottomDup: boolean | undefined,
   bodyAfterById: Map<string, number>,
-  pendingDupAfterById: Map<string, number>
+  pendingDupAfterById: Map<string, number>,
+  clientPendingTopDup?: boolean | undefined
 ): number {
+  const id = String(t.id ?? '');
+  if (
+    (clientPendingBottomDup || clientPendingTopDup) &&
+    id &&
+    pendingDupAfterById.has(id)
+  ) {
+    return pendingDupAfterById.get(id)!;
+  }
   // Backend is the source of truth for row-level running balance.
   // Use API balance directly for normal rows.
-  if (!clientPendingBottomDup) {
+  if (!clientPendingBottomDup && !clientPendingTopDup) {
     return parseFormattedBalance(t.balance);
-  }
-  const id = String(t.id ?? '');
-  if (clientPendingBottomDup && id && pendingDupAfterById.has(id)) {
-    return pendingDupAfterById.get(id)!;
   }
   if (id && bodyAfterById.has(id)) {
     return bodyAfterById.get(id)!;
@@ -387,23 +434,54 @@ function balanceAfterForDisplay(
   return parseFormattedBalance(t.balance);
 }
 
-/** Debit/credit strings for grid. */
+/** Debit/credit strings for grid (GCEC pending bottom row flips debit → credit column). */
 function getDebitCreditDisplayForRow(
   t: BankTransaction,
-  clientPendingBottomDup: boolean | undefined
+  clientPendingBottomDup: boolean | undefined,
+  clientPendingTopDup: boolean | undefined = false
 ): { debit: string | null; credit: string | null } {
-  void clientPendingBottomDup;
+  if (
+    !clientPendingTopDup &&
+    isGcecPendingBottomCreditPresentation(t, !!clientPendingBottomDup)
+  ) {
+    const d = parseLedgerAmount(t.debit);
+    const c = parseLedgerAmount(t.credit);
+    if (d > 0) {
+      return {
+        debit: null,
+        credit: t.debitFormatted || d.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      };
+    }
+    if (c > 0) {
+      return {
+        debit: null,
+        credit: t.creditFormatted || c.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      };
+    }
+    return { debit: null, credit: null };
+  }
   return {
     debit: t.debitFormatted ?? null,
     credit: t.creditFormatted ?? null,
   };
 }
 
-/** Debit/credit amounts for CSV/Excel. */
+/** Debit/credit amounts for CSV/Excel (GCEC pending bottom copy → credit column, same as grid). */
 function getLedgerDebitCreditNumeric(
   t: BankTransaction,
-  _clientPendingBottomDup: boolean
+  clientPendingBottomDup: boolean,
+  clientPendingTopDup = false
 ): { debit: number; credit: number } {
+  if (
+    !clientPendingTopDup &&
+    isGcecPendingBottomCreditPresentation(t, clientPendingBottomDup)
+  ) {
+    const d = parseLedgerAmount(t.debit);
+    const c = parseLedgerAmount(t.credit);
+    if (d > 0) return { debit: 0, credit: d };
+    if (c > 0) return { debit: 0, credit: c };
+    return { debit: 0, credit: 0 };
+  }
   return {
     debit: parseLedgerAmount(t.debit),
     credit: parseLedgerAmount(t.credit),
@@ -723,39 +801,37 @@ function sortTransactionsStrictDesc(transactions: BankTransaction[]): BankTransa
 type LedgerExportRowSpec = {
   transaction: BankTransaction;
   clientPendingBottomDup: boolean;
+  clientPendingTopDup?: boolean;
 };
 
 /**
- * Rows for CSV/Excel in chronological order:
- * 1) oldest to newest by date,
- * 2) unapproved no-date duplicate rows at the end.
+ * Rows for CSV/Excel (same order as grid): GCEC unapproved no-date at top, then dated body
+ * (GCEC included with date), then Customer PDC no-date tail.
  */
 function buildLedgerExportRows(filteredTransactions: BankTransaction[]): LedgerExportRowSpec[] {
   const bodyTransactions = filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t));
   const sortedBody = sortTransactionsOldestFirst(bodyTransactions);
+  const pdcPendingTopRows = sortedBody.filter((t) => isUnapprovedGcecPdcPinTop(t));
   const pdcPendingBottomRows = sortedBody.filter((t) => isUnapprovedPdcPinBottom(t));
-  const rows: LedgerExportRowSpec[] = [
-    ...sortedBody.map((t) => ({
+  const sortedBodyDatedOnly = sortedBody.filter((t) => !isUnapprovedPdcPinBottom(t));
+
+  return [
+    ...pdcPendingTopRows.map((t) => ({
       transaction: t,
       clientPendingBottomDup: false,
+      clientPendingTopDup: true as const,
+    })),
+    ...sortedBodyDatedOnly.map((t) => ({
+      transaction: t,
+      clientPendingBottomDup: false,
+      clientPendingTopDup: false,
     })),
     ...pdcPendingBottomRows.map((t) => ({
       transaction: t,
       clientPendingBottomDup: true,
+      clientPendingTopDup: false,
     })),
   ];
-
-  // Keep export deterministic: rows without visible date always at the end.
-  const datedRows = rows.filter(
-    ({ transaction, clientPendingBottomDup }) =>
-      displayTransactionDate(transaction, clientPendingBottomDup).trim() !== ''
-  );
-  const blankDateRows = rows.filter(
-    ({ transaction, clientPendingBottomDup }) =>
-      displayTransactionDate(transaction, clientPendingBottomDup).trim() === ''
-  );
-
-  return [...datedRows, ...blankDateRows];
 }
 
 function ledgerExportDetailsColumn(t: BankTransaction): string {
@@ -1842,14 +1918,19 @@ export default function BankTransaction() {
     filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t))
   );
   const pdcPendingBottomRows = bodyTransactions.filter((t) => isUnapprovedPdcPinBottom(t));
+  const pdcPendingTopRows = bodyTransactions.filter((t) => isUnapprovedGcecPdcPinTop(t));
+  /** Customer PDC unapproved past: dated row hidden here; GCEC unapproved stays dated in this list. */
+  const bodyTransactionsDatedOnly = bodyTransactions.filter((t) => !isUnapprovedPdcPinBottom(t));
 
   type PaginatedLedgerRow = {
     transaction: BankTransaction;
     clientPendingBottomDup?: boolean;
+    clientPendingTopDup?: boolean;
   };
 
   const paginatedRows: PaginatedLedgerRow[] = [
-    ...bodyTransactions.map((t) => ({ transaction: t })),
+    ...pdcPendingTopRows.map((t) => ({ transaction: t, clientPendingTopDup: true as const })),
+    ...bodyTransactionsDatedOnly.map((t) => ({ transaction: t })),
     ...pdcPendingBottomRows.map((t) => ({ transaction: t, clientPendingBottomDup: true as const })),
   ];
 
@@ -1926,11 +2007,13 @@ export default function BankTransaction() {
     );
 
     // ----- TABLE ROWS ----- (body oldest-first + unapproved PDC tail + footer — same as grid / Excel)
-    buildLedgerExportRows(filteredTransactions).forEach(({ transaction: t, clientPendingBottomDup }) => {
+    buildLedgerExportRows(filteredTransactions).forEach(
+      ({ transaction: t, clientPendingBottomDup, clientPendingTopDup = false }) => {
       const details = ledgerExportDetailsColumn(t);
       const { debit: debitValue, credit: creditValue } = getLedgerDebitCreditNumeric(
         t,
-        clientPendingBottomDup
+        clientPendingBottomDup,
+        clientPendingTopDup
       );
 
       const debit = `AED ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
@@ -1940,15 +2023,20 @@ export default function BankTransaction() {
         t,
         clientPendingBottomDup,
         bodyAfterById,
-        pendingDupAfterById
+        pendingDupAfterById,
+        clientPendingTopDup
       );
-      const balance = shouldSuppressBalanceForDisplay(t, clientPendingBottomDup)
+      const balance = shouldSuppressBalanceForDisplay(
+        t,
+        clientPendingBottomDup,
+        clientPendingTopDup
+      )
         ? ''
         : `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
       csvRows.push(
         rowCsv(
-          displayTransactionDate(t, clientPendingBottomDup),
+          displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup),
           t.categoryName || 'N/A',
           details,
           debit,
@@ -2074,13 +2162,16 @@ export default function BankTransaction() {
       const exportRows = buildLedgerExportRows(filteredTransactions);
       // #region agent log
       (() => {
-        const dateFlags = exportRows.map(({ transaction: t, clientPendingBottomDup }, idx) => ({
-          idx,
-          id: String(t.id ?? ''),
-          date: displayTransactionDate(t, clientPendingBottomDup),
-          isBlankDate: !displayTransactionDate(t, clientPendingBottomDup).trim(),
-          clientPendingBottomDup,
-        }));
+        const dateFlags = exportRows.map(
+          ({ transaction: t, clientPendingBottomDup, clientPendingTopDup = false }, idx) => ({
+            idx,
+            id: String(t.id ?? ''),
+            date: displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup),
+            isBlankDate: !displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup).trim(),
+            clientPendingBottomDup,
+            clientPendingTopDup,
+          })
+        );
         const blankDateIndexes = dateFlags.filter((r) => r.isBlankDate).map((r) => r.idx);
         const lastDatedIndex = [...dateFlags]
           .reverse()
@@ -2107,23 +2198,33 @@ export default function BankTransaction() {
         return undefined;
       };
 
-      for (const { transaction: t, clientPendingBottomDup } of exportRows) {
+      for (const {
+        transaction: t,
+        clientPendingBottomDup,
+        clientPendingTopDup = false,
+      } of exportRows) {
         const details = ledgerExportDetailsColumn(t);
         const remarksText = remarksForExport(t.remarks, t.pdcType);
         const { debit: debitValue, credit: creditValue } = getLedgerDebitCreditNumeric(
           t,
-          clientPendingBottomDup
+          clientPendingBottomDup,
+          clientPendingTopDup
         );
         const balanceValue = balanceAfterForDisplay(
           t,
           clientPendingBottomDup,
           bodyAfterById,
-          pendingDupAfterById
+          pendingDupAfterById,
+          clientPendingTopDup
         );
-        const suppressBal = shouldSuppressBalanceForDisplay(t, clientPendingBottomDup);
+        const suppressBal = shouldSuppressBalanceForDisplay(
+          t,
+          clientPendingBottomDup,
+          clientPendingTopDup
+        );
 
         const row = ws.getRow(r);
-        row.getCell(1).value = displayTransactionDate(t, clientPendingBottomDup);
+        row.getCell(1).value = displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup);
         row.getCell(2).value = t.categoryName || 'N/A';
         row.getCell(3).value = details;
         row.getCell(4).value = debitValue;
@@ -2594,7 +2695,7 @@ export default function BankTransaction() {
                     </td>
                   </tr>
                 ) : (
-                  paginatedRows.map(({ transaction, clientPendingBottomDup }) => {
+                  paginatedRows.map(({ transaction, clientPendingBottomDup, clientPendingTopDup }) => {
                     const remarksDisplay = remarksForTableDisplay(
                       transaction.remarks,
                       transaction.pdcType
@@ -2610,7 +2711,13 @@ export default function BankTransaction() {
                     const isUpcomingGcecRow =
                       isGcecKind &&
                       !clientPendingBottomDup &&
+                      !clientPendingTopDup &&
                       isFutureLedgerTransaction(transaction);
+                    /** GCEC PDC: no ledger approve until cheque date; no edit/delete until ledger-approved. */
+                    const gcecChequeDateHasArrived =
+                      !isGcecKind || !isFutureLedgerTransaction(transaction);
+                    const gcecAllowsEditDelete =
+                      !isGcecKind || !!transaction.ledgerApproved;
                     const remarksCellText = isUpcomingGcecRow
                       ? remarksDisplay
                         ? `${remarksDisplay} (Upcoming)`
@@ -2624,7 +2731,11 @@ export default function BankTransaction() {
                         ? 'gcec'
                         : undefined;
                     const { debit: debitShown, credit: creditShown } =
-                      getDebitCreditDisplayForRow(transaction, clientPendingBottomDup);
+                      getDebitCreditDisplayForRow(
+                        transaction,
+                        clientPendingBottomDup,
+                        clientPendingTopDup
+                      );
                     const debitAmount = debitShown
                       ? parseFloat(String(debitShown).replace(/,/g, ''))
                       : 0;
@@ -2633,8 +2744,10 @@ export default function BankTransaction() {
                     <tr 
                       key={
                         clientPendingBottomDup
-                          ? `${transaction.id}-pending-dup`
-                          : transaction.id
+                          ? `${transaction.id}-pending-bottom-dup`
+                          : clientPendingTopDup
+                            ? `${transaction.id}-pending-top-dup`
+                            : transaction.id
                       }
                       data-row-bg={rowTone}
                       className={`border-b border-gray-100 transition-colors ${
@@ -2648,7 +2761,11 @@ export default function BankTransaction() {
                       <td
                         className="text-gray-700 text-sm py-2 px-4 text-left align-middle"
                       >
-                        {displayTransactionDate(transaction, !!clientPendingBottomDup)}
+                        {displayTransactionDate(
+                          transaction,
+                          !!clientPendingBottomDup,
+                          !!clientPendingTopDup
+                        )}
                       </td>
                       <td
                         className="text-gray-700 text-sm py-2 px-4 text-left align-middle"
@@ -2717,7 +2834,8 @@ export default function BankTransaction() {
                       >
                         {shouldSuppressBalanceForDisplay(
                           transaction,
-                          !!clientPendingBottomDup
+                          !!clientPendingBottomDup,
+                          !!clientPendingTopDup
                         ) ? (
                           <span className="text-gray-400">—</span>
                         ) : (
@@ -2726,7 +2844,8 @@ export default function BankTransaction() {
                               transaction,
                               clientPendingBottomDup,
                               ledgerBalanceMaps.bodyAfterById,
-                              ledgerBalanceMaps.pendingDupAfterById
+                              ledgerBalanceMaps.pendingDupAfterById,
+                              clientPendingTopDup
                             );
                             const formattedBalance =
                               balanceValue.toLocaleString('en-US', {
@@ -2750,8 +2869,10 @@ export default function BankTransaction() {
                         <div className="flex items-center gap-2 whitespace-nowrap">
                           {transaction.showLedgerApprovalCheckbox &&
                             !transaction.approvalPendingFooterDuplicate &&
+                            !clientPendingBottomDup &&
                             transaction.pdcId != null &&
                             !transaction.ledgerApproved &&
+                            gcecChequeDateHasArrived &&
                             canApprovePdcDailyLedger() && (
                               <label className="flex items-center gap-1.5 text-xs text-gray-800 whitespace-nowrap">
                                 <input
@@ -2777,6 +2898,8 @@ export default function BankTransaction() {
                             )}
                           {transaction.showLedgerApprovalCheckbox &&
                             !transaction.approvalPendingFooterDuplicate &&
+                            !clientPendingBottomDup &&
+                            gcecChequeDateHasArrived &&
                             !canApprovePdcDailyLedger() &&
                             !isViewer &&
                             !transaction.ledgerApproved && (
@@ -2786,8 +2909,10 @@ export default function BankTransaction() {
                             )}
                           {canMutate &&
                             !clientPendingBottomDup &&
+                            !clientPendingTopDup &&
                             (!transaction.syntheticFromPdc || isPdcDueId(transaction.id)) &&
-                            !transaction.approvalPendingFooterDuplicate && (
+                            !transaction.approvalPendingFooterDuplicate &&
+                            gcecAllowsEditDelete && (
                               <>
                                 <button
                                   type="button"
@@ -3240,7 +3365,10 @@ export default function BankTransaction() {
                         inputMode="decimal"
                         pattern="[0-9]*[.]?[0-9]*"
                         placeholder="0"
-                        {...field}
+                        value={field.value ?? ''}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                         onChange={(e) => {
                           const amountValue = e.target.value
                             .replace(/[^0-9.]/g, '')
