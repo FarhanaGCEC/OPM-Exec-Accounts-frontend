@@ -38,3 +38,8 @@ export function attachmentLooksLikeImage(nameOrUrl: string | null | undefined): 
   if (/res\.cloudinary\.com\/.+\/image\/upload\//i.test(s)) return true;
   return /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(s);
 }
+
+export function attachmentLooksLikePdf(nameOrUrl: string | null | undefined): boolean {
+  if (!nameOrUrl) return false;
+  return /\.pdf(\?|$|#)/i.test(String(nameOrUrl));
+}

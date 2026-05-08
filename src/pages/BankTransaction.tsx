@@ -56,7 +56,6 @@ import { receivablesService, type ReceivablesCategory } from '../services/receiv
 import {
   transactionService,
   type BankTransaction as BankTransactionType,
-  type PostDatedCheque as PostDatedChequeType,
 } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import BulkTransactionUploadDialog from '../components/BulkTransactionUploadDialog';
@@ -235,21 +234,6 @@ function isFutureLedgerTransaction(t: BankTransaction): boolean {
   return transactionDay.getTime() > today.getTime();
 }
 
-function isWithinUpcomingDays(t: BankTransaction, days: number): boolean {
-  const parsedDate = parseTransactionDateForSort(t);
-  if (!parsedDate) return false;
-  const transactionDay = new Date(parsedDate);
-  transactionDay.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const lastAllowed = new Date(today);
-  lastAllowed.setDate(lastAllowed.getDate() + days);
-  return (
-    transactionDay.getTime() > today.getTime() &&
-    transactionDay.getTime() <= lastAllowed.getTime()
-  );
-}
-
 /**
  * GCEC / Customer PDC not yet ledger-approved: duplicated at table bottom (until approved).
  * Original row stays in chronological place with date; bottom copy has no date (purely client render).
@@ -282,53 +266,24 @@ function displayTransactionDate(
     : t.date || '';
 }
 
-/**
- * Omit balance on no-date / reminder rows so totals are not doubled — except unapproved GCEC PDC,
- * where credit and balance must stay visible until ledger approval.
- */
+/** Omit balance on no-date / reminder rows so totals are not doubled. */
 function shouldSuppressBalanceForDisplay(
   t: BankTransaction,
   clientPendingBottomDup = false
 ): boolean {
-  const gcecAwaitingApproval =
-    rowIsGcecPdcHighlight(t.remarks, t.pdcType) && !t.ledgerApproved;
-  if (gcecAwaitingApproval) return false;
+  // Upcoming GCEC rows should always show backend-provided forecast balance.
+  if (rowIsGcecPdcHighlight(t.remarks, t.pdcType) && isFutureLedgerTransaction(t)) {
+    return false;
+  }
   return shouldHideLedgerDateColumn(t, clientPendingBottomDup);
 }
 
-/** Bottom copy of unapproved GCEC PDC: show amount as credit (not debit) until ledger approval. */
-function isGcecPendingBottomCreditPresentation(
-  t: BankTransaction,
-  clientPendingBottomDup: boolean
-): boolean {
-  return (
-    clientPendingBottomDup &&
-    rowIsGcecPdcHighlight(t.remarks, t.pdcType) &&
-    !t.ledgerApproved
-  );
-}
-
 function shouldAffectRunningBalance(
-  t: BankTransaction,
+  _t: BankTransaction,
   clientPendingBottomDup = false
 ): boolean {
-  // Frontend duplicate rows are usually visual-only, except pending GCEC rows
-  // that must show projected balance (current + pending GCEC credits above).
-  if (clientPendingBottomDup) {
-    return isGcecPendingBottomCreditPresentation(t, true);
-  }
-
-  // Enforce explicit precedence:
-  // 1) GCEC PDC => immediate balance impact
-  // 2) Customer PDC => only after approval
-  const kind = pdcKindFromTypeOrRemarks(t);
-  if (kind === 'gcec') {
-    // Upcoming GCEC rows are display-only and must not impact balance yet.
-    if (isFutureLedgerTransaction(t)) return false;
-    return true;
-  }
-  if (kind === 'customer') return !!t.ledgerApproved;
-
+  // Frontend duplicate rows are visual-only and should not affect running balance.
+  if (clientPendingBottomDup) return false;
   return true;
 }
 
@@ -417,18 +372,12 @@ function balanceAfterForDisplay(
   bodyAfterById: Map<string, number>,
   pendingDupAfterById: Map<string, number>
 ): number {
-  const id = String(t.id ?? '');
-  const isFrontendUpcomingRow = id.startsWith('frontend-upcoming-pdc-');
-  if (isFrontendUpcomingRow) {
-    const pendingBalances = Array.from(pendingDupAfterById.values());
-    const snapshotBalance = pendingBalances.length
-      ? Math.max(...pendingBalances)
-      : parseFormattedBalance(t.balance);
-    // #region agent log
-    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'post-fix',hypothesisId:'H8',location:'BankTransaction.tsx:balanceAfterForDisplay',message:'Upcoming row uses pending-chain anchor balance',data:{id,snapshotBalance,pendingBalanceCount:pendingBalances.length,pendingBalanceMax:pendingBalances.length?Math.max(...pendingBalances):null,rawBalance:t.balance},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    return snapshotBalance;
+  // Backend is the source of truth for row-level running balance.
+  // Use API balance directly for normal rows.
+  if (!clientPendingBottomDup) {
+    return parseFormattedBalance(t.balance);
   }
+  const id = String(t.id ?? '');
   if (clientPendingBottomDup && id && pendingDupAfterById.has(id)) {
     return pendingDupAfterById.get(id)!;
   }
@@ -438,52 +387,23 @@ function balanceAfterForDisplay(
   return parseFormattedBalance(t.balance);
 }
 
-/** Debit/credit strings for grid (GCEC pending bottom row flips debit → credit column). */
+/** Debit/credit strings for grid. */
 function getDebitCreditDisplayForRow(
   t: BankTransaction,
   clientPendingBottomDup: boolean | undefined
 ): { debit: string | null; credit: string | null } {
-  const id = String(t.id ?? '');
-  if (id.startsWith('frontend-upcoming-pdc-')) {
-    // #region agent log
-    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H9',location:'BankTransaction.tsx:getDebitCreditDisplayForRow',message:'Upcoming row debit/credit source before render',data:{id,clientPendingBottomDup:!!clientPendingBottomDup,debit:t.debit ?? null,credit:t.credit ?? null,debitFormatted:t.debitFormatted ?? null,creditFormatted:t.creditFormatted ?? null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-  }
-  if (isGcecPendingBottomCreditPresentation(t, !!clientPendingBottomDup)) {
-    const d = parseLedgerAmount(t.debit);
-    const c = parseLedgerAmount(t.credit);
-    if (d > 0) {
-      return {
-        debit: null,
-        credit: t.debitFormatted || d.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      };
-    }
-    if (c > 0) {
-      return {
-        debit: null,
-        credit: t.creditFormatted || c.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      };
-    }
-    return { debit: null, credit: null };
-  }
+  void clientPendingBottomDup;
   return {
     debit: t.debitFormatted ?? null,
     credit: t.creditFormatted ?? null,
   };
 }
 
-/** Debit/credit amounts for CSV/Excel (GCEC pending bottom copy → credit column, same as grid). */
+/** Debit/credit amounts for CSV/Excel. */
 function getLedgerDebitCreditNumeric(
   t: BankTransaction,
-  clientPendingBottomDup: boolean
+  _clientPendingBottomDup: boolean
 ): { debit: number; credit: number } {
-  if (isGcecPendingBottomCreditPresentation(t, clientPendingBottomDup)) {
-    const d = parseLedgerAmount(t.debit);
-    const c = parseLedgerAmount(t.credit);
-    if (d > 0) return { debit: 0, credit: d };
-    if (c > 0) return { debit: 0, credit: c };
-    return { debit: 0, credit: 0 };
-  }
   return {
     debit: parseLedgerAmount(t.debit),
     credit: parseLedgerAmount(t.credit),
@@ -593,15 +513,38 @@ function getTransactionDateOnlyTimestamp(t: BankTransaction): number | null {
 function getTransactionCreatedTimestamp(t: BankTransaction): number | null {
   const dateOnly = parseTransactionDateForSort(t);
   const timeRaw = String(t.transactionTime || '').trim();
-  const parsedTime = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeRaw);
-  if (dateOnly && parsedTime) {
+  let hour: number | null = null;
+  let minute = 0;
+  let second = 0;
+  const parsedTime = timeRaw.match(
+    /(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\s*([AaPp][Mm])?/
+  );
+  if (parsedTime) {
+    const rawHour = Number(parsedTime[1]);
+    const meridian = String(parsedTime[4] ?? '').toLowerCase();
+    minute = Number(parsedTime[2]);
+    second = Number(parsedTime[3] ?? '0');
+    if (meridian === 'am' || meridian === 'pm') {
+      hour = rawHour % 12;
+      if (meridian === 'pm') hour += 12;
+    } else {
+      hour = rawHour;
+    }
+  }
+
+  if (
+    dateOnly &&
+    hour !== null &&
+    Number.isFinite(hour) &&
+    hour >= 0 &&
+    hour <= 23 &&
+    minute >= 0 &&
+    minute <= 59 &&
+    second >= 0 &&
+    second <= 59
+  ) {
     const combined = new Date(dateOnly);
-    combined.setHours(
-      Number(parsedTime[1]),
-      Number(parsedTime[2]),
-      Number(parsedTime[3] ?? '0'),
-      0
-    );
+    combined.setHours(hour, minute, second, 0);
     if (!Number.isNaN(combined.getTime())) return combined.getTime();
   }
 
@@ -683,8 +626,58 @@ function sortTransactionsStrictDesc(transactions: BankTransaction[]): BankTransa
       const approvedB = !!b.ledgerApproved;
       if (approvedA !== approvedB) return approvedA ? 1 : -1;
 
-      // For approved rows, latest approval appears first.
-      if (approvedA && approvedB) {
+      // Customer PDC after approval:
+      // 1) If time exists, sort by transaction time (latest first)
+      // 2) If time is missing, keep earlier-approved first
+      if (approvedA && approvedB && kindA === 'customer' && kindB === 'customer') {
+        const rawTimeA = String(a.transactionTime ?? '').trim();
+        const rawTimeB = String(b.transactionTime ?? '').trim();
+        const hasTimeA = rawTimeA.length > 0;
+        const hasTimeB = rawTimeB.length > 0;
+
+        if (hasTimeA && hasTimeB) {
+          const txnTsA = getTransactionCreatedTimestamp(a);
+          const txnTsB = getTransactionCreatedTimestamp(b);
+          if (txnTsA != null && txnTsB != null) {
+            const byTxnTime = txnTsB - txnTsA;
+            if (byTxnTime !== 0) return byTxnTime;
+          } else if (txnTsA != null && txnTsB == null) {
+            return -1;
+          } else if (txnTsA == null && txnTsB != null) {
+            return 1;
+          }
+        } else if (hasTimeA !== hasTimeB) {
+          return hasTimeA ? -1 : 1;
+        }
+
+        const approvedAtA = getTransactionApprovalTimestamp(a);
+        const approvedAtB = getTransactionApprovalTimestamp(b);
+        if (approvedAtA != null && approvedAtB != null) {
+          const byApprovalTimeAsc = approvedAtA - approvedAtB;
+          if (byApprovalTimeAsc !== 0) return byApprovalTimeAsc;
+        } else if (approvedAtA != null && approvedAtB == null) {
+          return -1;
+        } else if (approvedAtA == null && approvedAtB != null) {
+          return 1;
+        }
+      }
+
+      // For approved GCEC PDC rows, use transaction date+time ordering first.
+      if (approvedA && approvedB && kindA === 'gcec' && kindB === 'gcec') {
+        const txnTsA = getTransactionCreatedTimestamp(a);
+        const txnTsB = getTransactionCreatedTimestamp(b);
+        if (txnTsA != null && txnTsB != null) {
+          const byTxnTime = txnTsB - txnTsA;
+          if (byTxnTime !== 0) return byTxnTime;
+        } else if (txnTsA != null && txnTsB == null) {
+          return -1;
+        } else if (txnTsA == null && txnTsB != null) {
+          return 1;
+        }
+      }
+
+      // For approved rows, latest approval appears first (except Customer PDC block above).
+      if (approvedA && approvedB && !(kindA === 'customer' && kindB === 'customer')) {
         const approvedAtA = getTransactionApprovalTimestamp(a);
         const approvedAtB = getTransactionApprovalTimestamp(b);
         if (approvedAtA != null && approvedAtB != null) {
@@ -1013,13 +1006,8 @@ export default function BankTransaction() {
     try {
       setLoading(true);
       setError(null);
-      const [ledgerResponse, pdcResponse]: [
-        ApiResponse<BankTransactionType[]>,
-        ApiResponse<PostDatedChequeType[]>
-      ] = await Promise.all([
-        transactionService.getBankTransactions(),
-        transactionService.getPostDatedCheques(),
-      ]);
+      const ledgerResponse: ApiResponse<BankTransactionType[]> =
+        await transactionService.getBankTransactions();
       
       if (ledgerResponse.success && ledgerResponse.data && Array.isArray(ledgerResponse.data)) {
         // Process transactions from API response
@@ -1093,6 +1081,11 @@ export default function BankTransaction() {
             transactionTime: String(
               row.transactionTime ??
                 row.transaction_time ??
+                row.transactionTimeDisplay ??
+                row.transaction_time_display ??
+                row.entryTime ??
+                row.entry_time ??
+                row.time ??
                 ''
             ) || undefined,
             createdAt: String(row.createdAt ?? row.created_at ?? transaction.createdAt ?? ''),
@@ -1139,94 +1132,7 @@ export default function BankTransaction() {
           };
         });
 
-        const existingLedgerPdcIds = new Set(
-          transactionsData
-            .map((t) => (typeof t.pdcId === 'number' ? t.pdcId : null))
-            .filter((id): id is number => id != null)
-        );
-        const existingUpcomingFingerprint = new Set(
-          transactionsData.map((t) => `${t.chequeNumber || ''}|${t.originalDate || ''}|${parseLedgerAmount(t.credit)}`)
-        );
-
-        const anchorBalance = transactionsData.length
-          ? parseFormattedBalance(transactionsData[0].balance)
-          : 0;
-        const anchorBalanceFormatted = anchorBalance.toLocaleString('en-US', {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        });
-
-        const upcomingMergedRows: BankTransaction[] =
-          pdcResponse.success && Array.isArray(pdcResponse.data)
-            ? pdcResponse.data
-                .filter((pdc) => pdc.pdcType === 'GCEC PDC')
-                .map((pdc) => {
-                  const parsedId = Number(pdc.id);
-                  const pdcIdNum = Number.isNaN(parsedId) ? undefined : parsedId;
-                  const parsedAmount = parseLedgerAmount(pdc.amount);
-                  const parsedDate = new Date(pdc.chequeDate);
-                  const isoDate = Number.isNaN(parsedDate.getTime())
-                    ? pdc.chequeDate
-                    : parsedDate.toISOString().split('T')[0];
-                  const fingerprint = `${pdc.chequeNumber || ''}|${isoDate || ''}|${parsedAmount}`;
-                  return {
-                    pdc,
-                    pdcIdNum,
-                    parsedAmount,
-                    isoDate,
-                    fingerprint,
-                    within15Future:
-                      !Number.isNaN(parsedDate.getTime()) &&
-                      isWithinUpcomingDays(
-                        {
-                          id: String(pdc.id ?? ''),
-                          date: formatDate(isoDate),
-                          originalDate: isoDate,
-                          paymentType: 'cheque',
-                          balance: anchorBalanceFormatted,
-                        } as BankTransaction,
-                        15
-                      ),
-                  };
-                })
-                .filter(({ pdcIdNum, within15Future, fingerprint }) => {
-                  if (!within15Future) return false;
-                  if (pdcIdNum != null && existingLedgerPdcIds.has(pdcIdNum)) return false;
-                  if (existingUpcomingFingerprint.has(fingerprint)) return false;
-                  return true;
-                })
-                .map(({ pdc, pdcIdNum, parsedAmount, isoDate }) => ({
-                  id: `frontend-upcoming-pdc-${String(pdc.id ?? '')}`,
-                  date: formatDate(isoDate),
-                  originalDate: isoDate,
-                  categoryName: pdc.customerName || 'GCEC PDC',
-                  categoryId: undefined,
-                  paymentType: 'cheque',
-                  chequeNumber: pdc.chequeNumber || '',
-                  debit: parsedAmount,
-                  credit: 0,
-                  debitFormatted: parsedAmount.toLocaleString('en-US', {
-                    minimumFractionDigits: 0,
-                    maximumFractionDigits: 2,
-                  }),
-                  creditFormatted: null,
-                  balance: anchorBalanceFormatted,
-                  remarks: 'GCEC PDC',
-                  pdcId: pdcIdNum,
-                  pdcType: 'GCEC PDC',
-                  syntheticFromPdc: true,
-                  ledgerApprovalRequired: false,
-                  ledgerApproved: false,
-                  showLedgerApprovalCheckbox: false,
-                  approvalPendingFooterDuplicate: false,
-                }))
-            : [];
-
-        // #region agent log
-        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'post-fix',hypothesisId:'H5',location:'BankTransaction.tsx:fetchTransactions',message:'Frontend upcoming PDC merge stats',data:{ledgerCount:transactionsData.length,pdcApiSuccess:!!pdcResponse.success,pdcCount:Array.isArray(pdcResponse.data)?pdcResponse.data.length:0,mergedUpcomingCount:upcomingMergedRows.length,sampleMerged:upcomingMergedRows.slice(0,5).map((r)=>({id:String(r.id ?? ''),date:r.date,originalDate:r.originalDate,pdcId:r.pdcId,credit:r.credit,remarks:r.remarks}))},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-
-        setTransactions([...upcomingMergedRows, ...transactionsData]);
+        setTransactions(transactionsData);
       } else {
         setTransactions([]);
       }
@@ -1371,6 +1277,9 @@ export default function BankTransaction() {
           pdcType: data.pdcType || 'GCEC PDC',
           remarks: pdcUserNote,
         };
+        if (data.entryTime && data.entryTime.trim()) {
+          pdcPayload.transactionTime = data.entryTime.trim();
+        }
 
         pendingEditPayload = { ...pdcPayload };
         response = await transactionService.updateBankTransaction(
@@ -1851,31 +1760,6 @@ export default function BankTransaction() {
   const filteredTransactions = transactions.filter((transaction) => {
     if (transaction.approvalPendingFooterDuplicate) return false;
 
-    // Show future GCEC PDC rows only in a 15-day upcoming window.
-    // Use normalized kind detection (pdcType/remarks variants) for reliability.
-    const isGcecPdcRow = pdcKindFromTypeOrRemarks(transaction) === 'gcec';
-    if (isGcecPdcRow) {
-      const parsedDate = parseTransactionDateForSort(transaction);
-      const isFuture = isFutureLedgerTransaction(transaction);
-      const within15 = isWithinUpcomingDays(transaction, 15);
-      // #region agent log
-      fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H1',location:'BankTransaction.tsx:filteredTransactions',message:'GCEC row upcoming window evaluation',data:{id:String(transaction.id ?? ''),date:transaction.date ?? '',originalDate:transaction.originalDate ?? '',remarks:transaction.remarks ?? '',pdcType:transaction.pdcType ?? '',parsedDateIso:parsedDate ? parsedDate.toISOString() : null,isFuture,within15,startDate,endDate,activeTab},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      if (!parsedDate) {
-        // #region agent log
-        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H2',location:'BankTransaction.tsx:filteredTransactions',message:'GCEC row has unparseable date',data:{id:String(transaction.id ?? ''),date:transaction.date ?? '',originalDate:transaction.originalDate ?? '',remarks:transaction.remarks ?? '',pdcType:transaction.pdcType ?? ''},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-      }
-    }
-    if (isGcecPdcRow && isFutureLedgerTransaction(transaction)) {
-      if (!isWithinUpcomingDays(transaction, 15)) {
-        // #region agent log
-        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H3',location:'BankTransaction.tsx:filteredTransactions',message:'GCEC future row excluded by 15-day window',data:{id:String(transaction.id ?? ''),date:transaction.date ?? '',originalDate:transaction.originalDate ?? '',remarks:transaction.remarks ?? '',pdcType:transaction.pdcType ?? ''},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        return false;
-      }
-    }
-
     // Filter by payment type
     // 'online' tab shows both creditcard and banktransfer (which comes as 'online' from API)
     if (activeTab === 'online' && transaction.paymentType !== 'creditcard' && transaction.paymentType !== 'banktransfer') return false;
@@ -1968,21 +1852,6 @@ export default function BankTransaction() {
     ...bodyTransactions.map((t) => ({ transaction: t })),
     ...pdcPendingBottomRows.map((t) => ({ transaction: t, clientPendingBottomDup: true as const })),
   ];
-
-  useEffect(() => {
-    const gcecFutureRows = filteredTransactions
-      .filter((t) => pdcKindFromTypeOrRemarks(t) === 'gcec' && isFutureLedgerTransaction(t))
-      .slice(0, 10)
-      .map((t) => ({
-        id: String(t.id ?? ''),
-        date: t.date ?? '',
-        originalDate: t.originalDate ?? '',
-        within15: isWithinUpcomingDays(t, 15),
-      }));
-    // #region agent log
-    fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H4',location:'BankTransaction.tsx:rowsLayout',message:'Row buckets after filtering',data:{totalTransactions:transactions.length,filteredCount:filteredTransactions.length,futureCount:0,pendingDupCount:pdcPendingBottomRows.length,normalCount:bodyTransactions.length,paginatedCount:paginatedRows.length,gcecFutureRows,startDate,endDate,activeTab},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-  }, [transactions.length, filteredTransactions, pdcPendingBottomRows.length, paginatedRows.length, startDate, endDate, activeTab]);
 
   // Clear all filters
   const handleClearFilters = () => {
@@ -2978,7 +2847,7 @@ export default function BankTransaction() {
           setError(null);
         }
       }}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[760px]">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-gray-900">
               {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
@@ -2990,7 +2859,10 @@ export default function BankTransaction() {
             </div>
           )}
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2"
+            >
               {/* Date Field */}
               <FormField
                 control={form.control}
@@ -3098,28 +2970,26 @@ export default function BankTransaction() {
                 }}
               />
 
-              {!editingPdcDue && (
-                <FormField
-                  control={form.control}
-                  name="entryTime"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-lg font-medium text-gray-700">
-                        Time
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="time"
-                          step={60}
-                          value={field.value || ''}
-                          onChange={(e) => field.onChange(e.target.value)}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
+              <FormField
+                control={form.control}
+                name="entryTime"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-lg font-medium text-gray-700">
+                      Time
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="time"
+                        step={60}
+                        value={field.value || ''}
+                        onChange={(e) => field.onChange(e.target.value)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               {!editingPdcDue ? (
                 <>
@@ -3156,7 +3026,7 @@ export default function BankTransaction() {
                       return (
                         <FormItem>
                           <FormLabel className="text-lg font-medium text-gray-700">
-                            Category
+                            Customer Name
                           </FormLabel>
                           <FormControl>
                             {loadingCategories ? (
@@ -3385,7 +3255,7 @@ export default function BankTransaction() {
               />
 
               {error && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                <div className="sm:col-span-2 p-3 bg-red-50 border border-red-200 rounded-md">
                   <p className="text-lg text-red-600">{error}</p>
                 </div>
               )}
@@ -3393,7 +3263,7 @@ export default function BankTransaction() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="w-full bg-[#f7c46d] hover:bg-[#c9a82f] text-black py-3 mt-6 font-semibold"
+                className="sm:col-span-2 w-full bg-[#f7c46d] hover:bg-[#c9a82f] text-black py-3 mt-2 font-semibold"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (

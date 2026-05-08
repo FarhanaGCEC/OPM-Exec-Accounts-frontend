@@ -1093,11 +1093,11 @@ console.log("hello")
 
                 <div className="space-y-2">
                     <span className="text-base font-medium text-gray-700">
-                    Cheque image <span className="text-gray-400 font-normal">(optional)</span>
+                    Cheque attachment <span className="text-gray-400 font-normal">(optional, image/PDF)</span>
                     </span>
                     <Input
                     type="file"
-                    accept="image/*"
+                    accept="image/*,application/pdf"
                     disabled={isSubmitting}
                     onChange={(e) => setPdcAttachmentFile(e.target.files?.[0] ?? null)}
                     className="cursor-pointer"
@@ -1114,7 +1114,7 @@ console.log("hello")
                         rel="noopener noreferrer"
                         className="text-[#c9a82f] underline"
                         >
-                        {editingCheque.attachmentName || 'View image'}
+                        {editingCheque.attachmentName || 'View attachment'}
                         </a>
                     </p>
                     )}

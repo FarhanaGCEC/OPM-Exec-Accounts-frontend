@@ -53,6 +53,8 @@ export interface PostDatedChequeApiResponse {
   id: number;
   cheque_date: string;
   cheque_number: string;
+  transaction_time?: string | null;
+  transactionTime?: string | null;
   customer_name?: string | null;
   amount: string | number;
   cheque_type?: string; // "Payment Cheque" or "Security Cheque"
@@ -75,6 +77,7 @@ export interface PostDatedCheque {
   id?: string | number;
   chequeDate: string;
   chequeNumber: string;
+  transactionTime?: string;
   customerName?: string;
   amount: string | number;
   chequeType?: string; // "Payment Cheque" or "Security Cheque" (legacy)
@@ -131,12 +134,21 @@ function mapPostDatedChequeFromApi(item: PostDatedChequeApiResponse): PostDatedC
     item.cheque_date ?? (row.chequeDate as string | undefined);
   const chequeNumberRaw =
     item.cheque_number ?? (row.chequeNumber as string | undefined);
+  const transactionTimeRaw =
+    item.transaction_time ??
+    item.transactionTime ??
+    (row.transaction_time as string | undefined) ??
+    (row.transactionTime as string | undefined);
   const customerNameRaw =
     item.customer_name ?? (row.customerName as string | null | undefined);
   return {
     id: String(item.id),
     chequeDate: String(chequeDateRaw ?? ''),
     chequeNumber: String(chequeNumberRaw ?? ''),
+    transactionTime:
+      transactionTimeRaw && String(transactionTimeRaw).trim() !== ''
+        ? String(transactionTimeRaw)
+        : undefined,
     customerName: customerNameRaw || undefined,
     amount: item.amount,
     chequeType: item.cheque_type ?? (row.chequeType as string | undefined),
@@ -193,6 +205,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 export type PdcWriteJsonBody = {
   chequeDate: string;
   chequeNumber: string;
+  transactionTime?: string;
   customerName: string;
   amount: number;
   chequeType: string;
@@ -221,6 +234,9 @@ function buildPdcCreateJsonBody(
     chequeType: String(data.chequeType || 'Payment Cheque'),
     pdcType: String(data.pdcType),
   };
+  if (data.transactionTime !== undefined && String(data.transactionTime).trim() !== '') {
+    body.transactionTime = String(data.transactionTime).trim();
+  }
   if (data.description !== undefined && data.description !== null && String(data.description).trim() !== '') {
     body.description = String(data.description);
   }
@@ -234,6 +250,10 @@ function buildPdcUpdateJsonBodyFromApiData(apiData: Record<string, unknown>): Re
   }
   if (Object.prototype.hasOwnProperty.call(apiData, 'chequeNumber') && apiData.chequeNumber !== undefined) {
     out.chequeNumber = String(apiData.chequeNumber);
+  }
+  if (Object.prototype.hasOwnProperty.call(apiData, 'transactionTime') && apiData.transactionTime !== undefined) {
+    const value = String(apiData.transactionTime ?? '').trim();
+    if (value) out.transactionTime = value;
   }
   if (Object.prototype.hasOwnProperty.call(apiData, 'customerName') && apiData.customerName !== undefined) {
     out.customerName = String(apiData.customerName ?? '').trim();
@@ -533,6 +553,9 @@ export const transactionService = {
       if (data.chequeNumber !== undefined) apiData.chequeNumber = data.chequeNumber;
       else if (base?.chequeNumber) apiData.chequeNumber = base.chequeNumber;
 
+      if (data.transactionTime !== undefined) apiData.transactionTime = data.transactionTime;
+      else if (base?.transactionTime) apiData.transactionTime = base.transactionTime;
+
       if (data.customerName !== undefined) apiData.customerName = data.customerName || '';
       else apiData.customerName = base?.customerName || '';
 
@@ -550,6 +573,9 @@ export const transactionService = {
     } else {
       if (data.chequeDate) apiData.chequeDate = data.chequeDate;
       if (data.chequeNumber) apiData.chequeNumber = data.chequeNumber;
+      if (data.transactionTime !== undefined) {
+        apiData.transactionTime = data.transactionTime;
+      }
       if (data.customerName !== undefined) {
         apiData.customerName = data.customerName || '';
       }
