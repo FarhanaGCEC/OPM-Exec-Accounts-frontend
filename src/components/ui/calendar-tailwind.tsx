@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { Button } from "./button";
+import { formatDisplayYear } from "@/src/lib/formatDisplayDate";
 
 export interface CalendarProps {
   date?: Date | null;
@@ -108,7 +109,7 @@ const Calendar: React.FC<CalendarProps> = ({
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div className="text-base font-semibold">
-          {monthNames[month]} {year}
+          {monthNames[month]} {formatDisplayYear(year)}
         </div>
         <Button
           variant="ghost"

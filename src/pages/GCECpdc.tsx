@@ -52,6 +52,7 @@
     import { changeRequestService } from '../services/changeRequestService';
     import * as XLSX from 'xlsx';
     import { canMutateRecords } from '../lib/authPayload';
+    import { formatDisplayYear } from '../lib/formatDisplayDate';
 
     interface PostDatedCheque extends PostDatedChequeType {
     date?: string; // Formatted date for display
@@ -69,7 +70,7 @@
     const chequeSchema = z.object({
     chequeDate: z.string()
         .min(10, 'Cheque date is required')
-        .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
+        .regex(/^\d{2}\/\d{2}\/\d{2,4}$/, 'Date must be in dd/mm/yy format'),
     chequeNumber: z.string()
         .min(1, 'Cheque number is required')
         .min(3, 'Cheque number must be at least 3 digits')
@@ -104,7 +105,7 @@
 
     type ChequeFormData = z.infer<typeof chequeSchema>;
 
-    // Format date from ISO to DD-MMM-YYYY (e.g., "01-Jan-2026")
+    // Format date from ISO to DD-MMM-YY (e.g., "01-Jan-26")
     const formatDateForDisplay = (dateString: string): string => {
     try {
         const date = new Date(dateString);
@@ -113,14 +114,14 @@
         const day = String(date.getDate()).padStart(2, '0');
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const month = months[date.getMonth()];
-        const year = date.getFullYear();
+        const year = formatDisplayYear(date.getFullYear());
         return `${day}-${month}-${year}`;
     } catch {
         return dateString;
     }
     };
 
-    // Convert DD-MMM-YYYY or ISO to dd/mm/yyyy for form
+    // Convert DD-MMM-YY or ISO to dd/mm/yy for form
     const convertDateForForm = (dateString: string): string => {
     try {
         // Try ISO format first
@@ -128,11 +129,11 @@
         if (!isNaN(isoDate.getTime())) {
         const day = String(isoDate.getDate()).padStart(2, '0');
         const month = String(isoDate.getMonth() + 1).padStart(2, '0');
-        const year = isoDate.getFullYear();
+        const year = formatDisplayYear(isoDate.getFullYear());
         return `${day}/${month}/${year}`;
         }
         
-        // Try DD-MMM-YYYY format
+        // Try DD-MMM-YY format
         const parts = dateString.split('-');
         if (parts.length === 3) {
         const day = parts[0].padStart(2, '0');
@@ -140,7 +141,10 @@
         const monthIndex = months.findIndex(m => m === parts[1]);
         if (monthIndex !== -1) {
             const month = String(monthIndex + 1).padStart(2, '0');
-            const year = parts[2];
+            const year =
+              parts[2].length === 2
+                ? parts[2].padStart(2, '0')
+                : formatDisplayYear(parseInt(parts[2], 10));
             return `${day}/${month}/${year}`;
         }
         }
@@ -616,6 +620,9 @@ console.log("hello")
             ]);
         });
 
+        excelData.push([]);
+        excelData.push(['Total Amount (AED):', '', '', totalAmount, '']);
+
         // Create worksheet
         const worksheet = XLSX.utils.aoa_to_sheet(excelData);
 
@@ -648,6 +655,12 @@ console.log("hello")
             if (worksheet[amountCellRef] && typeof worksheet[amountCellRef].v === 'number') {
                 worksheet[amountCellRef].t = 'n';
                 worksheet[amountCellRef].z = '#,##0.00';
+                if (row === range.e.r) {
+                    if (!worksheet[amountCellRef].s) {
+                        worksheet[amountCellRef].s = {};
+                    }
+                    worksheet[amountCellRef].s.font = { bold: true };
+                }
             }
         }
 
@@ -657,7 +670,7 @@ console.log("hello")
         // Generate Excel file and download
         const fileName = `GCEC-PDC-${new Date().toISOString().split('T')[0]}.xlsx`;
         XLSX.writeFile(workbook, fileName);
-    }, [filteredCheques]);
+    }, [filteredCheques, totalAmount]);
 
     return (
         <Layout>
@@ -897,7 +910,7 @@ console.log("hello")
                         if (!date || isNaN(date.getTime())) return '';
                         const day = String(date.getDate()).padStart(2, '0');
                         const month = String(date.getMonth() + 1).padStart(2, '0');
-                        const year = date.getFullYear();
+                        const year = formatDisplayYear(date.getFullYear());
                         return `${day}/${month}/${year}`;
                     };
 
@@ -939,7 +952,7 @@ console.log("hello")
                             <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
                             <div className="relative">
                                 <Input
-                                placeholder="dd/mm/yyyy"
+                                placeholder="dd/mm/yy"
                                 value={field.value}
                                 onChange={(e) => {
                                     let value = e.target.value

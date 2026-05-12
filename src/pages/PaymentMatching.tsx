@@ -57,6 +57,7 @@ import {
   userMessageFromChangeRequestSubmit,
 } from '../lib/changeRequestUi';
 import { canMutateRecords } from '../lib/authPayload';
+import { formatDisplayYear } from '../lib/formatDisplayDate';
 
 interface PaymentMatching extends PaymentMatchingType {
   date?: string; // Formatted date for display
@@ -67,7 +68,7 @@ interface PaymentMatching extends PaymentMatchingType {
 const paymentSchema = z.object({
   paymentDate: z.string()
     .min(10, 'Payment date is required')
-    .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
+    .regex(/^\d{2}\/\d{2}\/\d{2,4}$/, 'Date must be in dd/mm/yy format'),
   invoiceNumber: z.string().optional(),
   customerName: z.string()
     .min(1, 'Customer name is required')
@@ -95,7 +96,7 @@ type PurchaseBillApprovalOffer =
   | { mode: 'delete'; resourceId: string }
   | { mode: 'success'; message: string };
 
-// Format date from ISO to DD-MMM-YYYY (e.g., "01-Jan-2026")
+// Format date from ISO to DD-MMM-YY (e.g., "01-Jan-26")
 const formatDateForDisplay = (dateString: string): string => {
   try {
     const date = new Date(dateString);
@@ -104,14 +105,14 @@ const formatDateForDisplay = (dateString: string): string => {
     const day = String(date.getDate()).padStart(2, '0');
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const month = months[date.getMonth()];
-    const year = date.getFullYear();
+    const year = formatDisplayYear(date.getFullYear());
     return `${day}-${month}-${year}`;
   } catch {
     return dateString;
   }
 };
 
-// Convert DD-MMM-YYYY or ISO to dd/mm/yyyy for form
+// Convert DD-MMM-YY or ISO to dd/mm/yy for form
 const convertDateForForm = (dateString: string): string => {
   try {
     // Try ISO format first
@@ -119,11 +120,11 @@ const convertDateForForm = (dateString: string): string => {
     if (!isNaN(isoDate.getTime())) {
       const day = String(isoDate.getDate()).padStart(2, '0');
       const month = String(isoDate.getMonth() + 1).padStart(2, '0');
-      const year = isoDate.getFullYear();
+      const year = formatDisplayYear(isoDate.getFullYear());
       return `${day}/${month}/${year}`;
     }
     
-    // Try DD-MMM-YYYY format
+    // Try DD-MMM-YY format
     const parts = dateString.split('-');
     if (parts.length === 3) {
       const day = parts[0].padStart(2, '0');
@@ -131,7 +132,10 @@ const convertDateForForm = (dateString: string): string => {
       const monthIndex = months.findIndex(m => m === parts[1]);
       if (monthIndex !== -1) {
         const month = String(monthIndex + 1).padStart(2, '0');
-        const year = parts[2];
+        const year =
+          parts[2].length === 2
+            ? parts[2].padStart(2, '0')
+            : formatDisplayYear(parseInt(parts[2], 10));
         return `${day}/${month}/${year}`;
       }
     }
@@ -621,7 +625,6 @@ export default function PaymentMatching() {
     // Add payment data rows
     sortedPayments.forEach((payment) => {
       const date = payment.date || formatDateForDisplay(payment.paymentDate);
-      const invoiceNumber = payment.invoiceNumber || '';
       const customerName = payment.customerName || '';
       const paymentMethod = payment.paymentMethod || '';
       
@@ -639,7 +642,6 @@ export default function PaymentMatching() {
 
       excelData.push([
         date,
-        invoiceNumber,
         customerName,
         paymentMethod,
         amount,
@@ -665,7 +667,7 @@ export default function PaymentMatching() {
 
     // Add total row
     excelData.push([]);
-    excelData.push(['Total', '', '', '', totalAmount, '', '']);
+    excelData.push(['Total', '', '', totalAmount, '', '']);
 
     // Create worksheet from data
     const worksheet = XLSX.utils.aoa_to_sheet(excelData);
@@ -685,7 +687,7 @@ export default function PaymentMatching() {
     
     // Format header row (row 5, 0-indexed - after company header and empty rows)
     const headerRow = 5;
-    for (let col = 0; col <= 6; col++) {
+    for (let col = 0; col <= 5; col++) {
       const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
       if (worksheet[headerCellRef]) {
         if (!worksheet[headerCellRef].s) {
@@ -696,12 +698,12 @@ export default function PaymentMatching() {
       }
     }
 
-    // Apply number formatting to Amount column (column E, index 4)
+    // Apply number formatting to Amount column (column D, index 3)
     // Data rows start at index 6 (after header row at index 5)
     const dataStartRow = 6;
     // Exclude the empty row and total row from formatting
     for (let row = dataStartRow; row < range.e.r - 1; row++) {
-      const amountCellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
+      const amountCellRef = XLSX.utils.encode_cell({ r: row, c: 3 });
       if (worksheet[amountCellRef]) {
         if (typeof worksheet[amountCellRef].v === 'number') {
           worksheet[amountCellRef].t = 'n'; // Number type
@@ -712,16 +714,16 @@ export default function PaymentMatching() {
 
     // Format total row (last row, excluding empty row before it)
     const totalRow = range.e.r;
-    for (let col = 0; col <= 6; col++) {
+    for (let col = 0; col <= 5; col++) {
       const totalCellRef = XLSX.utils.encode_cell({ r: totalRow, c: col });
       if (worksheet[totalCellRef]) {
         if (!worksheet[totalCellRef].s) {
           worksheet[totalCellRef].s = {};
         }
-        if (col === 0 || col === 4) { // Total label + amount column
+        if (col === 0 || col === 3) { // Total label + amount column
           worksheet[totalCellRef].s.font = xlsxSheetFontArial({ bold: true });
         }
-        if (col === 4 && typeof worksheet[totalCellRef].v === 'number') {
+        if (col === 3 && typeof worksheet[totalCellRef].v === 'number') {
           worksheet[totalCellRef].t = 'n';
           worksheet[totalCellRef].z = '#,##0.00';
         }
@@ -990,7 +992,7 @@ export default function PaymentMatching() {
                     if (!date || isNaN(date.getTime())) return '';
                     const day = String(date.getDate()).padStart(2, '0');
                     const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const year = date.getFullYear();
+                    const year = formatDisplayYear(date.getFullYear());
                     return `${day}/${month}/${year}`;
                   };
 
@@ -1032,7 +1034,7 @@ export default function PaymentMatching() {
                         <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
                           <div className="relative">
                             <Input
-                              placeholder="dd/mm/yyyy"
+                              placeholder="dd/mm/yy"
                               value={field.value}
                               onChange={(e) => {
                                 let value = e.target.value

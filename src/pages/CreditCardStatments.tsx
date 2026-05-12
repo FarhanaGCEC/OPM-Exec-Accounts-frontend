@@ -35,6 +35,7 @@ import {
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
 import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
+import { formatDisplayYear } from '../lib/formatDisplayDate';
 
 type StatementApprovalOffer =
     | {
@@ -95,7 +96,7 @@ export default function CreditCardStatements() {
     const formatSelectedPeriod = () => {
         if (selectedMonths.length === 0) return 'Select Period';
         if (selectedMonths.length === 1) {
-            return `${months[selectedMonths[0]]} ${selectedYear}`;
+            return `${months[selectedMonths[0]]} ${formatDisplayYear(selectedYear)}`;
         }
         return `${selectedMonths.length} months selected`;
     };
@@ -265,7 +266,11 @@ export default function CreditCardStatements() {
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const toDisplay = (day: string, monthNum: number, year: string) => {
             const monthName = monthNames[monthNum - 1] || String(monthNum);
-            return `${day.padStart(2, '0')}-${monthName}-${year}`;
+            const yearLabel =
+                year.length > 2
+                    ? formatDisplayYear(parseInt(year, 10))
+                    : year.padStart(2, '0');
+            return `${day.padStart(2, '0')}-${monthName}-${yearLabel}`;
         };
 
         const parts = dateString.trim().split('-');
@@ -757,7 +762,7 @@ export default function CreditCardStatements() {
 
             // Add header
             const periodText = selectedMonths.length === 1 
-                ? `${months[selectedMonths[0]]} ${selectedYear}`
+                ? `${months[selectedMonths[0]]} ${formatDisplayYear(selectedYear)}`
                 : formatSelectedPeriod();
             excelData.push([`Credit Card Statements - ${periodText}`]);
             excelData.push([]);
@@ -860,8 +865,8 @@ export default function CreditCardStatements() {
 
         // Generate Excel file and download
         const periodText = selectedMonths.length === 1 
-            ? `${months[selectedMonths[0]]}-${selectedYear}`
-            : `${selectedMonths.length}-months-${selectedYear}`;
+            ? `${months[selectedMonths[0]]}-${formatDisplayYear(selectedYear)}`
+            : `${selectedMonths.length}-months-${formatDisplayYear(selectedYear)}`;
         const fileName = `Credit-Card-Statements-${periodText}.xlsx`;
         applyXlsxArialToWorkbook(workbook);
         XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
@@ -923,7 +928,7 @@ export default function CreditCardStatements() {
                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                         >
-                                            {year}
+                                            {formatDisplayYear(year)}
                                         </button>
                                     ))}
                                 </div>

@@ -6,6 +6,7 @@ import "react-datepicker/dist/react-datepicker.css";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { buttonVariants } from "@/src/components/ui/button";
+import { formatDisplayYear } from "@/src/lib/formatDisplayDate";
 
 export type CustomDatePickerProps = {
   value: Date | null;
@@ -57,7 +58,7 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
             </button>
             <span className="text-base font-medium">
               {monthDate.toLocaleString("default", { month: "long" })}{" "}
-              {monthDate.getFullYear()}
+              {formatDisplayYear(monthDate.getFullYear())}
             </span>
             <button
               onClick={increaseMonth}

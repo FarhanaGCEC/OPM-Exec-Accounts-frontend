@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook } from '../lib/excelExportFont';
+import { formatDisplayYear } from '../lib/formatDisplayDate';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
   Tooltip,
@@ -335,6 +336,54 @@ function parseLedgerAmount(v: unknown): number {
 function parseFormattedBalance(balance: string | number | undefined | null): number {
   if (typeof balance === 'number' && !Number.isNaN(balance)) return balance;
   return Number(String(balance ?? '0').replace(/,/g, '').replace('AED', '').trim()) || 0;
+}
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function resolveExportEndDate(
+  selectedEndDate: string,
+  parseFilterDate: (dateString: string) => Date | null
+): Date {
+  const today = startOfLocalDay(new Date());
+  const trimmed = selectedEndDate.trim();
+  if (trimmed) {
+    const parsed = parseFilterDate(trimmed);
+    if (parsed) {
+      const day = startOfLocalDay(parsed);
+      return day.getTime() > today.getTime() ? today : day;
+    }
+  }
+  return today;
+}
+
+async function resolveClosingBalanceFromAccountSummary(fallback: number): Promise<number> {
+  try {
+    const response = await transactionService.getAccountSummary();
+    if (!response.success || !response.data) return fallback;
+
+    const topLevel = response.data as unknown as Record<string, unknown>;
+    const nested =
+      topLevel.data && typeof topLevel.data === 'object' && !Array.isArray(topLevel.data)
+        ? (topLevel.data as Record<string, unknown>)
+        : null;
+    const source = nested ?? topLevel;
+
+    for (const key of ['totalBalance', 'total_balance', 'currentBalance'] as const) {
+      const raw = source[key];
+      if (raw == null) continue;
+      const parsed =
+        typeof raw === 'number'
+          ? raw
+          : parseFloat(String(raw).replace(/,/g, '').trim());
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  } catch {
+    // Keep ledger-derived fallback when account summary is unavailable.
+  }
+
+  return fallback;
 }
 
 /**
@@ -856,7 +905,7 @@ const transactionSchema = z.object({
   editMode: z.enum(['ledger', 'pdcDue']).default('ledger'),
   date: z.string()
     .min(10, 'Date is required')
-    .regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Date must be in dd/mm/yyyy format'),
+    .regex(/^\d{2}\/\d{2}\/\d{2,4}$/, 'Date must be in dd/mm/yy format'),
   entryTime: z.string().optional(),
   type: z.enum(['Debit', 'Credit'], {
     required_error: 'Please select a type',
@@ -928,7 +977,7 @@ const transactionSchema = z.object({
 
 type TransactionFormData = z.infer<typeof transactionSchema>;
 
-// Date formatting function: Convert ISO date to "DD-MMM-YYYY" format
+// Date formatting function: Convert ISO date to "DD-MMM-YY" format
 const formatDate = (dateString: string): string => {
   try {
     const date = new Date(dateString);
@@ -937,7 +986,7 @@ const formatDate = (dateString: string): string => {
     const day = String(date.getDate()).padStart(2, '0');
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const month = months[date.getMonth()];
-    const year = date.getFullYear();
+    const year = formatDisplayYear(date.getFullYear());
     
     return `${day}-${month}-${year}`;
   } catch (err) {
@@ -1560,7 +1609,7 @@ export default function BankTransaction() {
       if (!isNaN(date.getTime())) {
         const day = String(date.getDate()).padStart(2, '0');
         const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
+        const year = formatDisplayYear(date.getFullYear());
         dateValue = `${day}/${month}/${year}`;
       }
     } else {
@@ -1945,7 +1994,7 @@ export default function BankTransaction() {
   };
 
   // CSV Download function
-  const handleDownloadCSV = useCallback(() => {
+  const handleDownloadCSV = useCallback(async () => {
 
     const safe = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
@@ -1970,17 +2019,17 @@ export default function BankTransaction() {
   
     const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
     const dateTimes = dates.map((d) => d.getTime());
-    const startDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
-    const endDate = dateTimes.length ? new Date(Math.max(...dateTimes)) : new Date();
+    const exportStartDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
+    const exportEndDate = resolveExportEndDate(endDate, parseDateForFilter);
   
     const formatDate = (d: Date) => {
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${formatDisplayYear(d.getFullYear())}`;
     };
   
     const { bodyAfterById, pendingDupAfterById, statementClosing } =
       buildLedgerBalanceMaps(filteredTransactions);
-    const closingBalanceValue = statementClosing;
+    const closingBalanceValue = await resolveClosingBalanceFromAccountSummary(statementClosing);
     const closingBalance = closingBalanceValue.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -1995,8 +2044,8 @@ export default function BankTransaction() {
 
     csvRows.push(rowCsv('Account No.', '12990685920001 - AED'));
     csvRows.push(rowCsv('IBAN', 'AE720030012990685920001'));
-    csvRows.push(rowCsv('Start Date', formatDate(startDate)));
-    csvRows.push(rowCsv('End Date', formatDate(endDate)));
+    csvRows.push(rowCsv('Start Date', formatDate(exportStartDate)));
+    csvRows.push(rowCsv('End Date', formatDate(exportEndDate)));
     csvRows.push(rowCsv('Closing (Current)', `AED ${closingBalance}`));
     csvRows.push(rowCsv());
     csvRows.push(rowCsv());
@@ -2053,7 +2102,7 @@ export default function BankTransaction() {
   
     const link = document.createElement('a');
     link.href = url;
-    link.download = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.csv`;
+    link.download = `GCEC-Statement-${formatDate(exportStartDate)}-to-${formatDate(exportEndDate)}.csv`;
     link.style.visibility = 'hidden';
   
     document.body.appendChild(link);
@@ -2061,7 +2110,7 @@ export default function BankTransaction() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   
-  }, [filteredTransactions]);
+  }, [filteredTransactions, endDate, parseDateForFilter]);
   
 
   // Excel Download — ExcelJS so fills/fonts persist (.xlsx styles are not supported by `xlsx` community build).
@@ -2095,8 +2144,8 @@ export default function BankTransaction() {
 
     const dates = filteredTransactions.map(parseDateForRange).filter(Boolean) as Date[];
     const dateTimes = dates.map((d) => d.getTime());
-    const startDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
-    const endDate = dateTimes.length ? new Date(Math.max(...dateTimes)) : new Date();
+    const exportStartDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
+    const exportEndDate = resolveExportEndDate(endDate, parseDateForFilter);
 
     const formatDate = (d: Date) => {
       const months = [
@@ -2113,12 +2162,12 @@ export default function BankTransaction() {
         'Nov',
         'Dec',
       ];
-      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${formatDisplayYear(d.getFullYear())}`;
     };
 
     const { bodyAfterById, pendingDupAfterById, statementClosing } =
       buildLedgerBalanceMaps(filteredTransactions);
-    const closingBalanceValue = statementClosing;
+    const closingBalanceValue = await resolveClosingBalanceFromAccountSummary(statementClosing);
 
     try {
       const workbook = new ExcelJS.Workbook();
@@ -2133,9 +2182,9 @@ export default function BankTransaction() {
       ws.getCell(r, 1).value = 'IBAN:';
       ws.getCell(r++, 2).value = 'AE720030012990685920001';
       ws.getCell(r, 1).value = 'Start Date:';
-      ws.getCell(r++, 2).value = formatDate(startDate);
+      ws.getCell(r++, 2).value = formatDate(exportStartDate);
       ws.getCell(r, 1).value = 'End Date:';
-      ws.getCell(r++, 2).value = formatDate(endDate);
+      ws.getCell(r++, 2).value = formatDate(exportEndDate);
       ws.getCell(r, 1).value = 'Closing (Current):';
       const closingCell = ws.getCell(r, 2);
       closingCell.value = `AED ${closingBalanceValue.toLocaleString('en-US', {
@@ -2304,7 +2353,7 @@ export default function BankTransaction() {
         { width: 28 },
       ];
 
-      const fileName = `GCEC-Statement-${formatDate(startDate)}-to-${formatDate(endDate)}.xlsx`;
+      const fileName = `GCEC-Statement-${formatDate(exportStartDate)}-to-${formatDate(exportEndDate)}.xlsx`;
       applyArialToExcelJsWorkbook(workbook);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
@@ -2321,7 +2370,7 @@ export default function BankTransaction() {
       console.error('Excel export failed:', e);
       setError(e instanceof Error ? e.message : 'Failed to download Excel file');
     }
-  }, [filteredTransactions, setError]);
+  }, [filteredTransactions, endDate, parseDateForFilter, setError]);
   
   
 
@@ -2386,7 +2435,7 @@ export default function BankTransaction() {
                     const day = String(date.getDate()).padStart(2, '0');
                     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                     const month = months[date.getMonth()];
-                    const year = date.getFullYear();
+                    const year = formatDisplayYear(date.getFullYear());
                     setStartDate(`${day}-${month}-${year}`);
                   }
                 }}
@@ -2431,10 +2480,13 @@ export default function BankTransaction() {
                 date={endDate ? parseDateForFilter(endDate) : null}
                 onSelect={(date) => {
                   if (date) {
-                    const day = String(date.getDate()).padStart(2, '0');
+                    const today = startOfLocalDay(new Date());
+                    const picked = startOfLocalDay(date);
+                    const clamped = picked.getTime() > today.getTime() ? today : picked;
+                    const day = String(clamped.getDate()).padStart(2, '0');
                     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                    const month = months[date.getMonth()];
-                    const year = date.getFullYear();
+                    const month = months[clamped.getMonth()];
+                    const year = formatDisplayYear(clamped.getFullYear());
                     setEndDate(`${day}-${month}-${year}`);
                   }
                 }}
@@ -3010,7 +3062,7 @@ export default function BankTransaction() {
                     if (!date || isNaN(date.getTime())) return '';
                     const day = String(date.getDate()).padStart(2, '0');
                     const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const year = date.getFullYear();
+                    const year = formatDisplayYear(date.getFullYear());
                     return `${day}/${month}/${year}`;
                   };
 
@@ -3052,7 +3104,7 @@ export default function BankTransaction() {
                         <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
                           <div className="relative">
                             <Input
-                              placeholder="dd/mm/yyyy"
+                              placeholder="dd/mm/yy"
                               value={field.value}
                               onChange={(e) => {
                                 let value = e.target.value

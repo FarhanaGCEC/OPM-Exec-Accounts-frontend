@@ -49,6 +49,7 @@ import {
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
 import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
+import { formatDisplayYear } from '../lib/formatDisplayDate';
 
 export interface CreditCardPayment {
     id: string;
@@ -202,13 +203,13 @@ export default function CreditCardPaymentsPage() {
             const datePart = payment.paymentDate.split('T')[0];
             const parts = datePart.split('-');
             if (parts.length === 3 && parts[0].length === 4) {
-                formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                formattedDate = `${parts[2]}/${parts[1]}/${formatDisplayYear(parseInt(parts[0], 10))}`;
             }
         } else if (payment.paymentDate.includes('-') && payment.paymentDate.length === 10) {
             // Format: yyyy-mm-dd -> dd/mm/yyyy
             const parts = payment.paymentDate.split('-');
             if (parts.length === 3 && parts[0].length === 4) {
-                formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                formattedDate = `${parts[2]}/${parts[1]}/${formatDisplayYear(parseInt(parts[0], 10))}`;
             }
         } else if (payment.paymentDate.includes('/')) {
             // Already in dd/mm/yyyy format, keep as is
@@ -220,7 +221,7 @@ export default function CreditCardPaymentsPage() {
                 if (!isNaN(date.getTime())) {
                     const day = String(date.getDate()).padStart(2, '0');
                     const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const year = date.getFullYear();
+                    const year = formatDisplayYear(date.getFullYear());
                     formattedDate = `${day}/${month}/${year}`;
                 }
             } catch (e) {
@@ -432,7 +433,7 @@ export default function CreditCardPaymentsPage() {
         const day = String(date.getDate()).padStart(2, '0');
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const month = monthNames[date.getMonth()];
-        const year = date.getFullYear();
+        const year = formatDisplayYear(date.getFullYear());
         
         return `${day}-${month}-${year}`;
     };
@@ -561,7 +562,7 @@ export default function CreditCardPaymentsPage() {
 
         const formatDateForFileName = (d: Date) => {
             const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+            return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${formatDisplayYear(d.getFullYear())}`;
         };
 
         // Create workbook
@@ -607,14 +608,14 @@ export default function CreditCardPaymentsPage() {
                 if (!isNaN(date.getTime())) {
                     const day = String(date.getDate()).padStart(2, '0');
                     const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const year = date.getFullYear();
+                    const year = formatDisplayYear(date.getFullYear());
                     displayDate = `${day}/${month}/${year}`;
                 }
             } else if (payment.paymentDate.includes('-') && payment.paymentDate.length === 10) {
                 // Format: yyyy-mm-dd -> dd/mm/yyyy
                 const parts = payment.paymentDate.split('-');
                 if (parts.length === 3 && parts[0].length === 4) {
-                    displayDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                    displayDate = `${parts[2]}/${parts[1]}/${formatDisplayYear(parseInt(parts[0], 10))}`;
                 }
             }
 
@@ -763,7 +764,7 @@ export default function CreditCardPaymentsPage() {
                     >
                         {yearOptions.map((year) => (
                             <option key={year} value={year}>
-                                {year}
+                                {formatDisplayYear(year)}
                             </option>
                         ))}
                     </select>
@@ -780,7 +781,7 @@ export default function CreditCardPaymentsPage() {
             </div>
             <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
                 <p className="text-xs font-medium text-gray-600">
-                    Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {appliedYear})
+                    Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {formatDisplayYear(appliedYear)})
                 </p>
                 <p className="text-lg font-semibold text-gray-900">
                     {formatPaymentAmount(totalPaymentAmount)}
@@ -946,7 +947,7 @@ export default function CreditCardPaymentsPage() {
                                         if (!date || isNaN(date.getTime())) return '';
                                         const day = String(date.getDate()).padStart(2, '0');
                                         const month = String(date.getMonth() + 1).padStart(2, '0');
-                                        const year = date.getFullYear();
+                                        const year = formatDisplayYear(date.getFullYear());
                                         return `${day}/${month}/${year}`;
                                     };
 
@@ -983,7 +984,7 @@ export default function CreditCardPaymentsPage() {
                                                 <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
                                                     <div className="relative">
                                                         <Input
-                                                            placeholder="dd/mm/yyyy"
+                                                            placeholder="dd/mm/yy"
                                                             value={field.value}
                                                             onChange={(e) => {
                                                                 let value = e.target.value

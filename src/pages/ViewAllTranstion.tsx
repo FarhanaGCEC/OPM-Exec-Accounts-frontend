@@ -6,7 +6,7 @@ import {
   type PostDatedCheque,
 } from '../services/transactionService';
 import api, { type ApiResponse } from '../lib/api';
-import { formatIsoDateDisplay } from '../lib/formatDisplayDate';
+import { formatIsoDateDisplay, formatDisplayYear, formatJsDateDisplay } from '../lib/formatDisplayDate';
 import {
   remarksForDailyLedgerDisplay,
   isBouncedChequeRemarks,
@@ -305,6 +305,72 @@ const mapPostDatedChequeToGcecPdcRow = (cheque: PostDatedCheque): GCECPDC => ({
   transactionTime: cheque.transactionTime,
 });
 
+const UPCOMING_GCEC_DAILY_LEDGER_DAYS = 15;
+
+const startOfDay = (date: Date): Date => {
+  const normalized = new Date(date);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized;
+};
+
+const toDateOnlyKey = (date: Date): string => String(startOfDay(date).getTime());
+
+const normalizeChequeNumberKey = (value: string | null | undefined): string => {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return digits.replace(/^0+/, '') || digits;
+};
+
+const isDailyGcecPdcRow = (txn: DailyTransaction): boolean =>
+  rowIsGcecPdcHighlight(txn.remarks, txn.pdcType ?? txn.pdc_type);
+
+const isGcecPdcMirroredInDailyLedger = (date: Date): boolean => {
+  const today = startOfDay(new Date());
+  const txnDay = startOfDay(date);
+  if (txnDay.getTime() <= today.getTime()) return true;
+
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + UPCOMING_GCEC_DAILY_LEDGER_DAYS);
+  return txnDay.getTime() <= startOfDay(horizon).getTime();
+};
+
+const gcecDailyLedgerMatchKey = (
+  date: string,
+  chequeNumber: string | null | undefined
+): string | null => {
+  const parsedDate = parseTransactionDate(date);
+  const chequeKey = normalizeChequeNumberKey(chequeNumber);
+  if (!parsedDate || !chequeKey) return null;
+  return `${toDateOnlyKey(parsedDate)}:${chequeKey}`;
+};
+
+const buildGcecPdcDailyLedgerHideKeys = (rows: AllTransaction[]): Set<string> => {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    if (row.transactionType !== 'Daily Transaction') continue;
+    const dailyTxn = row as DailyTransaction;
+    if (!isDailyGcecPdcRow(dailyTxn)) continue;
+
+    const parsedDate = parseTransactionDate(dailyTxn.date);
+    if (!parsedDate || !isGcecPdcMirroredInDailyLedger(parsedDate)) continue;
+
+    const key = gcecDailyLedgerMatchKey(dailyTxn.date, dailyTxn.chequeNumber);
+    if (key) keys.add(key);
+  }
+  return keys;
+};
+
+const hideGcecPdcRowsAlreadyInDailyLedger = (rows: AllTransaction[]): AllTransaction[] => {
+  const hideKeys = buildGcecPdcDailyLedgerHideKeys(rows);
+  if (hideKeys.size === 0) return rows;
+
+  return rows.filter((row) => {
+    if (row.transactionType !== 'GCEC PDC') return true;
+    const gcecRow = row as GCECPDC;
+    const key = gcecDailyLedgerMatchKey(gcecRow.date, gcecRow.chequeNumber);
+    return !key || !hideKeys.has(key);
+  });
+};
+
 const mergeGcecPdcFromChequeRegister = (
   rows: AllTransaction[],
   cheques: PostDatedCheque[]
@@ -565,7 +631,7 @@ const getDefaultDateRange = (): { start: Date; end: Date } => {
   return { start, end };
 };
 
-// Helper function to format date for Excel (DD-MMM-YYYY)
+// Helper function to format date for Excel (DD-MMM-YY)
 const formatDateForExcel = (date: Date | string | null): string => {
   if (!date) return '';
 
@@ -574,7 +640,7 @@ const formatDateForExcel = (date: Date | string | null): string => {
 
   const day = String(parsed.getDate()).padStart(2, '0');
   const month = EXCEL_MONTHS[parsed.getMonth()];
-  const year = parsed.getFullYear();
+  const year = formatDisplayYear(parsed.getFullYear());
   return `${day}-${month}-${year}`;
 };
 
@@ -838,12 +904,13 @@ export default function ViewAllTranstion() {
           normalizedTransactions,
           pdcResponse.success && Array.isArray(pdcResponse.data) ? pdcResponse.data : []
         );
+        const dedupedTransactions = hideGcecPdcRowsAlreadyInDailyLedger(mergedTransactions);
 
-        const mergedGcecCount = mergedTransactions.filter(
+        const mergedGcecCount = dedupedTransactions.filter(
           (row) => row.transactionType === 'GCEC PDC'
         ).length;
         const summaryWithGcec =
-          summaryData && mergedGcecCount > (summaryData.gcecPdc ?? 0)
+          summaryData && mergedGcecCount !== (summaryData.gcecPdc ?? 0)
             ? {
                 ...summaryData,
                 gcecPdc: mergedGcecCount,
@@ -852,7 +919,7 @@ export default function ViewAllTranstion() {
             : summaryData;
 
         // Latest transaction first in View All.
-        setTransactions(sortTransactionsByDateDesc(mergedTransactions));
+        setTransactions(sortTransactionsByDateDesc(dedupedTransactions));
         setSummary(summaryWithGcec);
         setCurrentPage(1); // Reset to first page when filters change
       } else {
@@ -940,9 +1007,9 @@ export default function ViewAllTranstion() {
     if (!startDate || !endDate) return 'All Transactions';
     const sameYear = startDate.getFullYear() === endDate.getFullYear();
     if (sameYear) {
-      return `Year ${startDate.getFullYear()}`;
+      return `Year ${formatDisplayYear(startDate.getFullYear())}`;
     }
-    return `${startDate.toLocaleDateString('en-GB')} - ${endDate.toLocaleDateString('en-GB')}`;
+    return `${formatJsDateDisplay(startDate)} - ${formatJsDateDisplay(endDate)}`;
   };
 
   // Convert string to Date (from input)

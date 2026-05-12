@@ -1,11 +1,12 @@
 import { Button } from '@/components/ui/button';
 import Layout from '../components/Layout';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Edit, Trash2, Loader2, Search, Download, Upload, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, Search, Download, Upload, X, Eye } from 'lucide-react';
 import api, { type ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
+import { formatDisplayYear } from '../lib/formatDisplayDate';
 import { Card, CardContent } from '../components/ui/card';
 import {
   Dialog,
@@ -62,12 +63,6 @@ interface ToastState {
 
 const STATEMENT_CURRENCY = 'USD';
 
-const ensurePdfFilename = (name: string | null | undefined): string => {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) return 'bank-statement.pdf';
-  return /\.pdf$/i.test(trimmed) ? trimmed : `${trimmed}.pdf`;
-};
-
 const parseUsdTransactionDate = (value: string): Date | null => {
   const parsed = new Date(value);
   if (!Number.isNaN(parsed.getTime())) return parsed;
@@ -98,10 +93,13 @@ export default function UsdTranstion() {
   const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
   const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [reportFile, setReportFile] = useState<File | null>(null);
-  const [, setStatementMeta] = useState<DailyBankStatementMeta | null>(null);
+  const [statementMeta, setStatementMeta] = useState<DailyBankStatementMeta | null>(null);
+  const [statementPreviewUrl, setStatementPreviewUrl] = useState<string | null>(null);
   const [statementLoading, setStatementLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isViewingPdf, setIsViewingPdf] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState<{
@@ -197,8 +195,17 @@ export default function UsdTranstion() {
     setReportFile(null);
   }, []);
 
-  const handleDownloadStatementPdf = useCallback(async () => {
+  const closeViewModal = useCallback(() => {
+    setShowViewModal(false);
+    if (statementPreviewUrl) {
+      window.URL.revokeObjectURL(statementPreviewUrl);
+    }
+    setStatementPreviewUrl(null);
+  }, [statementPreviewUrl]);
+
+  const handleViewStatementPdf = useCallback(async () => {
     try {
+      setIsViewingPdf(true);
       const token = localStorage.getItem('authToken');
       const response = await fetch(
         `/api/daily-bank-statement/file?currency=${encodeURIComponent(STATEMENT_CURRENCY)}`,
@@ -209,7 +216,7 @@ export default function UsdTranstion() {
       );
 
       if (!response.ok) {
-        let errorMessage = 'Failed to download statement PDF.';
+        let errorMessage = 'Failed to open statement PDF.';
         try {
           const errorBody = await response.json();
           errorMessage = String(errorBody?.message || errorBody?.error || errorMessage);
@@ -219,25 +226,20 @@ export default function UsdTranstion() {
         throw new Error(errorMessage);
       }
 
-      let filename = 'bank-statement.pdf';
-      const disposition = String(response.headers.get('content-disposition') || '');
-      const nameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
-      filename = nameMatch?.[1] ? decodeURIComponent(nameMatch[1]).replace(/"/g, '') : filename;
       const blob = await response.blob();
-      const fileToDownload = ensurePdfFilename(filename);
-
       const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileToDownload;
-      link.click();
-      window.URL.revokeObjectURL(url);
-      showToast('success', 'Statement PDF downloaded successfully.');
+      if (statementPreviewUrl) {
+        window.URL.revokeObjectURL(statementPreviewUrl);
+      }
+      setStatementPreviewUrl(url);
+      setShowViewModal(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to download statement PDF.';
+      const message = err instanceof Error ? err.message : 'Failed to open statement PDF.';
       showToast('error', message);
+    } finally {
+      setIsViewingPdf(false);
     }
-  }, [showToast]);
+  }, [showToast, statementPreviewUrl]);
 
   const handleReportUpload = useCallback(async () => {
     if (!reportFile) {
@@ -701,7 +703,7 @@ export default function UsdTranstion() {
       if (Number.isNaN(date.getTime())) return dateString;
       const day = String(date.getDate()).padStart(2, '0');
       const month = date.toLocaleString('en-US', { month: 'short' });
-      const year = date.getFullYear();
+      const year = formatDisplayYear(date.getFullYear());
       return `${day}-${month}-${year}`;
     } catch {
       return dateString;
@@ -716,14 +718,14 @@ export default function UsdTranstion() {
         </div>
         <div className="flex items-center gap-3 mr-4">
           <Button
-            onClick={handleDownloadStatementPdf}
+            onClick={handleViewStatementPdf}
             variant="outline"
             className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
-            disabled={statementLoading}
-            title="Download bank statement"
+            disabled={statementLoading || isViewingPdf || !statementMeta}
+            title="View bank statement"
           >
-            <Download className="h-4 w-4" />
-            <span>Download Bank Statement</span>
+            <Eye className="h-4 w-4" />
+            <span>{isViewingPdf ? 'Opening...' : 'View Bank Statement'}</span>
           </Button>
           <Button
             onClick={openUploadModal}
@@ -928,6 +930,45 @@ export default function UsdTranstion() {
           </div>
         </div>
       )}
+
+      {showViewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-6xl rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="text-lg font-semibold text-gray-900">Bank Statement Preview</h3>
+              <button
+                onClick={closeViewModal}
+                className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close statement preview modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="h-[75vh] w-full bg-gray-100">
+              {statementPreviewUrl ? (
+                <iframe
+                  title="Bank Statement PDF"
+                  src={statementPreviewUrl}
+                  className="h-full w-full border-0"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                  Unable to load statement preview.
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t px-4 py-3">
+              <button
+                onClick={closeViewModal}
+                className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && (
         <div
           className={`fixed right-4 top-4 z-[70] rounded-md border px-4 py-2 text-sm shadow-lg ${

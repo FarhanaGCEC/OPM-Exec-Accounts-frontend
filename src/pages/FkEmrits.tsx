@@ -6,6 +6,7 @@ import type { ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
+import { formatDisplayYear } from '../lib/formatDisplayDate';
 import {
   Dialog,
   DialogContent,
@@ -195,7 +196,7 @@ export default function FkEmrits() {
       if (Number.isNaN(date.getTime())) return dateString;
       const day = String(date.getDate()).padStart(2, '0');
       const month = date.toLocaleString('en-US', { month: 'short' });
-      const year = date.getFullYear();
+      const year = formatDisplayYear(date.getFullYear());
       return `${day}-${month}-${year}`;
     } catch {
       return dateString;

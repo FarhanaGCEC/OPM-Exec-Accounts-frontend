@@ -1,4 +1,4 @@
-/** Matches BankTransaction-style display: DD-MMM-YYYY from an ISO or parseable date string. */
+/** Matches BankTransaction-style display: DD-MMM-YY from an ISO or parseable date string. */
 const MONTHS = [
   'Jan',
   'Feb',
@@ -14,13 +14,24 @@ const MONTHS = [
   'Dec',
 ] as const;
 
+/** Render a calendar year as two digits (e.g. 2026 → 26). */
+export function formatDisplayYear(year: number): string {
+  return String(year).slice(-2).padStart(2, '0');
+}
+
+/** Expand a two-digit year to a full calendar year for parsing and API payloads. */
+export function expandCenturyYear(yearPart: number): number {
+  if (yearPart >= 100) return yearPart;
+  return 2000 + yearPart;
+}
+
 function parseDisplayDateInput(input: string): Date | null {
   const s = input.trim();
-  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (slash) {
     const day = parseInt(slash[1], 10);
     const month = parseInt(slash[2], 10) - 1;
-    const year = parseInt(slash[3], 10);
+    const year = expandCenturyYear(parseInt(slash[3], 10));
     const d = new Date(year, month, day);
     if (
       d.getFullYear() === year &&
@@ -42,7 +53,7 @@ export function formatIsoDateDisplay(isoOrDateString: string | null | undefined)
     if (date == null) return String(isoOrDateString);
     const day = String(date.getDate()).padStart(2, '0');
     const month = MONTHS[date.getMonth()];
-    const year = date.getFullYear();
+    const year = formatDisplayYear(date.getFullYear());
     return `${day}-${month}-${year}`;
   } catch {
     return String(isoOrDateString);
@@ -50,12 +61,12 @@ export function formatIsoDateDisplay(isoOrDateString: string | null | undefined)
 }
 
 /** Same date part as {@link formatIsoDateDisplay}, plus local 24h time (HH:mm). */
-/** Format a local `Date` as DD-MMM-YYYY (for pickers / `Date` objects without string parse). */
+/** Format a local `Date` as DD-MMM-YY (for pickers / `Date` objects without string parse). */
 export function formatJsDateDisplay(date: Date): string {
   if (isNaN(date.getTime())) return '—';
   const day = String(date.getDate()).padStart(2, '0');
   const month = MONTHS[date.getMonth()];
-  const year = date.getFullYear();
+  const year = formatDisplayYear(date.getFullYear());
   return `${day}-${month}-${year}`;
 }
 
@@ -66,7 +77,7 @@ export function formatIsoDateTimeDisplay(isoOrDateString: string | null | undefi
     if (isNaN(date.getTime())) return String(isoOrDateString);
     const day = String(date.getDate()).padStart(2, '0');
     const month = MONTHS[date.getMonth()];
-    const year = date.getFullYear();
+    const year = formatDisplayYear(date.getFullYear());
     const h = String(date.getHours()).padStart(2, '0');
     const m = String(date.getMinutes()).padStart(2, '0');
     return `${day}-${month}-${year} ${h}:${m}`;

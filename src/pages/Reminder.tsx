@@ -3,6 +3,7 @@ import { Calendar, AlertCircle, Clock,  DollarSign, User, CalendarDays } from 'l
 import { transactionService } from '../services/transactionService';
 import type { Reminder } from '../services/transactionService';
 import type { ApiResponse } from '../lib/api';
+import { formatDisplayYear } from '../lib/formatDisplayDate';
 
 
 interface DisplayCheque {
@@ -22,7 +23,7 @@ export default function Reminder() {
   const [error, setError] = useState<string | null>(null);
   const [upcomingCheques, setUpcomingCheques] = useState<DisplayCheque[]>([]);
 
-  // Format date from ISO string to DD-MMM-YYYY (e.g., 13-jan-2026)
+  // Format date from ISO string to DD-MMM-YY (e.g., 13-jan-26)
   const formatDate = (dateString: string): string => {
     try {
       const date = new Date(dateString);
@@ -33,7 +34,7 @@ export default function Reminder() {
       const day = date.getDate();
       const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
       const month = monthNames[date.getMonth()];
-      const year = date.getFullYear();
+      const year = formatDisplayYear(date.getFullYear());
       
       return `${day}-${month}-${year}`;
     } catch {

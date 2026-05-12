@@ -2,6 +2,7 @@ import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
 import type { BulkApiTransactionRow } from '../lib/bulkTransactionCsv';
 import { isChangeRequestSubmittedEnvelope } from '../lib/changeRequestUi';
+import { expandCenturyYear } from '../lib/formatDisplayDate';
 
 export interface BankTransaction {
   id?: string | number;
@@ -168,11 +169,15 @@ function mapPostDatedChequeFromApi(item: PostDatedChequeApiResponse): PostDatedC
 function formatChequeDateForPdcMultipart(input: string): string {
   const s = String(input).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(s);
   if (dmY) {
     const d = dmY[1].padStart(2, '0');
     const m = dmY[2].padStart(2, '0');
-    const y = dmY[3];
+    const yearPart = parseInt(dmY[3], 10);
+    const y =
+      dmY[3].length === 2
+        ? String(expandCenturyYear(yearPart))
+        : dmY[3];
     return `${y}-${m}-${d}`;
   }
   const dt = new Date(s);
