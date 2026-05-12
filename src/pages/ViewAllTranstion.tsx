@@ -262,15 +262,35 @@ const getRecordValue = (record: Record<string, unknown>, keys: string[]): unknow
 
 const toText = (value: unknown): string => (value == null ? '' : String(value));
 
-const normalizeTransactionTypeLabel = (value: string): string =>
-  value.toLowerCase().replace(/\s+/g, ' ').trim();
+const resolveAllTransactionType = (
+  rawType: string,
+  record: Record<string, unknown>
+): string | null => {
+  const normalized = rawType.replace(/_/g, ' ').trim();
+  const lower = normalized.toLowerCase();
 
-const isGcecPdcTransactionType = (value: string): boolean => {
-  const normalized = normalizeTransactionTypeLabel(value);
-  return normalized === 'gcec pdc' || (normalized.includes('gcec') && normalized.includes('pdc'));
+  if (lower === 'daily transaction') return 'Daily Transaction';
+  if (lower === 'gcec pdc' || (lower.includes('gcec') && lower.includes('pdc') && !lower.includes('customer'))) {
+    return 'GCEC PDC';
+  }
+  if (lower === 'customer pdc' || (lower.includes('customer') && lower.includes('pdc'))) {
+    return 'Customer PDC';
+  }
+  if (lower === 'purchase bill') return 'Purchase Bill';
+
+  if (!normalized) {
+    const pdcType = normalizePdcTypeFromApi(getRecordValue(record, ['pdcType', 'pdc_type']));
+    const hasChequeNumber = Boolean(
+      toText(getRecordValue(record, ['chequeNumber', 'cheque_number'])).trim()
+    );
+    if (hasChequeNumber && pdcType === 'GCEC PDC') return 'GCEC PDC';
+    if (hasChequeNumber && pdcType === 'Customer PDC') return 'Customer PDC';
+  }
+
+  return normalized || null;
 };
 
-const mapGcecChequeToAllTransaction = (cheque: PostDatedCheque): GCECPDC => ({
+const mapPostDatedChequeToGcecPdcRow = (cheque: PostDatedCheque): GCECPDC => ({
   id: cheque.id ?? `gcec-pdc-${cheque.chequeNumber}-${cheque.chequeDate}`,
   date: cheque.chequeDate,
   transactionType: 'GCEC PDC',
@@ -285,44 +305,37 @@ const mapGcecChequeToAllTransaction = (cheque: PostDatedCheque): GCECPDC => ({
   transactionTime: cheque.transactionTime,
 });
 
-const mergeGcecPdcCheques = async (transactions: AllTransaction[]): Promise<AllTransaction[]> => {
-  try {
-    const pdcResponse = await transactionService.getPostDatedCheques();
-    if (!pdcResponse.success || !pdcResponse.data?.length) {
-      return transactions;
-    }
+const mergeGcecPdcFromChequeRegister = (
+  rows: AllTransaction[],
+  cheques: PostDatedCheque[]
+): AllTransaction[] => {
+  const existingGcecIds = new Set(
+    rows
+      .filter((row): row is GCECPDC => row.transactionType === 'GCEC PDC')
+      .map((row) => String(row.id))
+  );
 
-    const existingIds = new Set(
-      transactions
-        .filter((transaction) => transaction.transactionType === 'GCEC PDC')
-        .map((transaction) => String(transaction.id))
-    );
+  const supplement = cheques
+    .filter((cheque) => normalizePdcTypeFromApi(cheque.pdcType) === 'GCEC PDC')
+    .filter((cheque) => {
+      const id = String(cheque.id ?? '');
+      if (!id) return true;
+      return !existingGcecIds.has(id) && !existingGcecIds.has(`pdc-${id}`);
+    })
+    .map((cheque) => mapPostDatedChequeToGcecPdcRow(cheque));
 
-    const supplemental = pdcResponse.data
-      .filter((cheque) => normalizePdcTypeFromApi(cheque.pdcType) === 'GCEC PDC')
-      .filter((cheque) => {
-        const id = String(cheque.id ?? '');
-        return !id || !existingIds.has(id);
-      })
-      .map((cheque) => mapGcecChequeToAllTransaction(cheque));
-
-    if (supplemental.length === 0) {
-      return transactions;
-    }
-
-    return [...transactions, ...supplemental];
-  } catch (error) {
-    console.error('[ViewAllTranstion] Error merging GCEC PDC cheques:', error);
-    return transactions;
-  }
+  if (supplement.length === 0) return rows;
+  return [...rows, ...supplement];
 };
 
 const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
   if (!row || typeof row !== 'object') return null;
   const record = row as Record<string, unknown>;
   const rawType = toText(getRecordValue(record, ['transactionType', 'transaction_type'])).trim();
+  const resolvedType = resolveAllTransactionType(rawType, record);
+  if (!resolvedType) return null;
 
-  if (normalizeTransactionTypeLabel(rawType) === 'daily transaction') {
+  if (resolvedType === 'Daily Transaction') {
     return {
       id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
@@ -372,7 +385,7 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
     };
   }
 
-  if (isGcecPdcTransactionType(rawType)) {
+  if (resolvedType === 'GCEC PDC') {
     return {
       id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
@@ -416,7 +429,7 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
     };
   }
 
-  if (rawType === 'Customer PDC') {
+  if (resolvedType === 'Customer PDC') {
     return {
       id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
@@ -459,7 +472,7 @@ const normalizeTransactionRow = (row: unknown): AllTransaction | null => {
     };
   }
 
-  if (rawType === 'Purchase Bill') {
+  if (resolvedType === 'Purchase Bill') {
     return {
       id: toText(getRecordValue(record, ['id'])) || '0',
       date: toText(getRecordValue(record, ['date'])),
@@ -788,7 +801,13 @@ export default function ViewAllTranstion() {
         params.endDate = endDate.toISOString().split('T')[0];
       }
       
-      const response: ApiResponse<any> = await transactionService.getAllTransactions(params);
+      const [response, pdcResponse]: [
+        ApiResponse<any>,
+        ApiResponse<PostDatedCheque[]>
+      ] = await Promise.all([
+        transactionService.getAllTransactions(params),
+        transactionService.getPostDatedCheques(),
+      ]);
       
       if (response.success && response.data) {
         const responseData = response.data as any;
@@ -815,22 +834,26 @@ export default function ViewAllTranstion() {
           .map((item) => normalizeTransactionRow(item))
           .filter((item): item is AllTransaction => item !== null);
 
-        const mergedTransactions = await mergeGcecPdcCheques(normalizedTransactions);
-        const gcecPdcCount = mergedTransactions.filter(
-          (transaction) => transaction.transactionType === 'GCEC PDC'
+        const mergedTransactions = mergeGcecPdcFromChequeRegister(
+          normalizedTransactions,
+          pdcResponse.success && Array.isArray(pdcResponse.data) ? pdcResponse.data : []
+        );
+
+        const mergedGcecCount = mergedTransactions.filter(
+          (row) => row.transactionType === 'GCEC PDC'
         ).length;
-        const nextSummary =
-          summaryData && gcecPdcCount > (summaryData.gcecPdc ?? 0)
+        const summaryWithGcec =
+          summaryData && mergedGcecCount > (summaryData.gcecPdc ?? 0)
             ? {
                 ...summaryData,
-                gcecPdc: gcecPdcCount,
-                total: (summaryData.total ?? 0) + (gcecPdcCount - (summaryData.gcecPdc ?? 0)),
+                gcecPdc: mergedGcecCount,
+                total: (summaryData.total ?? 0) + (mergedGcecCount - (summaryData.gcecPdc ?? 0)),
               }
             : summaryData;
 
         // Latest transaction first in View All.
         setTransactions(sortTransactionsByDateDesc(mergedTransactions));
-        setSummary(nextSummary);
+        setSummary(summaryWithGcec);
         setCurrentPage(1); // Reset to first page when filters change
       } else {
         setTransactions([]);
@@ -1009,7 +1032,7 @@ export default function ViewAllTranstion() {
         if (type === 'Daily Transaction') {
           headers = ['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance', 'Remarks'];
         } else if (type === 'GCEC PDC') {
-          headers = ['Date', 'Creditor', 'Cheque Number', 'Amount'];
+          headers = ['Date', 'Creditor', 'Cheque Number', 'Amount', 'Cheque Type'];
         } else if (type === 'Customer PDC') {
           headers = ['Date', 'Debtor', 'Cheque Number', 'Amount', 'Cheque Type'];
         } else if (type === 'Purchase Bill') {
@@ -1082,11 +1105,13 @@ export default function ViewAllTranstion() {
           } else if (type === 'GCEC PDC') {
             const txn = transaction as GCECPDC;
             const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
+            const chequeTypeDisplay = txn.chequeType === 'Payment Cheque' ? '' : 'Security Cheque';
             const row = addRow([
               formatDateForExcel(txn.date),
               txn.customerName,
               txn.chequeNumber,
-              amountValue
+              amountValue,
+              chequeTypeDisplay,
             ]);
             row.getCell(4).numFmt = '#,##0.00';
             

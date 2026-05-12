@@ -245,7 +245,7 @@ export default function CreditCardPaymentsPage() {
             cardNo: payment.cardNo || '',
             cardHolder: displayCreditCardHolderName(payment.cardHolder || ''),
             creditCardId: creditCardId,
-            amount: payment.amount != null ? String(payment.amount) : '',
+            amount: formatAmountInputValue(payment.amount),
             remarks: payment.remarks || '',
         });
         setIsModalOpen(true);
@@ -369,6 +369,19 @@ export default function CreditCardPaymentsPage() {
 
 
 
+
+    const formatPaymentAmount = (value: number | null | undefined): string =>
+        new Intl.NumberFormat('en-AE', {
+            style: 'currency',
+            currency: 'AED',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(value ?? 0);
+
+    const formatAmountInputValue = (value: number | null | undefined): string => {
+        if (value == null || Number.isNaN(Number(value))) return '';
+        return Number(value).toFixed(2);
+    };
 
     const formatDate = (dateString: string): string => {
         if (!dateString) return '';
@@ -770,11 +783,7 @@ export default function CreditCardPaymentsPage() {
                     Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {appliedYear})
                 </p>
                 <p className="text-lg font-semibold text-gray-900">
-                    {new Intl.NumberFormat('en-AE', {
-                        style: 'currency',
-                        currency: 'AED',
-                        minimumFractionDigits: 2,
-                    }).format(totalPaymentAmount)}
+                    {formatPaymentAmount(totalPaymentAmount)}
                 </p>
             </div>
         </div>
@@ -854,11 +863,7 @@ export default function CreditCardPaymentsPage() {
                                                 {card.cardNo}
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                {new Intl.NumberFormat('en-AE', { 
-                                                    style: 'currency', 
-                                                    currency: 'AED',
-                                                    minimumFractionDigits: 2 
-                                                }).format(card.amount)}
+                                                {formatPaymentAmount(card.amount)}
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">    {card.remarks}</TableCell>
                                             {canMutate && (
@@ -1120,8 +1125,7 @@ export default function CreditCardPaymentsPage() {
                                             <Input
                                                 type="text"
                                                 inputMode="decimal"
-                                                pattern="[0-9]*[.]?[0-9]*"
-                                                placeholder="0"
+                                                placeholder="0.00"
                                                 value={field.value ?? ''}
                                                 onBlur={field.onBlur}
                                                 name={field.name}
