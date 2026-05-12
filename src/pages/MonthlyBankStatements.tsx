@@ -14,6 +14,7 @@ type MonthlyDocumentMeta = {
   originalName?: string | null;
   original_filename?: string | null;
   url?: string | null;
+  download_url?: string | null;
 };
 
 type MonthlyStatementRecord = {
@@ -56,21 +57,83 @@ const ensurePdfFilename = (name: string | null | undefined, fallback: string): s
 
 const getMetaFileName = (meta: MonthlyDocumentMeta | null | undefined): string | null => {
   if (!meta) return null;
-  return (
+  const name =
     meta.originalName ||
     meta.original_filename ||
     meta.fileName ||
     meta.filename ||
-    null
-  );
+    null;
+  if (name) return name;
+  if (meta.download_url || meta.url) return 'Uploaded statement';
+  return null;
 };
 
-const normalizeRecord = (input: unknown): MonthlyStatementRecord | null => {
-  if (!input || typeof input !== 'object') return null;
-  return input as MonthlyStatementRecord;
+const hasUploadedDocument = (meta: MonthlyDocumentMeta | null | undefined): boolean =>
+  Boolean(getMetaFileName(meta));
+
+const pickDocumentMeta = (
+  record: MonthlyStatementRecord | null | undefined,
+  snakeKey: 'bank_statement' | 'monthly_invoice',
+  camelKey: 'bankStatement' | 'monthlyInvoice'
+): MonthlyDocumentMeta | null => {
+  const raw = record?.[snakeKey] ?? record?.[camelKey];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  return raw as MonthlyDocumentMeta;
 };
 
-const formatYearMonth = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
+const getMonthParamFromMeta = (
+  fallbackMonth: string,
+  meta: MonthlyDocumentMeta | null | undefined
+): string => {
+  const downloadUrl = meta?.download_url || meta?.url;
+  if (!downloadUrl) return fallbackMonth;
+  const match = downloadUrl.match(/[?&]month=([^&]+)/i);
+  if (match?.[1]) return decodeURIComponent(match[1]);
+  return fallbackMonth;
+};
+
+const getRecordFromBody = (body: unknown): MonthlyStatementRecord | null => {
+  if (body == null) return null;
+
+  const queue: unknown[] = [body];
+  const seen = new Set<unknown>();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current == null || typeof current !== 'object') continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    const hasDocs =
+      record.bank_statement != null ||
+      record.bankStatement != null ||
+      record.monthly_invoice != null ||
+      record.monthlyInvoice != null;
+    const currency = record.currency ?? record.currencyCode;
+    if (hasDocs || typeof currency === 'string') {
+      return current as MonthlyStatementRecord;
+    }
+
+    for (const key of ['data', 'row', 'record', 'monthlyStatement', 'result']) {
+      const nested = record[key];
+      if (nested != null) queue.push(nested);
+    }
+  }
+
+  return null;
+};
+
+const toGridRow = (currency: CurrencyCode, record: MonthlyStatementRecord | null): GridRow => ({
+  currency,
+  bankStatement: pickDocumentMeta(record, 'bank_statement', 'bankStatement'),
+  monthlyInvoice: pickDocumentMeta(record, 'monthly_invoice', 'monthlyInvoice'),
+});
 
 const getUploadFieldName = (documentType: DocumentType): 'bank_statement' | 'monthly_invoice' =>
   documentType === 'bank_statement' ? 'bank_statement' : 'monthly_invoice';
@@ -106,19 +169,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const getRecordFromBody = (body: unknown): MonthlyStatementRecord | null => {
-  if (!body || typeof body !== 'object') return null;
-  const direct = normalizeRecord(body);
-  if (direct?.currency || direct?.currencyCode) return direct;
-
-  const record = body as Record<string, unknown>;
-  const candidates = [record.data, record.row, record.record, record.monthlyStatement];
-  for (const candidate of candidates) {
-    const normalized = normalizeRecord(candidate);
-    if (normalized) return normalized;
-  }
-  return null;
-};
+const formatYearMonth = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
 
 export default function MonthlyBankStatements() {
   const currentYear = new Date().getFullYear();
@@ -201,12 +252,9 @@ export default function MonthlyBankStatements() {
                 currency,
               },
             });
-            const normalized = getRecordFromBody(response?.data);
-            return {
-              currency,
-              bankStatement: normalized?.bank_statement || normalized?.bankStatement || null,
-              monthlyInvoice: normalized?.monthly_invoice || normalized?.monthlyInvoice || null,
-            };
+            const normalized =
+              getRecordFromBody(response?.data) ?? getRecordFromBody(response);
+            return toGridRow(currency, normalized);
           } catch {
             return {
               currency,
@@ -271,7 +319,16 @@ export default function MonthlyBankStatements() {
         formData.append('month', formatYearMonth(selectedYear, selectedMonth));
         formData.append('currency', currency);
         formData.append(getUploadFieldName(documentType), selectedFile, selectedFile.name);
-        await api.post('/monthly-bank-statements', formData);
+        const uploadResponse = await api.post('/monthly-bank-statements', formData);
+        const uploaded =
+          getRecordFromBody(uploadResponse?.data) ?? getRecordFromBody(uploadResponse);
+        if (uploaded) {
+          setRows((prev) =>
+            prev.map((row) =>
+              row.currency === currency ? toGridRow(currency, uploaded) : row
+            )
+          );
+        }
         await loadMonthlyStatements();
         setPendingUploads((prev) => ({
           ...prev,
@@ -300,12 +357,13 @@ export default function MonthlyBankStatements() {
     async (currency: CurrencyCode, documentType: DocumentType, currentMeta: MonthlyDocumentMeta | null) => {
       const key = `${currency}-${documentType}`;
       const monthParam = formatYearMonth(selectedYear, selectedMonth);
+      const requestMonth = getMonthParamFromMeta(monthParam, currentMeta);
       try {
         setDownloadingKey(key);
         const token = localStorage.getItem('authToken');
         const qs = new URLSearchParams({
           currency,
-          month: monthParam,
+          month: requestMonth,
         });
         if (token) qs.set('token', token);
         const response = await fetch(`/api/monthly-bank-statements/file/${documentType}?${qs.toString()}`, {
@@ -350,13 +408,18 @@ export default function MonthlyBankStatements() {
   );
 
   const handleView = useCallback(
-    async (currency: CurrencyCode, documentType: DocumentType) => {
+    async (
+      currency: CurrencyCode,
+      documentType: DocumentType,
+      currentMeta: MonthlyDocumentMeta | null
+    ) => {
       const monthParam = formatYearMonth(selectedYear, selectedMonth);
+      const requestMonth = getMonthParamFromMeta(monthParam, currentMeta);
       try {
         const token = localStorage.getItem('authToken');
         const qs = new URLSearchParams({
           currency,
-          month: monthParam,
+          month: requestMonth,
         });
         if (token) qs.set('token', token);
         const fileUrl = `/api/monthly-bank-statements/file/${documentType}?${qs.toString()}`;
@@ -494,8 +557,6 @@ export default function MonthlyBankStatements() {
                 const invoiceKey = `${row.currency}-monthly_invoice`;
                 const uploadBankKey = `${row.currency}-upload-bank_statement`;
                 const uploadInvoiceKey = `${row.currency}-upload-monthly_invoice`;
-                const bankName = getMetaFileName(row.bankStatement);
-                const invoiceName = getMetaFileName(row.monthlyInvoice);
                 const pending = pendingUploads[row.currency];
 
                 return (
@@ -543,14 +604,17 @@ export default function MonthlyBankStatements() {
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
                           {(['bank_statement', 'monthly_invoice'] as DocumentType[]).map((type) => {
-                            const fileName = type === 'bank_statement' ? bankName : invoiceName;
+                            const currentMeta =
+                              type === 'bank_statement' ? row.bankStatement : row.monthlyInvoice;
+                            const fileName = getMetaFileName(currentMeta);
+                            const hasFile = hasUploadedDocument(currentMeta);
                             const key = `${row.currency}-${type}`;
                             return (
                               <tr key={type} className="hover:bg-gray-50">
                                 <td className="px-4 py-3 text-sm font-semibold text-gray-800">
                                   {DOCUMENT_LABELS[type]}
                                 </td>
-                                <td className="px-4 py-3">{renderStatusPill(Boolean(fileName))}</td>
+                                <td className="px-4 py-3">{renderStatusPill(hasFile)}</td>
                                 <td className="px-4 py-3">
                                   <span className="inline-flex max-w-[260px] items-center truncate rounded-full bg-gray-50 px-3 py-1 text-xs text-gray-600">
                                     {fileName || 'No file uploaded'}
@@ -569,7 +633,7 @@ export default function MonthlyBankStatements() {
                                           type === 'bank_statement' ? row.bankStatement : row.monthlyInvoice
                                         )
                                       }
-                                      disabled={!fileName || downloadingKey === key}
+                                      disabled={!hasFile || downloadingKey === key}
                                     >
                                       {downloadingKey === key ? (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -582,8 +646,8 @@ export default function MonthlyBankStatements() {
                                       size="sm"
                                       variant="outline"
                                       className="h-8 rounded-full"
-                                      onClick={() => void handleView(row.currency, type)}
-                                      disabled={!fileName}
+                                      onClick={() => void handleView(row.currency, type, currentMeta)}
+                                      disabled={!hasFile}
                                     >
                                       <Eye className="mr-2 h-4 w-4" />
                                       View
@@ -593,7 +657,7 @@ export default function MonthlyBankStatements() {
                                       variant="outline"
                                       className="h-8 rounded-full text-red-600 hover:text-red-700"
                                       onClick={() => void handleDelete(row.currency, type)}
-                                      disabled={!fileName || deletingKey === `${row.currency}-delete-${type}`}
+                                      disabled={!hasFile || deletingKey === `${row.currency}-delete-${type}`}
                                     >
                                       {deletingKey === `${row.currency}-delete-${type}` ? (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
