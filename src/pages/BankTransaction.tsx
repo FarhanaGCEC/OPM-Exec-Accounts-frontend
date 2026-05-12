@@ -43,7 +43,7 @@ import {
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook } from '../lib/excelExportFont';
-import { formatDisplayYear } from '../lib/formatDisplayDate';
+import { expandCenturyYear, formatDisplayYear } from '../lib/formatDisplayDate';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
   Tooltip,
@@ -605,6 +605,72 @@ function parseTransactionDateForSort(t: BankTransaction): Date | null {
     if (!Number.isNaN(fallback.getTime())) return fallback;
   }
   return null;
+}
+
+function formatTransactionDateForForm(t: BankTransaction): string {
+  const formatDateParts = (day: number, month: number, year: number): string =>
+    `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+
+  const parseSlashDate = (value: string): string | null => {
+    const slash = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if (!slash) return null;
+    const day = parseInt(slash[1], 10);
+    const month = parseInt(slash[2], 10);
+    const year = expandCenturyYear(parseInt(slash[3], 10));
+    const parsed = new Date(year, month - 1, day);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return formatDateParts(day, month, year);
+  };
+
+  if (t.originalDate) {
+    const fromSlash = parseSlashDate(t.originalDate);
+    if (fromSlash) return fromSlash;
+
+    const direct = new Date(t.originalDate);
+    if (!Number.isNaN(direct.getTime())) {
+      return formatDateParts(
+        direct.getDate(),
+        direct.getMonth() + 1,
+        direct.getFullYear()
+      );
+    }
+  }
+
+  if (t.date) {
+    const fromSlash = parseSlashDate(t.date);
+    if (fromSlash) return fromSlash;
+
+    const parts = t.date.split('-');
+    if (parts.length === 3) {
+      const months: Record<string, string> = {
+        Jan: '01',
+        Feb: '02',
+        Mar: '03',
+        Apr: '04',
+        May: '05',
+        Jun: '06',
+        Jul: '07',
+        Aug: '08',
+        Sep: '09',
+        Oct: '10',
+        Nov: '11',
+        Dec: '12',
+      };
+      const month = months[parts[1] || ''];
+      if (month) {
+        const day = parseInt(parts[0], 10);
+        const year = expandCenturyYear(parseInt(parts[2], 10));
+        const parsed = new Date(year, parseInt(month, 10) - 1, day);
+        if (!Number.isNaN(parsed.getTime())) {
+          return formatDateParts(day, parseInt(month, 10), year);
+        }
+      }
+    }
+  }
+
+  const parsed = parseTransactionDateForSort(t);
+  if (!parsed) return '';
+  return formatDateParts(parsed.getDate(), parsed.getMonth() + 1, parsed.getFullYear());
 }
 
 function parseLocalDateTimeForSort(value: string | null | undefined): Date | null {
@@ -1601,29 +1667,8 @@ export default function BankTransaction() {
     setEditingTransaction(transaction);
     setError(null);
     
-    // Convert original ISO date to dd/mm/yyyy format for form
-    let dateValue = '';
+    const dateValue = formatTransactionDateForForm(transaction);
     let entryTimeValue = '';
-    if (transaction.originalDate) {
-      const date = new Date(transaction.originalDate);
-      if (!isNaN(date.getTime())) {
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = formatDisplayYear(date.getFullYear());
-        dateValue = `${day}/${month}/${year}`;
-      }
-    } else {
-      // Fallback: try to parse formatted date
-      const parts = (transaction.date || '').split('-');
-      if (parts.length === 3) {
-        const months: { [key: string]: string } = {
-          'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-          'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-        };
-        const month = months[parts[1]] || '01';
-        dateValue = `${parts[0]}/${month}/${parts[2]}`;
-      }
-    }
 
     const sourceTime = String(transaction.transactionTime || '').trim();
     const normalizedTime = sourceTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
@@ -3052,7 +3097,7 @@ export default function BankTransaction() {
                     if (parts.length !== 3) return null;
                     const day = parseInt(parts[0], 10);
                     const month = parseInt(parts[1], 10);
-                    const year = parseInt(parts[2], 10);
+                    const year = expandCenturyYear(parseInt(parts[2], 10));
                     if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
                     return new Date(year, month - 1, day);
                   };
@@ -3062,7 +3107,7 @@ export default function BankTransaction() {
                     if (!date || isNaN(date.getTime())) return '';
                     const day = String(date.getDate()).padStart(2, '0');
                     const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const year = formatDisplayYear(date.getFullYear());
+                    const year = String(date.getFullYear());
                     return `${day}/${month}/${year}`;
                   };
 
