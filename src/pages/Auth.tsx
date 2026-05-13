@@ -14,6 +14,7 @@ import { User, Lock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { authService } from '../services/authService';
 import { extractLoginData, persistLoginSession } from '../lib/authPayload';
+import { getPostLoginRedirectPath } from '../lib/postLoginRedirect';
 
 type LoginFormData = {
   username: string;
@@ -33,11 +34,11 @@ export default function Auth() {
   });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginFormData, string>>>({});
 
-  // Redirect to dashboard if user already has a token
+  // If already logged in, send user to their first allowed app screen (same logic as sidebar)
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     if (token) {
-      navigate('/dashboard', { replace: true });
+      navigate(getPostLoginRedirectPath(), { replace: true });
     }
   }, [navigate]);
 
@@ -90,8 +91,7 @@ export default function Auth() {
           localStorage.setItem('rememberMe', 'true');
         }
         
-        // Redirect to dashboard
-        navigate('/dashboard');
+        navigate(getPostLoginRedirectPath());
       } else {
         setError(true);
       }
