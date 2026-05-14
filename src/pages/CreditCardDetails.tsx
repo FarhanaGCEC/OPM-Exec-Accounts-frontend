@@ -188,6 +188,14 @@ export default function CreditCardDetails() {
         return `${monthNames[month]}-${lastTwoDigits}`;
     };
 
+    /** API expects full year (e.g. Feb-2026); form/input may use short Mon-yy for display. */
+    const formatExpiryDateForApi = (expiryDate: string): string => {
+        const { month, year } = parseExpiryDate(expiryDate);
+        if (month === null || year === null) return expiryDate.trim();
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${monthNames[month]}-${year}`;
+    };
+
     const handleExpiryDateSelect = (month: number, year: number) => {
         const formatted = formatExpiryDate(month, year);
         form.setValue('expiry_date', formatted);
@@ -334,7 +342,7 @@ export default function CreditCardDetails() {
                 issuingBank: data.issuingBank,
                 cardHolder: data.cardHolder,
                 cardNumber: data.cardNumber,
-                expiry_date: data.expiry_date,
+                expiry_date: formatExpiryDateForApi(data.expiry_date),
                 ...(data.amountLimit !== null && data.amountLimit !== undefined && { amountLimit: Number(data.amountLimit) }),
             };
 
