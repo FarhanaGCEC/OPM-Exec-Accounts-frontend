@@ -49,7 +49,7 @@ import {
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
 import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
-import { formatDisplayYear } from '../lib/formatDisplayDate';
+import { expandCenturyYear, formatDisplayYear } from '../lib/formatDisplayDate';
 
 export interface CreditCardPayment {
     id: string;
@@ -269,11 +269,12 @@ export default function CreditCardPaymentsPage() {
             // Format payment date - API accepts "2026-01-15", "15/01/2026", or "15-Jan-2026"
             let formattedDate = data.paymentDate;
             
-            // If date is in dd/mm/yyyy format, convert to yyyy-mm-dd
+            // If date is in dd/mm/yy or dd/mm/yyyy, convert to yyyy-mm-dd (API / GET filters use full year)
             if (data.paymentDate.includes('/')) {
                 const parts = data.paymentDate.split('/');
                 if (parts.length === 3) {
-                    formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                    const y = expandCenturyYear(parseInt(parts[2], 10));
+                    formattedDate = `${y}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
                 }
             }
 
@@ -925,20 +926,40 @@ export default function CreditCardPaymentsPage() {
                                 name="paymentDate"
                                 render={({ field }) => {
                                     const parseDate = (dateString: string): Date | null => {
-                                        if (!dateString || dateString.length < 10) return null;
-                                        // Try dd/mm/yyyy format
+                                        if (!dateString) return null;
                                         if (dateString.includes('/')) {
                                             const parts = dateString.split('/');
                                             if (parts.length === 3) {
                                                 const day = parseInt(parts[0], 10);
                                                 const month = parseInt(parts[1], 10);
-                                                const year = parseInt(parts[2], 10);
-                                                if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-                                                    return new Date(year, month - 1, day);
+                                                const yPart = parseInt(parts[2], 10);
+                                                if (
+                                                    !isNaN(day) &&
+                                                    !isNaN(month) &&
+                                                    !isNaN(yPart) &&
+                                                    (parts[2].length === 2 || parts[2].length === 4)
+                                                ) {
+                                                    const year = expandCenturyYear(yPart);
+                                                    const d = new Date(year, month - 1, day);
+                                                    if (
+                                                        d.getFullYear() === year &&
+                                                        d.getMonth() === month - 1 &&
+                                                        d.getDate() === day
+                                                    ) {
+                                                        return d;
+                                                    }
                                                 }
                                             }
+                                            return null;
                                         }
-                                        // Try yyyy-mm-dd format
+                                        if (
+                                            dateString.length >= 10 &&
+                                            dateString.includes('-') &&
+                                            !dateString.includes('T')
+                                        ) {
+                                            const date = new Date(dateString);
+                                            return isNaN(date.getTime()) ? null : date;
+                                        }
                                         const date = new Date(dateString);
                                         return isNaN(date.getTime()) ? null : date;
                                     };
@@ -993,7 +1014,11 @@ export default function CreditCardPaymentsPage() {
                                                                 if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                                                 if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                                                 field.onChange(value);
-                                                                if (value.length === 10) {
+                                                                const segs = value.split('/');
+                                                                const yOk =
+                                                                    segs.length === 3 &&
+                                                                    (segs[2].length === 2 || segs[2].length === 4);
+                                                                if (yOk) {
                                                                     const date = parseDate(value);
                                                                     if (date) {
                                                                         setSelectedDate(date);

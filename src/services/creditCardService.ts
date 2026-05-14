@@ -1,6 +1,7 @@
 import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
 import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
+import { expandCenturyYear } from '../lib/formatDisplayDate';
 
 // API Response interface for Credit Card Details (snake_case from backend)
 export interface CreditCardDetailApiResponse {
@@ -274,7 +275,7 @@ export const creditCardService = {
     const params: string[] = [];
     
     if (options?.year !== undefined) {
-      params.push(`year=${options.year}`);
+      params.push(`year=${expandCenturyYear(options.year)}`);
     }
     
     // Handle multiple months first
@@ -287,7 +288,7 @@ export const creditCardService = {
     else if (options?.month !== undefined) {
       // Format month as 2-digit string (1-12)
       const monthStr = String(options.month + 1).padStart(2, '0');
-      const yearStr = String(options.year || new Date().getFullYear());
+      const yearStr = String(expandCenturyYear(options.year ?? new Date().getFullYear()));
       url = `/statements/${yearStr}-${monthStr}`;
       // If we're using path format, return early
       const response = await api.get<CreditCardStatementApiResponse[]>(url);
@@ -479,7 +480,7 @@ export const creditCardService = {
     // Build query parameters if provided
     const params: string[] = [];
     if (options?.year !== undefined) {
-      params.push(`year=${options.year}`);
+      params.push(`year=${expandCenturyYear(options.year)}`);
     }
     if (options?.months && options.months.length > 0) {
       const monthSet = new Set(options.months);
