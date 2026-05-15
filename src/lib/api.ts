@@ -170,6 +170,39 @@ export interface ApiResponse<T = any> {
   message?: string;
   success: boolean;
   error?: string;
+  /** HTTP status (e.g. 200 immediate apply, 202 queued for admin approval). */
+  status?: number;
+  /** True when mutation was queued (202 or CHANGE_REQUEST_SUBMITTED) — do not remove row from list. */
+  changeRequestQueued?: boolean;
+}
+
+/** 202 or body code CHANGE_REQUEST_SUBMITTED — standard user edit/delete sent for approval. */
+export function isQueuedForAdminApproval(status: number, body: unknown): boolean {
+  if (status === 202) return true;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const walk = (node: unknown, depth: number): boolean => {
+    if (depth > 8 || !node || typeof node !== 'object' || Array.isArray(node)) return false;
+    const o = node as Record<string, unknown>;
+    if (o.code === 'CHANGE_REQUEST_SUBMITTED') return true;
+    const inner = o.data;
+    if (inner != null && typeof inner === 'object') return walk(inner, depth + 1);
+    return false;
+  };
+  return walk(body, 0);
+}
+
+function buildMutationApiResponse<T>(response: AxiosResponse<T>): ApiResponse<T> {
+  const status = response.status;
+  const data = response.data;
+  throwIfResponseBusinessFailure(status, data);
+  const changeRequestQueued = isQueuedForAdminApproval(status, data);
+  return {
+    data,
+    success: true,
+    status,
+    changeRequestQueued,
+    message: extractSuccessMessageFromBody(data),
+  };
 }
 
 // API Error type
@@ -345,13 +378,7 @@ export const api = {
         }
       }
 
-      throwIfResponseBusinessFailure(response.status, response.data);
-      
-      return {
-        data: response.data,
-        success: true,
-        message: extractSuccessMessageFromBody(response.data),
-      };
+      return buildMutationApiResponse(response);
     } catch (error) {
       throw rethrowHandled(error);
     }
@@ -383,13 +410,7 @@ export const api = {
         }
       }
 
-      throwIfResponseBusinessFailure(response.status, response.data);
-      
-      return {
-        data: response.data,
-        success: true,
-        message: extractSuccessMessageFromBody(response.data),
-      };
+      return buildMutationApiResponse(response);
     } catch (error) {
       throw rethrowHandled(error);
     }
@@ -444,13 +465,7 @@ export const api = {
         }
       }
 
-      throwIfResponseBusinessFailure(response.status, response.data);
-      
-      return {
-        data: response.data,
-        success: true,
-        message: extractSuccessMessageFromBody(response.data),
-      };
+      return buildMutationApiResponse(response);
     } catch (error) {
       throw rethrowHandled(error);
     }
@@ -480,13 +495,7 @@ export const api = {
         }
       }
 
-      throwIfResponseBusinessFailure(response.status, response.data);
-      
-      return {
-        data: response.data,
-        success: true,
-        message: extractSuccessMessageFromBody(response.data),
-      };
+      return buildMutationApiResponse(response);
     } catch (error) {
       throw rethrowHandled(error);
     }
@@ -535,10 +544,14 @@ const handleError = (error: unknown): ApiError => {
         message =
           bodyMsg ||
           `Not found (404). Browser request URL should be like …/api/admin/users (see Network tab). Postman often uses the server IP directly; here it goes through /api proxy. ${urlHint ? `Attempted: ${urlHint}` : ''}`;
-      } else if (status === 401) {
+      } else       if (status === 401) {
         message =
           bodyMsg ||
           `Unauthorized (401). Log in again and ensure the same Bearer token works in Postman. ${urlHint ? `Request: ${urlHint}` : ''}`;
+      } else if (status === 409) {
+        message =
+          bodyMsg ||
+          'This request was already approved or rejected. Refresh the list.';
       } else if (urlHint && !bodyMsg) {
         message = `${message} (${urlHint})`;
       }

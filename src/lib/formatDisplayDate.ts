@@ -25,25 +25,70 @@ export function expandCenturyYear(yearPart: number): number {
   return 2000 + yearPart;
 }
 
-function parseDisplayDateInput(input: string): Date | null {
-  const s = input.trim();
+/**
+ * Parse API / user input to a local calendar date (midnight local).
+ * Avoids showing 14-May in the edit form when the grid shows 15-May for `…T00:00:00.000Z` in UTC+ timezones.
+ */
+export function parseCalendarDateLocal(input: string | null | undefined): Date | null {
+  const s = String(input ?? '').trim();
+  if (!s) return null;
+
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (ymd) {
+    const year = parseInt(ymd[1], 10);
+    const month = parseInt(ymd[2], 10) - 1;
+    const day = parseInt(ymd[3], 10);
+    const d = new Date(year, month, day);
+    if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) {
+      return d;
+    }
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(s)) {
+    const dt = new Date(s);
+    if (!isNaN(dt.getTime())) {
+      return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+    }
+    return null;
+  }
+
   const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (slash) {
     const day = parseInt(slash[1], 10);
     const month = parseInt(slash[2], 10) - 1;
     const year = expandCenturyYear(parseInt(slash[3], 10));
     const d = new Date(year, month, day);
-    if (
-      d.getFullYear() === year &&
-      d.getMonth() === month &&
-      d.getDate() === day
-    ) {
+    if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) {
       return d;
     }
     return null;
   }
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d;
+
+  const dmy = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/i);
+  if (dmy) {
+    const day = parseInt(dmy[1], 10);
+    const monthIndex = MONTHS.findIndex(
+      (m) => m.toLowerCase() === dmy[2].toLowerCase()
+    );
+    if (monthIndex >= 0) {
+      const year = expandCenturyYear(parseInt(dmy[3], 10));
+      const d = new Date(year, monthIndex, day);
+      if (d.getFullYear() === year && d.getMonth() === monthIndex && d.getDate() === day) {
+        return d;
+      }
+    }
+  }
+
+  const dt = new Date(s);
+  if (!isNaN(dt.getTime())) {
+    return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  }
+  return null;
+}
+
+function parseDisplayDateInput(input: string): Date | null {
+  return parseCalendarDateLocal(input);
 }
 
 export function formatIsoDateDisplay(isoOrDateString: string | null | undefined): string {
@@ -68,6 +113,16 @@ export function formatJsDateDisplay(date: Date): string {
   const month = MONTHS[date.getMonth()];
   const year = formatDisplayYear(date.getFullYear());
   return `${day}-${month}-${year}`;
+}
+
+/** Bank write APIs and MySQL DATE columns expect YYYY-MM-DD (not ISO datetime). */
+export function formatDateForApi(input: string | null | undefined): string {
+  const date = parseCalendarDateLocal(input);
+  if (date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+  const s = String(input ?? '').trim();
+  return s;
 }
 
 export function formatIsoDateTimeDisplay(isoOrDateString: string | null | undefined): string {

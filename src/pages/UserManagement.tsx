@@ -24,7 +24,9 @@ import {
   userService,
   type AppUser,
   type ManageableUserRole,
+  type SidebarMenuItemDef,
   normalizeManageableRole,
+  sidebarPermissionsEqual,
 } from '../services/userService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { Checkbox } from '../components/ui/checkbox';
@@ -57,8 +59,19 @@ export default function UserManagement() {
   const [editUser, setEditUser] = useState<AppUser | null>(null);
   const [editRole, setEditRole] = useState<ManageableUserRole>('user');
   const [editPassword, setEditPassword] = useState('');
+  const [editPermissions, setEditPermissions] = useState<SidebarPermissionMap>(() =>
+    emptySidebarPermissions()
+  );
+  const [editInitialPermissions, setEditInitialPermissions] = useState<SidebarPermissionMap>(() =>
+    emptySidebarPermissions()
+  );
+  const [editMenuItems, setEditMenuItems] = useState<SidebarMenuItemDef[]>(() =>
+    SIDEBAR_MENU_ITEMS.map(({ key, label }) => ({ key, label }))
+  );
+  const [editPermissionsLoading, setEditPermissionsLoading] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
@@ -116,7 +129,7 @@ export default function UserManagement() {
         username: newUsername,
         password: newPassword,
         role: newRole,
-        ...(newRole === 'user' ? { permissions: { ...newUserPermissions } } : {}),
+        ...(newRole === 'user' ? { sidebarPermissions: { ...newUserPermissions } } : {}),
       });
       setIsCreateModalOpen(false);
       await loadUsers();
@@ -132,19 +145,74 @@ export default function UserManagement() {
     setEditUser(null);
     setEditPassword('');
     setEditError(null);
+    setEditSuccess(null);
+    setEditPermissionsLoading(false);
+    setEditPermissions(emptySidebarPermissions());
+    setEditInitialPermissions(emptySidebarPermissions());
   };
 
+  const loadEditPermissions = useCallback(async (userId: number) => {
+    setEditPermissionsLoading(true);
+    setEditError(null);
+    try {
+      const { menuItems, sidebarPermissions } = await userService.getUserSidebarPermissions(userId);
+      setEditMenuItems(menuItems);
+      setEditPermissions({ ...sidebarPermissions });
+      setEditInitialPermissions({ ...sidebarPermissions });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load permissions';
+      setEditError(msg);
+      setEditPermissions(emptySidebarPermissions());
+      setEditInitialPermissions(emptySidebarPermissions());
+    } finally {
+      setEditPermissionsLoading(false);
+    }
+  }, []);
+
   const openEditDialog = (u: AppUser) => {
+    const role = normalizeManageableRole(String(u.role));
     setEditUser(u);
-    setEditRole(normalizeManageableRole(String(u.role)));
+    setEditRole(role);
     setEditPassword('');
     setEditError(null);
+    setEditSuccess(null);
+    setEditMenuItems(SIDEBAR_MENU_ITEMS.map(({ key, label }) => ({ key, label })));
+    if (role === 'user') {
+      const fromList = u.sidebarPermissions;
+      if (fromList && typeof fromList === 'object') {
+        const merged = emptySidebarPermissions();
+        for (const { key } of SIDEBAR_MENU_ITEMS) {
+          merged[key] = fromList[key] === true;
+        }
+        setEditPermissions(merged);
+        setEditInitialPermissions(merged);
+      } else {
+        setEditPermissions(emptySidebarPermissions());
+        setEditInitialPermissions(emptySidebarPermissions());
+      }
+      void loadEditPermissions(Number(u.id));
+    } else {
+      setEditPermissions(emptySidebarPermissions());
+      setEditInitialPermissions(emptySidebarPermissions());
+    }
+  };
+
+  const toggleEditPermission = (key: SidebarPermissionKey) => {
+    setEditPermissions((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleEditRoleChange = (next: ManageableUserRole) => {
+    setEditRole(next);
+    if (next === 'user' && editUser) {
+      void loadEditPermissions(Number(editUser.id));
+    }
   };
 
   const handleEditUserSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editUser) return;
     setEditError(null);
+    setEditSuccess(null);
     if (editPassword.length > 0 && editPassword.length < 6) {
       setEditError('New password must be at least 6 characters, or leave blank to keep the current password.');
       return;
@@ -156,21 +224,22 @@ export default function UserManagement() {
       const roleChanged = editRole !== previousRole;
       const pwd = editPassword.trim();
       const passwordChanged = pwd.length >= 6;
+      const permsChanged =
+        editRole === 'user' && !sidebarPermissionsEqual(editPermissions, editInitialPermissions);
 
-      if (!roleChanged && !passwordChanged) {
-        setEditError('Change the role or enter a new password (min 6 characters) to save.');
+      if (!roleChanged && !passwordChanged && !permsChanged) {
+        setEditError('Change role, password, or sidebar permissions to save.');
         return;
       }
 
-      if (roleChanged) {
-        await userService.updateRole(id, editRole);
-      }
-      if (passwordChanged) {
-        await userService.updatePassword(id, pwd);
-      }
+      const payload: Parameters<typeof userService.updateUser>[1] = { role: editRole };
+      if (passwordChanged) payload.password = pwd;
+      if (editRole === 'user') payload.sidebarPermissions = { ...editPermissions };
 
-      closeEditDialog();
+      const { message } = await userService.updateUser(id, payload);
+      setEditSuccess(message);
       await loadUsers();
+      setTimeout(() => closeEditDialog(), 600);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Could not update user';
       setEditError(msg);
@@ -417,7 +486,11 @@ export default function UserManagement() {
       </Dialog>
 
       <Dialog open={!!editUser} onOpenChange={(open) => !open && closeEditDialog()}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className={
+            editRole === 'user' ? 'sm:max-w-lg max-h-[90vh] overflow-y-auto' : 'sm:max-w-md'
+          }
+        >
           <DialogHeader>
             <DialogTitle>Edit user</DialogTitle>
           </DialogHeader>
@@ -438,7 +511,7 @@ export default function UserManagement() {
               <Label>Role</Label>
               <Select
                 value={editRole}
-                onValueChange={(v) => setEditRole(v as ManageableUserRole)}
+                onValueChange={(v) => handleEditRoleChange(v as ManageableUserRole)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Role" />
@@ -461,6 +534,43 @@ export default function UserManagement() {
                 placeholder="Leave blank to keep current password"
               />
             </div>
+            {editRole === 'user' && (
+              <div className="space-y-2 rounded-md border border-gray-200 bg-gray-50/80 p-3">
+                <Label className="text-sm font-medium text-gray-900">Sidebar access</Label>
+                <p className="text-xs text-gray-600">
+                  Check each section this user may open. Only applies when role is User.
+                </p>
+                {editPermissionsLoading ? (
+                  <div className="flex items-center gap-2 py-4 text-sm text-gray-600">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading permissions…
+                  </div>
+                ) : (
+                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                    {editMenuItems.map(({ key, label }) => {
+                      const permKey = key as SidebarPermissionKey;
+                      const checked =
+                        permKey in editPermissions ? editPermissions[permKey] : false;
+                      return (
+                        <label
+                          key={key}
+                          className="flex cursor-pointer items-start gap-2 rounded-md py-1 text-sm text-gray-800 hover:bg-gray-100/80"
+                        >
+                          <Checkbox
+                            id={`edit-perm-${key}`}
+                            checked={checked}
+                            onCheckedChange={() => toggleEditPermission(permKey)}
+                            className="mt-0.5"
+                          />
+                          <span className="leading-snug">{label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {editSuccess && <p className="text-sm text-green-600">{editSuccess}</p>}
             {editError && <p className="text-sm text-red-600">{editError}</p>}
             <DialogFooter className="gap-2 sm:gap-0">
               <Button type="button" variant="outline" onClick={closeEditDialog}>
@@ -469,7 +579,7 @@ export default function UserManagement() {
               <Button
                 type="submit"
                 className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                disabled={editSubmitting}
+                disabled={editSubmitting || editPermissionsLoading}
               >
                 {editSubmitting ? 'Saving…' : 'Save changes'}
               </Button>

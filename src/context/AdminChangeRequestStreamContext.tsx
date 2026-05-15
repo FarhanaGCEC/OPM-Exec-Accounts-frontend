@@ -73,9 +73,19 @@ export function AdminChangeRequestStreamProvider({ children }: { children: React
       void refreshPendingMeta();
     };
 
+    const onResolved = (ev: Event) => {
+      try {
+        const raw = (ev as MessageEvent).data;
+        if (raw) JSON.parse(String(raw));
+      } catch {
+        /* ignore parse errors */
+      }
+      onRefresh();
+    };
+
     es.addEventListener('connected', onConnected);
     es.addEventListener('new_request', onRefresh);
-    es.addEventListener('request_resolved', onRefresh);
+    es.addEventListener('request_resolved', onResolved);
     es.onerror = () => {
       setStreamConnected(false);
     };
@@ -83,7 +93,7 @@ export function AdminChangeRequestStreamProvider({ children }: { children: React
     return () => {
       es.removeEventListener('connected', onConnected);
       es.removeEventListener('new_request', onRefresh);
-      es.removeEventListener('request_resolved', onRefresh);
+      es.removeEventListener('request_resolved', onResolved);
       es.close();
       if (esRef.current === es) esRef.current = null;
       setStreamConnected(false);

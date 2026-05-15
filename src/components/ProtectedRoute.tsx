@@ -1,18 +1,27 @@
+import { useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
+import { applyProfileToSession } from '../lib/authPayload';
+import { authService } from '../services/authService';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  // Check if user has an authentication token
   const token = localStorage.getItem('authToken');
+  const profileFetched = useRef(false);
 
-  // If no token, redirect to login page
+  useEffect(() => {
+    if (!token || profileFetched.current) return;
+    profileFetched.current = true;
+    void authService.getProfile().then((profile) => {
+      if (profile) applyProfileToSession(profile);
+    });
+  }, [token]);
+
   if (!token) {
     return <Navigate to="/" replace />;
   }
 
-  // If token exists, render the protected component
   return <>{children}</>;
 }

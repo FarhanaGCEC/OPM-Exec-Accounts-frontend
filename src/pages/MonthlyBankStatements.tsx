@@ -4,6 +4,7 @@ import Layout from '../components/Layout';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import api from '../lib/api';
+import { canUploadStatements } from '../lib/authPayload';
 
 type CurrencyCode = 'AED' | 'USD' | 'GBP';
 type DocumentType = 'bank_statement' | 'monthly_invoice';
@@ -172,6 +173,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 const formatYearMonth = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
 
 export default function MonthlyBankStatements() {
+  const canUpload = canUploadStatements();
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>('AED');
@@ -565,24 +567,28 @@ export default function MonthlyBankStatements() {
                       <div className="inline-flex items-center rounded-full bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white">
                         {row.currency}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setIsUploadModalOpen(true)}
-                          className="h-8 rounded-full"
-                        >
-                          <Upload className="mr-2 h-4 w-4" />
-                          Upload Files
-                        </Button>
-                      </div>
+                      {canUpload && (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setIsUploadModalOpen(true)}
+                            className="h-8 rounded-full"
+                          >
+                            <Upload className="mr-2 h-4 w-4" />
+                            Upload Files
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="rounded-[20px] border border-gray-200 bg-gray-50 p-3">
-                      <p className="text-xs text-gray-600">
-                        Uploads are managed via the <span className="font-semibold">Upload Files</span> button.
-                      </p>
-                    </div>
+                    {canUpload && (
+                      <div className="rounded-[20px] border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs text-gray-600">
+                          Uploads are managed via the <span className="font-semibold">Upload Files</span> button.
+                        </p>
+                      </div>
+                    )}
 
                     <div className="overflow-x-auto rounded-[20px] border border-gray-200">
                       <table className="min-w-full divide-y divide-gray-200">
@@ -652,20 +658,22 @@ export default function MonthlyBankStatements() {
                                       <Eye className="mr-2 h-4 w-4" />
                                       View
                                     </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-8 rounded-full text-red-600 hover:text-red-700"
-                                      onClick={() => void handleDelete(row.currency, type)}
-                                      disabled={!hasFile || deletingKey === `${row.currency}-delete-${type}`}
-                                    >
-                                      {deletingKey === `${row.currency}-delete-${type}` ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      ) : (
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                      )}
-                                      Delete
-                                    </Button>
+                                    {canUpload && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 rounded-full text-red-600 hover:text-red-700"
+                                        onClick={() => void handleDelete(row.currency, type)}
+                                        disabled={!hasFile || deletingKey === `${row.currency}-delete-${type}`}
+                                      >
+                                        {deletingKey === `${row.currency}-delete-${type}` ? (
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                        )}
+                                        Delete
+                                      </Button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -674,6 +682,7 @@ export default function MonthlyBankStatements() {
                         </tbody>
                       </table>
                     </div>
+                    {canUpload && (
                     <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
                       <DialogContent className="w-[95vw] max-w-xl overflow-hidden">
                         <DialogHeader>
@@ -798,6 +807,7 @@ export default function MonthlyBankStatements() {
                         </div>
                       </DialogContent>
                     </Dialog>
+                    )}
                   </div>
                 );
               })()}

@@ -1,4 +1,5 @@
 import {
+  normalizeBulkPaymentType,
   normalizeBulkTransactionDate,
   parseCsvRow,
   parseMoneyCell,
@@ -43,6 +44,63 @@ export function normalizeFkDetailsForApi(raw: string): string {
   if (lower === 'cheque' || lower === 'check' || lower === 'chq') return 'Cheque';
   if (lower.includes('cheque') || lower.includes('check')) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export type FkFormPaymentType = 'cheque' | 'online' | 'cash' | 'creditcard';
+
+/** Map stored `details` (and optional API payment type) back to the edit-form dropdown. */
+export function detailsToFkPaymentTypeAndCheque(
+  details: string,
+  apiPaymentType?: string | null
+): { paymentType: FkFormPaymentType | ''; chequeNumber: string } {
+  const apiNorm = apiPaymentType ? normalizeBulkPaymentType(apiPaymentType) : null;
+  if (apiNorm) {
+    const paymentType: FkFormPaymentType =
+      apiNorm === 'dd' ? 'online' : apiNorm;
+    const s = String(details ?? '').trim();
+    const chequeNumber =
+      paymentType === 'cheque' && /^\d{3,20}$/.test(s) ? s : '';
+    return { paymentType, chequeNumber };
+  }
+
+  const s = String(details ?? '').trim();
+  if (!s) return { paymentType: 'online', chequeNumber: '' };
+
+  const fromWord = normalizeBulkPaymentType(s);
+  if (fromWord) {
+    const paymentType: FkFormPaymentType = fromWord === 'dd' ? 'online' : fromWord;
+    const chequeNumber =
+      paymentType === 'cheque' && /^\d{3,20}$/.test(s) ? s : '';
+    return { paymentType, chequeNumber };
+  }
+
+  if (/^\d{3,20}$/.test(s)) {
+    return { paymentType: 'cheque', chequeNumber: s };
+  }
+
+  const lower = s.toLowerCase().replace(/\s+/g, ' ');
+  if (lower.includes('credit') && lower.includes('card')) {
+    return { paymentType: 'creditcard', chequeNumber: '' };
+  }
+  if (lower.includes('cheque') || lower.includes('check') || lower === 'chq') {
+    return { paymentType: 'cheque', chequeNumber: '' };
+  }
+  if (lower.includes('cash')) {
+    return { paymentType: 'cash', chequeNumber: '' };
+  }
+  if (
+    lower.includes('online') ||
+    lower.includes('transfer') ||
+    lower.includes('wire') ||
+    lower.includes('neft') ||
+    lower.includes('rtgs') ||
+    lower.includes('imps') ||
+    lower.includes('debit')
+  ) {
+    return { paymentType: 'online', chequeNumber: '' };
+  }
+
+  return { paymentType: '', chequeNumber: '' };
 }
 
 function normKey(s: string): string {

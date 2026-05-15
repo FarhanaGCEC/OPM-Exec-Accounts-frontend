@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '../components/Layout';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -25,6 +25,16 @@ import {
 } from '../services/changeRequestService';
 import { useAdminChangeRequestStream } from '../context/AdminChangeRequestStreamContext';
 import { formatIsoDateTimeDisplay } from '../lib/formatDisplayDate';
+import type { ApiResponse } from '../lib/api';
+import {
+  changeRequestResourceLabel,
+  duplicatePendingHint,
+  groupPendingChangeRequests,
+  isChangeRequestConflictError,
+  isLatestPendingInResourceGroup,
+  parseClosedDuplicateRequestIds,
+  userMessageFromChangeRequestReview,
+} from '../lib/changeRequestUi';
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
@@ -37,19 +47,21 @@ function statusClass(status: string): string {
 export default function ApprovalQueue() {
   const { pendingCount: livePendingCount, streamConnected, streamRefreshKey } =
     useAdminChangeRequestStream();
-  const [filter, setFilter] = useState<'pending' | 'all'>('all');
+  const [filter, setFilter] = useState<'pending' | 'all'>('pending');
   const [rows, setRows] = useState<ChangeRequestRow[]>([]);
   const [listPendingCount, setListPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejectRow, setRejectRow] = useState<ChangeRequestRow | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  const pendingGroups = useMemo(() => groupPendingChangeRequests(rows), [rows]);
+
   const load = useCallback(async () => {
     setError(null);
-    setActionMessage(null);
     setLoading(true);
     try {
       const { rows: list, pendingCount } = await changeRequestService.listAdminWithMeta(
@@ -72,11 +84,34 @@ export default function ApprovalQueue() {
   const handleApprove = async (r: ChangeRequestRow) => {
     setBusyId(String(r.id));
     setActionMessage(null);
+    setInfoMessage(null);
+    setError(null);
     try {
-      await changeRequestService.approve(r.id);
-      setActionMessage(`Request ${r.id} approved and applied.`);
+      const res = await changeRequestService.approve(r.id);
+      const parsed = changeRequestService.parseApproveBody(res.data);
+      const closedIds = parsed.closedDuplicateRequestIds?.length
+        ? parsed.closedDuplicateRequestIds
+        : parseClosedDuplicateRequestIds(res.data);
+
+      let msg = userMessageFromChangeRequestReview(
+        res as ApiResponse<unknown>,
+        `Request ${r.id} approved and applied.`
+      );
+      if (closedIds.length > 0) {
+        msg += ` ${closedIds.length} duplicate request(s) auto-closed.`;
+      }
+      setActionMessage(msg);
       await load();
     } catch (e: unknown) {
+      if (isChangeRequestConflictError(e)) {
+        setInfoMessage(
+          e instanceof Error
+            ? e.message
+            : 'This request was already approved or rejected. Refreshing list.'
+        );
+        await load();
+        return;
+      }
       setError(e instanceof Error ? e.message : 'Approve failed');
     } finally {
       setBusyId(null);
@@ -92,17 +127,34 @@ export default function ApprovalQueue() {
     if (!rejectRow) return;
     setBusyId(String(rejectRow.id));
     setError(null);
+    setInfoMessage(null);
     try {
-      await changeRequestService.reject(rejectRow.id, rejectNote || undefined);
-      setActionMessage(`Request ${rejectRow.id} rejected.`);
+      const res = await changeRequestService.reject(rejectRow.id, rejectNote || undefined);
+      const msg = userMessageFromChangeRequestReview(
+        res as ApiResponse<unknown>,
+        `Request ${rejectRow.id} rejected.`
+      );
+      setActionMessage(msg);
       setRejectRow(null);
       await load();
     } catch (e: unknown) {
+      if (isChangeRequestConflictError(e)) {
+        setInfoMessage(
+          e instanceof Error
+            ? e.message
+            : 'This request was already approved or rejected. Refreshing list.'
+        );
+        setRejectRow(null);
+        await load();
+        return;
+      }
       setError(e instanceof Error ? e.message : 'Reject failed');
     } finally {
       setBusyId(null);
     }
   };
+
+  const displayPendingCount = Math.max(livePendingCount, listPendingCount);
 
   return (
     <Layout>
@@ -113,9 +165,9 @@ export default function ApprovalQueue() {
             <h2 className="text-2xl font-bold text-gray-900">Approval queue</h2>
             <p className="text-sm text-gray-600 mt-0.5">
               Review change requests from standard users; approving applies them on the server.
-              {(livePendingCount > 0 || listPendingCount > 0) && (
-                <span className="ml-2 font-semibold text-gray-900">
-                  {Math.max(livePendingCount, listPendingCount)} pending
+              {displayPendingCount > 0 && (
+                <span className="ml-2 inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                  {displayPendingCount} pending
                 </span>
               )}
               {streamConnected && (
@@ -135,8 +187,8 @@ export default function ApprovalQueue() {
               <SelectValue placeholder="Filter" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="pending">Pending only</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -159,6 +211,12 @@ export default function ApprovalQueue() {
       {actionMessage && (
         <div className="mx-4 mb-2 p-3 bg-emerald-50 border border-emerald-200 rounded-md">
           <p className="text-sm text-emerald-800">{actionMessage}</p>
+        </div>
+      )}
+
+      {infoMessage && (
+        <div className="mx-4 mb-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <p className="text-sm text-blue-800">{infoMessage}</p>
         </div>
       )}
 
@@ -225,10 +283,16 @@ export default function ApprovalQueue() {
                         r.payload && typeof r.payload === 'object'
                           ? JSON.stringify(r.payload)
                           : '—';
+                      const dupHint = pending ? duplicatePendingHint(r, pendingGroups) : null;
+                      const isLatest = isLatestPendingInResourceGroup(r, pendingGroups);
+                      const showApprove = pending && isLatest;
+
                       return (
                         <tr
                           key={String(r.id)}
-                          className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                          className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                            pending && !isLatest ? 'opacity-60' : ''
+                          }`}
                         >
                           <td className="px-4 py-2 align-middle text-sm font-mono text-gray-800">
                             {String(r.id)}
@@ -241,9 +305,16 @@ export default function ApprovalQueue() {
                             {r.action}
                           </td>
                           <td className="px-4 py-2 align-middle text-sm text-gray-800">
-                            <span className="font-medium text-gray-900">{r.resourceType}</span>
+                            <span className="font-medium text-gray-900">
+                              {changeRequestResourceLabel(r.resourceType)}
+                            </span>
                             {r.resourceId != null && r.resourceId !== '' && (
                               <span className="text-gray-600"> #{r.resourceId}</span>
+                            )}
+                            {dupHint && (
+                              <p className="text-xs text-amber-800 mt-0.5" title={dupHint}>
+                                {dupHint}
+                              </p>
                             )}
                           </td>
                           <td className="px-4 py-2 align-middle text-sm">
@@ -270,33 +341,37 @@ export default function ApprovalQueue() {
                           </td>
                           <td className="px-4 py-2 align-middle">
                             {pending ? (
-                              <div className="flex flex-wrap gap-1.5">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-8 px-2 text-xs"
-                                  disabled={busyId !== null}
-                                  onClick={() => void handleApprove(r)}
-                                >
-                                  {busyId === String(r.id) ? (
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                  ) : (
-                                    <Check className="w-3 h-3" />
-                                  )}
-                                  <span className="ml-1">Approve</span>
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 px-2 text-xs border-red-200 text-red-700 hover:bg-red-50"
-                                  disabled={busyId !== null}
-                                  onClick={() => openReject(r)}
-                                >
-                                  <X className="w-3 h-3" />
-                                  <span className="ml-1">Reject</span>
-                                </Button>
-                              </div>
+                              showApprove ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-8 px-2 text-xs"
+                                    disabled={busyId !== null}
+                                    onClick={() => void handleApprove(r)}
+                                  >
+                                    {busyId === String(r.id) ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Check className="w-3 h-3" />
+                                    )}
+                                    <span className="ml-1">Approve</span>
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 px-2 text-xs border-red-200 text-red-700 hover:bg-red-50"
+                                    disabled={busyId !== null}
+                                    onClick={() => openReject(r)}
+                                  >
+                                    <X className="w-3 h-3" />
+                                    <span className="ml-1">Reject</span>
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-amber-700">Use latest request</span>
+                              )
                             ) : (
                               <span className="text-sm text-gray-400">—</span>
                             )}

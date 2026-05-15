@@ -6,7 +6,8 @@ import type { ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
-import { formatDisplayYear } from '../lib/formatDisplayDate';
+import { formatDateForApi, formatIsoDateDisplay } from '../lib/formatDisplayDate';
+import { detailsToFkPaymentTypeAndCheque } from '../lib/fkEmiratesBulkParse';
 import {
   Dialog,
   DialogContent,
@@ -37,12 +38,19 @@ import { Checkbox } from '../components/ui/checkbox';
 import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
 import { canMutateRecords } from '../lib/authPayload';
+import {
+  isChangeRequestQueuedResponse,
+  isImmediateMutationSuccess,
+  mutationErrorMessage,
+  userMessageFromChangeRequestSubmit,
+} from '../lib/changeRequestUi';
 
 interface FkEmritsTransaction {
   id?: string | number;
   date: string;
   description: string;
   details: string;
+  paymentType?: string;
   debit?: number | string | null;
   credit?: number | string | null;
   bankCharges?: number | string | null;
@@ -64,6 +72,7 @@ export default function FkEmrits() {
   const [editingTransaction, setEditingTransaction] = useState<FkEmritsTransaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<FkEmritsTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
   const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
@@ -118,6 +127,7 @@ export default function FkEmrits() {
           date: txn.date,
           description: txn.description || '',
           details: txn.details || '',
+          paymentType: txn.paymentType ?? txn.payment_type ?? undefined,
           debit: txn.debit,
           credit: txn.credit,
           bankCharges: txn.bankCharges,
@@ -190,18 +200,7 @@ export default function FkEmrits() {
   }, [isModalOpen]);
 
   // Helper function to format date
-  const formatDate = (dateString: string): string => {
-    try {
-      const date = new Date(dateString);
-      if (Number.isNaN(date.getTime())) return dateString;
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = date.toLocaleString('en-US', { month: 'short' });
-      const year = formatDisplayYear(date.getFullYear());
-      return `${day}-${month}-${year}`;
-    } catch {
-      return dateString;
-    }
-  };
+  const formatDate = (dateString: string): string => formatIsoDateDisplay(dateString);
 
   const parseDateForSort = (dateString: string): Date | null => {
     const parsed = new Date(dateString);
@@ -337,25 +336,17 @@ export default function FkEmrits() {
       ? String(transaction.credit)
       : '';
     
-    // Map details to paymentType (normalize to match dropdown values)
-    let paymentType: 'cheque' | 'online' | 'cash' | 'creditcard' | '' = '';
-    const detailsLower = (transaction.details || '').toLowerCase();
-    if (detailsLower.includes('cheque')) {
-      paymentType = 'cheque';
-    } else if (detailsLower.includes('online')) {
-      paymentType = 'online';
-    } else if (detailsLower.includes('cash')) {
-      paymentType = 'cash';
-    } else if (detailsLower.includes('credit') || detailsLower.includes('card')) {
-      paymentType = 'creditcard';
-    }
-    
+    const { paymentType, chequeNumber } = detailsToFkPaymentTypeAndCheque(
+      transaction.details || '',
+      transaction.paymentType
+    );
+
     setFormData({
-      date: transaction.date || '',
+      date: formatDateForApi(transaction.date) || '',
       description: transaction.description || '',
       type: type as 'Debit' | 'Credit' | '',
-      paymentType: paymentType,
-      chequeNumber: (transaction as any).chequeNumber || '',
+      paymentType,
+      chequeNumber,
       amount: amount,
       bankCharges: transaction.bankCharges ? String(transaction.bankCharges) : '',
     });
@@ -379,15 +370,26 @@ export default function FkEmrits() {
       );
       
       if (response.success) {
-        await fetchTransactions();
+        if (isChangeRequestQueuedResponse(response)) {
+          setInfoMessage(userMessageFromChangeRequestSubmit(response));
+          setError(null);
+          setIsDeleteDialogOpen(false);
+          setTransactionToDelete(null);
+          return;
+        }
+        if (isImmediateMutationSuccess(response)) {
+          await fetchTransactions();
+          setInfoMessage(response.message || 'Transaction deleted.');
+          setError(null);
+        }
         setIsDeleteDialogOpen(false);
         setTransactionToDelete(null);
       } else {
         setError('Failed to delete transaction');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error deleting transaction:', err);
-      setError(err?.message || 'Failed to delete transaction');
+      setError(mutationErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -476,15 +478,27 @@ export default function FkEmrits() {
       }
       
       if (response.success) {
+        if (isChangeRequestQueuedResponse(response)) {
+          setInfoMessage(userMessageFromChangeRequestSubmit(response));
+          setError(null);
+          setIsModalOpen(false);
+          setEditingTransaction(null);
+          return;
+        }
         await fetchTransactions();
+        setInfoMessage(
+          response.message ||
+            (editingTransaction ? 'Transaction updated.' : 'Transaction created.')
+        );
+        setError(null);
         setIsModalOpen(false);
         setEditingTransaction(null);
       } else {
         setError('Failed to save transaction');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error saving transaction:', err);
-      setError(err?.message || 'Failed to save transaction');
+      setError(mutationErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -823,6 +837,12 @@ export default function FkEmrits() {
           />
         </div>
       </div>
+
+      {infoMessage && (
+        <div className="mx-8 mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800">
+          {infoMessage}
+        </div>
+      )}
 
       {error && (
         <div className="mx-8 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">

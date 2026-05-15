@@ -45,31 +45,44 @@ import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
 import type { ApiResponse } from '../lib/api';
 import { isApprovalRequiredError } from '../lib/approvalError';
 import {
+  isChangeRequestQueuedResponse,
   isChangeRequestSubmittedEnvelope,
+  mutationErrorMessage,
   userMessageFromChangeRequestSubmit,
 } from '../lib/changeRequestUi';
 import { changeRequestService } from '../services/changeRequestService';
 import * as XLSX from 'xlsx';
 import { canMutateRecords } from '../lib/authPayload';
-import { formatDisplayYear } from '../lib/formatDisplayDate';
+import { expandCenturyYear, formatDisplayYear } from '../lib/formatDisplayDate';
 
 interface PostDatedCheque extends PostDatedChequeType {
   date?: string; // Formatted date for display
   amountFormatted?: string; // Formatted amount for display
 }
 
-const PDC_CHANGE_REQUEST_RESOURCE = 'pdc';
+const PDC_CHANGE_REQUEST_RESOURCE = 'post_dated_cheque';
 
 type PdcApprovalOffer =
   | { mode: 'edit'; resourceId: string; payload: Record<string, unknown>; note?: string }
   | { mode: 'delete'; resourceId: string }
   | { mode: 'success'; message: string };
 
+const isValidChequeFormDate = (val: string): boolean => {
+  const m = val.trim().match(/^(\d{2})\/(\d{2})\/(\d{2}|\d{4})$/);
+  if (!m) return false;
+  const day = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  const yPart = parseInt(m[3], 10);
+  const year = m[3].length === 2 ? expandCenturyYear(yPart) : yPart;
+  const d = new Date(year, month - 1, day);
+  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+};
+
 // Zod validation schema
 const chequeSchema = z.object({
   chequeDate: z.string()
-    .min(10, 'Cheque date is required')
-    .regex(/^\d{2}\/\d{2}\/\d{2,4}$/, 'Date must be in dd/mm/yy format'),
+    .min(1, 'Cheque date is required')
+    .refine(isValidChequeFormDate, 'Enter a valid date (dd/mm/yy)'),
   chequeNumber: z.string()
     .min(1, 'Cheque number is required')
     .min(3, 'Cheque number must be at least 3 digits')
@@ -326,7 +339,8 @@ export default function CustomerPDC() {
       if (
         response.success &&
         response.data &&
-        isChangeRequestSubmittedEnvelope(response.data as unknown)
+        (isChangeRequestQueuedResponse(response as ApiResponse<unknown>) ||
+          isChangeRequestSubmittedEnvelope(response.data as unknown))
       ) {
         const apiMessage = userMessageFromChangeRequestSubmit(
           response as ApiResponse<unknown>
@@ -493,7 +507,10 @@ export default function CustomerPDC() {
       const response: ApiResponse<void> = await transactionService.deletePostDatedCheque(deletingChequeId);
       
       if (response.success) {
-        if (isChangeRequestSubmittedEnvelope(response.data)) {
+        if (
+          isChangeRequestQueuedResponse(response as ApiResponse<unknown>) ||
+          isChangeRequestSubmittedEnvelope(response.data)
+        ) {
           const apiMessage = userMessageFromChangeRequestSubmit(
             response as ApiResponse<unknown>
           );
@@ -501,13 +518,13 @@ export default function CustomerPDC() {
           setPdcApproval({ mode: 'success', message: apiMessage });
           setDeletingChequeId(null);
           setIsDeleteModalOpen(false);
-        } else {
-          setCheques(prevCheques =>
-            prevCheques.filter(cheque => cheque.id !== deletingChequeId)
-          );
-          setDeletingChequeId(null);
-          setIsDeleteModalOpen(false);
+          return;
         }
+        setCheques(prevCheques =>
+          prevCheques.filter(cheque => cheque.id !== deletingChequeId)
+        );
+        setDeletingChequeId(null);
+        setIsDeleteModalOpen(false);
       } else {
         setError(response.message || 'Failed to delete cheque');
       }
@@ -519,7 +536,7 @@ export default function CustomerPDC() {
         setError(null);
       } else {
         const errorMessage =
-          err instanceof Error ? err.message : 'Failed to delete cheque';
+          mutationErrorMessage(err) || 'Failed to delete cheque';
         setError(errorMessage);
         console.error('Error deleting cheque:', err);
       }
@@ -904,14 +921,42 @@ export default function CustomerPDC() {
                 render={({ field }) => {
                   // Convert dd/mm/yyyy string to Date object
                   const parseDate = (dateString: string): Date | null => {
-                    if (!dateString || dateString.length !== 10) return null;
-                    const parts = dateString.split('/');
-                    if (parts.length !== 3) return null;
-                    const day = parseInt(parts[0], 10);
-                    const month = parseInt(parts[1], 10);
-                    const year = parseInt(parts[2], 10);
-                    if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
-                    return new Date(year, month - 1, day);
+                    if (!dateString) return null;
+                    if (dateString.includes('/')) {
+                      const parts = dateString.split('/');
+                      if (parts.length === 3) {
+                        const day = parseInt(parts[0], 10);
+                        const month = parseInt(parts[1], 10);
+                        const yPart = parseInt(parts[2], 10);
+                        if (
+                          !isNaN(day) &&
+                          !isNaN(month) &&
+                          !isNaN(yPart) &&
+                          (parts[2].length === 2 || parts[2].length === 4)
+                        ) {
+                          const year = expandCenturyYear(yPart);
+                          const d = new Date(year, month - 1, day);
+                          if (
+                            d.getFullYear() === year &&
+                            d.getMonth() === month - 1 &&
+                            d.getDate() === day
+                          ) {
+                            return d;
+                          }
+                        }
+                      }
+                      return null;
+                    }
+                    if (
+                      dateString.length >= 10 &&
+                      dateString.includes('-') &&
+                      !dateString.includes('T')
+                    ) {
+                      const date = new Date(dateString);
+                      return isNaN(date.getTime()) ? null : date;
+                    }
+                    const date = new Date(dateString);
+                    return isNaN(date.getTime()) ? null : date;
                   };
 
                   // Convert Date object to dd/mm/yyyy string
@@ -970,7 +1015,11 @@ export default function CustomerPDC() {
                                 if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
                                 if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
                                 field.onChange(value);
-                                if (value.length === 10) {
+                                const segs = value.split('/');
+                                const yOk =
+                                  segs.length === 3 &&
+                                  (segs[2].length === 2 || segs[2].length === 4);
+                                if (yOk) {
                                   const date = parseDate(value);
                                   if (date) {
                                     setSelectedDate(date);

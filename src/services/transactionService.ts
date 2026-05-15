@@ -2,7 +2,7 @@ import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
 import type { BulkApiTransactionRow } from '../lib/bulkTransactionCsv';
 import { isChangeRequestSubmittedEnvelope } from '../lib/changeRequestUi';
-import { expandCenturyYear } from '../lib/formatDisplayDate';
+import { expandCenturyYear, formatDateForApi } from '../lib/formatDisplayDate';
 
 export interface BankTransaction {
   id?: string | number;
@@ -874,7 +874,7 @@ export const transactionService = {
     bankCharges?: string | number;
   }): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {
-      date: data.date,
+      date: formatDateForApi(data.date),
       description: data.description,
       details: data.details,
     };
@@ -907,7 +907,7 @@ export const transactionService = {
   }>): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {};
     
-    if (data.date !== undefined) apiData.date = data.date;
+    if (data.date !== undefined) apiData.date = formatDateForApi(data.date);
     if (data.description !== undefined) apiData.description = data.description;
     if (data.details !== undefined) apiData.details = data.details;
     
@@ -947,7 +947,7 @@ export const transactionService = {
     bankCharges?: string | number;
   }): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {
-      date: data.date,
+      date: formatDateForApi(data.date),
       description: data.description,
       details: data.details,
     };
@@ -980,7 +980,7 @@ export const transactionService = {
   }>): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {};
     
-    if (data.date !== undefined) apiData.date = data.date;
+    if (data.date !== undefined) apiData.date = formatDateForApi(data.date);
     if (data.description !== undefined) apiData.description = data.description;
     if (data.details !== undefined) apiData.details = data.details;
     
@@ -1025,7 +1025,7 @@ export const transactionService = {
     currency: 'AED' | 'USD' | 'GBP';
   }): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {
-      date: data.date,
+      date: formatDateForApi(data.date),
       description: data.description,
       details: data.details,
       currency: data.currency,
@@ -1060,7 +1060,7 @@ export const transactionService = {
   }>): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {};
     
-    if (data.date !== undefined) apiData.date = data.date;
+    if (data.date !== undefined) apiData.date = formatDateForApi(data.date);
     if (data.description !== undefined) apiData.description = data.description;
     if (data.details !== undefined) apiData.details = data.details;
     if (data.currency !== undefined) apiData.currency = data.currency;

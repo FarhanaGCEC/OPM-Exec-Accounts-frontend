@@ -1,5 +1,6 @@
 import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
+import { parseApproveChangeRequestData } from '../lib/changeRequestUi';
 
 export type ChangeRequestAction = 'edit' | 'delete';
 
@@ -173,6 +174,8 @@ export const changeRequestService = {
   approve: async (id: number | string): Promise<ApiResponse<unknown>> => {
     return api.post<unknown>(`/admin/change-requests/${id}/approve`, {});
   },
+
+  parseApproveBody: parseApproveChangeRequestData,
 
   reject: async (id: number | string, reviewNote?: string): Promise<ApiResponse<unknown>> => {
     return api.post<unknown>(`/admin/change-requests/${id}/reject`, {

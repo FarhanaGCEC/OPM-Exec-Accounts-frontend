@@ -109,6 +109,11 @@ export function canMutateRecords(): boolean {
   return !isViewerRole(syncUserRoleFromSession());
 }
 
+/** Viewers may open/view/download statements but must never upload or replace them. */
+export function canUploadStatements(): boolean {
+  return canMutateRecords();
+}
+
 /** Daily-ledger PDC approval PATCH is allowed for admin and accountant (matches backend). */
 export function canApprovePdcDailyLedger(): boolean {
   const r = syncUserRoleFromSession();
@@ -236,4 +241,31 @@ export function clearAuthStorage(): void {
   localStorage.removeItem(AUTH_STORAGE_KEYS.userName);
   localStorage.removeItem(AUTH_STORAGE_KEYS.userRole);
   localStorage.removeItem(AUTH_STORAGE_KEYS.authUser);
+}
+
+/** Merge GET /user/profile into localStorage without clearing the token. */
+export function applyProfileToSession(profile: StoredAuthUser): void {
+  const token = localStorage.getItem(AUTH_STORAGE_KEYS.token);
+  if (!token) return;
+
+  const role = profile.role ?? syncUserRoleFromSession() ?? 'user';
+  localStorage.setItem(AUTH_STORAGE_KEYS.userRole, role);
+
+  const displayName = profile.name ?? profile.username ?? '';
+  if (displayName) {
+    localStorage.setItem(AUTH_STORAGE_KEYS.userName, displayName);
+  }
+
+  const existing = readStoredAuthUser();
+  const snapshot: StoredAuthUser = {
+    id: profile.id ?? existing?.id,
+    username: profile.username ?? existing?.username,
+    name: profile.name ?? existing?.name,
+    role,
+  };
+  if (role.toLowerCase().trim() === 'user' && profile.sidebarPermissions) {
+    snapshot.sidebarPermissions = profile.sidebarPermissions;
+  }
+
+  localStorage.setItem(AUTH_STORAGE_KEYS.authUser, JSON.stringify(snapshot));
 }

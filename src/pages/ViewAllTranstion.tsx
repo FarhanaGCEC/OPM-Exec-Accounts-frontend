@@ -12,6 +12,7 @@ import {
   isBouncedChequeRemarks,
   rowIsGcecPdcHighlight,
 } from '../lib/dailyLedgerRemarksDisplay';
+import { canUploadStatements } from '../lib/authPayload';
 
 import {
   Table,
@@ -690,6 +691,7 @@ const getTransactionTypeDisplayName = (type: string): string => {
 };
 
 export default function ViewAllTranstion() {
+  const canUpload = canUploadStatements();
   const defaultDateRange = getDefaultDateRange();
   const [transactions, setTransactions] = useState<AllTransaction[]>([]);
   const [summary, setSummary] = useState<TransactionSummary | null>(null);
@@ -1476,16 +1478,18 @@ export default function ViewAllTranstion() {
                 <Eye className="w-5 h-5" />
                 {isViewingPdf ? 'Opening...' : 'View Bank Statement'}
               </button>
-              <button
-                type="button"
-                onClick={openUploadModal}
-                disabled={loading || statementLoading}
-                className="flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="Upload Bank Statement PDF"
-              >
-                <Upload className="w-5 h-5" />
-                Upload Bank Statement
-              </button>
+              {canUpload && (
+                <button
+                  type="button"
+                  onClick={openUploadModal}
+                  disabled={loading || statementLoading}
+                  className="flex items-center gap-2 bg-[#ffff] text-black px-4 py-2 rounded font-semibold hover:bg-[#f1f5f9] transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Upload Bank Statement PDF"
+                >
+                  <Upload className="w-5 h-5" />
+                  Upload Bank Statement
+                </button>
+              )}
 
               <button
                 onClick={handleDownloadExcel}
@@ -1812,7 +1816,7 @@ export default function ViewAllTranstion() {
         </div>
       )}
 
-      {showUploadModal && (
+      {canUpload && showUploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
             <div className="flex items-center justify-between border-b px-4 py-3">

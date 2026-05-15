@@ -34,7 +34,7 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
+import { canMutateRecords } from '../lib/authPayload';
 import { formatDisplayYear } from '../lib/formatDisplayDate';
 
 type StatementApprovalOffer =
@@ -62,7 +62,7 @@ interface StatementTotals {
 }
 
 export default function CreditCardStatements() {
-    const canMutate = canMutateRecords() || isViewerRole(syncUserRoleFromSession());
+    const canMutate = canMutateRecords();
     const [creditCards, setCreditCards] = useState<CreditCardStatement[]>([]);
     const [groupedStatements, setGroupedStatements] = useState<GroupedStatements>({});
     const [loading, setLoading] = useState(true);

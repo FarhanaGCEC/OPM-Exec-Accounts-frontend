@@ -7,7 +7,7 @@ import api, { type ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
-import { formatDisplayYear } from '../lib/formatDisplayDate';
+import { formatDateForApi, formatIsoDateDisplay } from '../lib/formatDisplayDate';
 import { Card, CardContent } from '../components/ui/card';
 import {
   Dialog,
@@ -36,7 +36,13 @@ import {
 } from '../components/ui/table';
 import { receivablesService, type ReceivablesCategory } from '../services/receivablesService';
 import { payablesService, type PayablesCategory } from '../services/payablesService';
-import { canMutateRecords } from '../lib/authPayload';
+import { canMutateRecords, canUploadStatements } from '../lib/authPayload';
+import {
+  isChangeRequestQueuedResponse,
+  isImmediateMutationSuccess,
+  mutationErrorMessage,
+  userMessageFromChangeRequestSubmit,
+} from '../lib/changeRequestUi';
 
 interface GbpTransaction {
   id?: string | number;
@@ -412,7 +418,7 @@ export default function GbpTranstion() {
     }
     
     setFormData({
-      date: transaction.date || '',
+      date: formatDateForApi(transaction.date) || '',
       description: transaction.description || '',
       type: type as 'Debit' | 'Credit' | '',
       paymentType: paymentType,
@@ -437,15 +443,27 @@ export default function GbpTranstion() {
       const response = await transactionService.deleteGbpTransaction(String(transactionToDelete.id));
       
       if (response.success) {
-        await fetchTransactions();
+        if (isChangeRequestQueuedResponse(response)) {
+          setToast({
+            type: 'success',
+            message: userMessageFromChangeRequestSubmit(response),
+          });
+          setIsDeleteDialogOpen(false);
+          setTransactionToDelete(null);
+          return;
+        }
+        if (isImmediateMutationSuccess(response)) {
+          await fetchTransactions();
+          setToast({ type: 'success', message: response.message || 'Transaction deleted.' });
+        }
         setIsDeleteDialogOpen(false);
         setTransactionToDelete(null);
       } else {
         setError('Failed to delete transaction');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error deleting transaction:', err);
-      setError(err?.message || 'Failed to delete transaction');
+      setError(mutationErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -531,15 +549,30 @@ export default function GbpTranstion() {
       }
       
       if (response.success) {
+        if (isChangeRequestQueuedResponse(response)) {
+          setToast({
+            type: 'success',
+            message: userMessageFromChangeRequestSubmit(response),
+          });
+          setIsModalOpen(false);
+          setEditingTransaction(null);
+          return;
+        }
         await fetchTransactions();
+        setToast({
+          type: 'success',
+          message:
+            response.message ||
+            (editingTransaction ? 'Transaction updated.' : 'Transaction created.'),
+        });
         setIsModalOpen(false);
         setEditingTransaction(null);
       } else {
         setError('Failed to save transaction');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error saving transaction:', err);
-      setError(err?.message || 'Failed to save transaction');
+      setError(mutationErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -696,18 +729,7 @@ export default function GbpTranstion() {
     return numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const formatDate = (dateString: string): string => {
-    try {
-      const date = new Date(dateString);
-      if (Number.isNaN(date.getTime())) return dateString;
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = date.toLocaleString('en-US', { month: 'short' });
-      const year = formatDisplayYear(date.getFullYear());
-      return `${day}-${month}-${year}`;
-    } catch {
-      return dateString;
-    }
-  };
+  const formatDate = (dateString: string): string => formatIsoDateDisplay(dateString);
 
   return (
     <Layout>
@@ -726,16 +748,18 @@ export default function GbpTranstion() {
             <Eye className="h-4 w-4" />
             <span>{isViewingPdf ? 'Opening...' : 'View Bank Statement'}</span>
           </Button>
-          <Button
-            onClick={openUploadModal}
-            variant="outline"
-            className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black"
-            disabled={isUploading}
-            title="Upload bank statement"
-          >
-            <Upload className="h-4 w-4" />
-            <span>Upload Bank Statement</span>
-          </Button>
+          {canUploadStatements() && (
+            <Button
+              onClick={openUploadModal}
+              variant="outline"
+              className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black"
+              disabled={isUploading}
+              title="Upload bank statement"
+            >
+              <Upload className="h-4 w-4" />
+              <span>Upload Bank Statement</span>
+            </Button>
+          )}
           <Button
             onClick={handleDownloadExcel}
             variant="outline"
@@ -885,7 +909,7 @@ export default function GbpTranstion() {
         )}
       </div>
 
-      {showUploadModal && (
+      {canUploadStatements() && showUploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
             <div className="flex items-center justify-between border-b px-4 py-3">

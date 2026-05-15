@@ -46,7 +46,6 @@ const POST_LOGIN_NAV_ORDER: LandingNavItem[] = [
   {
     path: '/monthly-bank-statements',
     sidebarKey: 'monthly_bank_statements',
-    adminOrAccountantOnly: true,
   },
   { path: '/admin/users', sidebarKey: 'user_accounts_management', adminOnly: true },
 ];

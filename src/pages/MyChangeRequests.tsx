@@ -8,6 +8,10 @@ import {
   type ChangeRequestRow,
 } from '../services/changeRequestService';
 import { formatIsoDateTimeDisplay } from '../lib/formatDisplayDate';
+import {
+  changeRequestResourceLabel,
+  userChangeRequestStatusHint,
+} from '../lib/changeRequestUi';
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
@@ -94,6 +98,9 @@ export default function MyChangeRequests() {
                       Status
                     </th>
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
+                      Update
+                    </th>
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Your note
                     </th>
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
@@ -107,14 +114,14 @@ export default function MyChangeRequests() {
                 <tbody className="[&_tr:last-child]:border-0">
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-4 px-4 align-middle">
+                      <td colSpan={8} className="text-center py-4 px-4 align-middle">
                         <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                         <p className="text-sm text-gray-500">Loading requests...</p>
                       </td>
                     </tr>
                   ) : rows.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-4 px-4 align-middle">
+                      <td colSpan={8} className="text-center py-4 px-4 align-middle">
                         <p className="text-sm text-gray-500 mb-1">No requests yet.</p>
                         <p className="text-sm text-gray-400">
                           Submit changes from screens where your role requires approval.
@@ -134,7 +141,9 @@ export default function MyChangeRequests() {
                           {r.action}
                         </td>
                         <td className="px-4 py-2 align-middle text-sm text-gray-800">
-                          <span className="font-medium text-gray-900">{r.resourceType}</span>
+                          <span className="font-medium text-gray-900">
+                            {changeRequestResourceLabel(r.resourceType)}
+                          </span>
                           {r.resourceId != null && r.resourceId !== '' && (
                             <span className="text-gray-600"> #{r.resourceId}</span>
                           )}
@@ -145,6 +154,9 @@ export default function MyChangeRequests() {
                           >
                             {r.status}
                           </span>
+                        </td>
+                        <td className="px-4 py-2 align-middle text-sm text-gray-700 max-w-[220px]">
+                          {userChangeRequestStatusHint(r)}
                         </td>
                         <td
                           className="px-4 py-2 align-middle text-sm text-gray-700 max-w-xs truncate"

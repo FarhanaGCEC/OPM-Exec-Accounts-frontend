@@ -43,7 +43,11 @@ import {
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook } from '../lib/excelExportFont';
-import { expandCenturyYear, formatDisplayYear } from '../lib/formatDisplayDate';
+import {
+  expandCenturyYear,
+  formatDisplayYear,
+  parseCalendarDateLocal,
+} from '../lib/formatDisplayDate';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
   Tooltip,
@@ -1614,7 +1618,7 @@ export default function BankTransaction() {
         mode === 'pdc_daily_ledger'
           ? await changeRequestService.submit({
               action: 'edit',
-              resourceType: 'pdc',
+              resourceType: 'post_dated_cheque',
               resourceId: offer.resourceId,
               payload: offer.payload,
             })
@@ -1904,27 +1908,10 @@ export default function BankTransaction() {
 
 
 
-  // Helper function to parse date from DD-MMM-YYYY format
-  const parseDateForFilter = useCallback((dateString: string): Date | null => {
-    if (!dateString) return null;
-    try {
-      const parts = dateString.split('-');
-      if (parts.length === 3) {
-        const months: { [key: string]: string } = {
-          'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-          'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-        };
-        const month = months[parts[1]] || '01';
-        return new Date(`${parts[2]}-${month}-${parts[0]}`);
-      }
-      // Try ISO format
-      const isoDate = new Date(dateString);
-      if (!isNaN(isoDate.getTime())) return isoDate;
-    } catch {
-      return null;
-    }
-    return null;
-  }, []);
+  const parseDateForFilter = useCallback(
+    (dateString: string): Date | null => parseCalendarDateLocal(dateString),
+    []
+  );
 
   // Filter transactions based on active tab, date range, and search
   const filteredTransactions = transactions.filter((transaction) => {
@@ -1936,23 +1923,21 @@ export default function BankTransaction() {
     if (activeTab === 'cheque' && transaction.paymentType !== 'cheque') return false;
     if (activeTab === 'cash' && transaction.paymentType !== 'cash') return false;
     
-    // Filter by date range
+    // Filter by date range (calendar day, local timezone)
     if (startDate || endDate) {
-      const transactionDate = parseDateForFilter(transaction.date || '');
-      if (transactionDate) {
-        if (startDate) {
-          const start = parseDateForFilter(startDate);
-          if (start && transactionDate < start) return false;
-        }
-        if (endDate) {
-          const end = parseDateForFilter(endDate);
-          if (end) {
-            // Set end date to end of day
-            const endOfDay = new Date(end);
-            endOfDay.setHours(23, 59, 59, 999);
-            if (transactionDate > endOfDay) return false;
-          }
-        }
+      const dateSource = transaction.originalDate || transaction.date || '';
+      const transactionDate = parseDateForFilter(dateSource);
+      if (!transactionDate) return false;
+
+      const txDay = startOfLocalDay(transactionDate).getTime();
+
+      if (startDate) {
+        const start = parseDateForFilter(startDate);
+        if (start && txDay < startOfLocalDay(start).getTime()) return false;
+      }
+      if (endDate) {
+        const end = parseDateForFilter(endDate);
+        if (end && txDay > startOfLocalDay(end).getTime()) return false;
       }
     }
     
@@ -2633,15 +2618,21 @@ export default function BankTransaction() {
         </div>
       </div>
 
-      {/* Filter Actions */}
+      {/* Filter Actions — filters apply as you pick dates; Clear resets fields */}
       <div className="flex items-end gap-2 w-full">
-       
         <Button
-          onClick={() => {
-            handleClearFilters();
-          }}
+          type="button"
+          variant="outline"
+          onClick={handleClearFilters}
+          className="h-10 border border-gray-300 bg-white text-black hover:bg-gray-50 px-3"
+          title="Clear filters"
+        >
+          <X className="w-4 h-4" />
+        </Button>
+        <Button
+          type="button"
           className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-10 flex-1 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
-          title="Apply Filter"
+          title="Filters apply automatically when you pick dates or type search text"
         >
           <Filter className="w-4 h-4" />
           Apply Filter
@@ -2697,6 +2688,7 @@ export default function BankTransaction() {
 
        {/* Action Buttons */}
        <div className="flex items-center gap-3">
+        {canMutate && (
         <Button
           onClick={() => setBulkUploadOpen(true)}
           variant="outline"
@@ -2706,6 +2698,7 @@ export default function BankTransaction() {
           <Upload className="w-4 h-4 font-semibold" />
           <span>Bulk upload</span>
         </Button>
+        )}
         <Button
           onClick={handleDownloadCSV}
           variant="outline"

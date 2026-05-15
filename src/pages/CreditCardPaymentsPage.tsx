@@ -48,8 +48,15 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords, isViewerRole, syncUserRoleFromSession } from '../lib/authPayload';
+import { canMutateRecords } from '../lib/authPayload';
 import { expandCenturyYear, formatDisplayYear } from '../lib/formatDisplayDate';
+import type { ApiResponse } from '../lib/api';
+import {
+    isChangeRequestQueuedResponse,
+    isImmediateMutationSuccess,
+    mutationErrorMessage,
+    userMessageFromChangeRequestSubmit,
+} from '../lib/changeRequestUi';
 
 export interface CreditCardPayment {
     id: string;
@@ -82,10 +89,13 @@ const paymentSchema = z.object({
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
 export default function CreditCardPaymentsPage() {
-    const canMutate = canMutateRecords() || isViewerRole(syncUserRoleFromSession());
+    const canMutate = canMutateRecords();
     const [creditCards, setCreditCards] = useState<CreditCardPayment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    /** Payment ids with pending admin approval (delete/edit) — row stays in list. */
+    const [pendingApprovalIds, setPendingApprovalIds] = useState<Set<string>>(() => new Set());
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
@@ -109,6 +119,12 @@ export default function CreditCardPaymentsPage() {
         const currentYear = currentDate.getFullYear();
         return Array.from({ length: 7 }, (_, index) => currentYear - 3 + index);
     }, [currentDate]);
+
+    useEffect(() => {
+        if (!successMessage) return;
+        const timer = window.setTimeout(() => setSuccessMessage(null), 8000);
+        return () => window.clearTimeout(timer);
+    }, [successMessage]);
 
     const form = useForm<PaymentFormData>({
         resolver: zodResolver(paymentSchema),
@@ -265,6 +281,7 @@ export default function CreditCardPaymentsPage() {
         try {
             setIsSubmitting(true);
             setError(null);
+            setSuccessMessage(null);
 
             // Format payment date - API accepts "2026-01-15", "15/01/2026", or "15-Jan-2026"
             let formattedDate = data.paymentDate;
@@ -309,10 +326,23 @@ export default function CreditCardPaymentsPage() {
             }
 
             if (response.success) {
+                if (isChangeRequestQueuedResponse(response as ApiResponse<unknown>)) {
+                    const apiMessage = userMessageFromChangeRequestSubmit(
+                        response as ApiResponse<unknown>
+                    );
+                    setSuccessMessage(apiMessage);
+                    if (editingPayment?.id) {
+                        setPendingApprovalIds((prev) => new Set(prev).add(String(editingPayment.id)));
+                    }
+                } else if (isImmediateMutationSuccess(response as ApiResponse<unknown>)) {
+                    setSuccessMessage(
+                        response.message ||
+                            (editingPayment ? 'Payment updated.' : 'Payment created.')
+                    );
+                }
                 setIsModalOpen(false);
                 setEditingPayment(null);
                 form.reset();
-                // Refresh the list
                 await fetchCreditCards(
                     appliedYear,
                     appliedMonth === 'all' ? undefined : [appliedMonth]
@@ -320,8 +350,10 @@ export default function CreditCardPaymentsPage() {
             } else {
                 setError(response.error || (editingPayment ? 'Failed to update payment' : 'Failed to create payment'));
             }
-        } catch (err: any) {
-            const errorMessage = err?.message || (editingPayment ? 'Failed to update credit card payment' : 'Failed to create credit card payment');
+        } catch (err: unknown) {
+            const errorMessage =
+                mutationErrorMessage(err) ||
+                (editingPayment ? 'Failed to update credit card payment' : 'Failed to create credit card payment');
             console.error(`Error ${editingPayment ? 'updating' : 'creating'} payment:`, err);
             setError(errorMessage);
         } finally {
@@ -333,17 +365,32 @@ export default function CreditCardPaymentsPage() {
         try {
             setDeletingPaymentId(payment.id);
             setError(null);
+            setSuccessMessage(null);
             const response = await creditCardService.deleteCreditCardPayment(payment.id);
             if (!response.success) {
                 setError(response.error || 'Failed to delete payment');
                 return;
             }
+            if (isChangeRequestQueuedResponse(response as ApiResponse<unknown>)) {
+                const apiMessage = userMessageFromChangeRequestSubmit(
+                    response as ApiResponse<unknown>
+                );
+                setSuccessMessage(apiMessage);
+                setPendingApprovalIds((prev) => new Set(prev).add(String(payment.id)));
+                return;
+            }
+            setPendingApprovalIds((prev) => {
+                const next = new Set(prev);
+                next.delete(String(payment.id));
+                return next;
+            });
+            setSuccessMessage(response.message || 'Payment deleted.');
             await fetchCreditCards(
                 appliedYear,
                 appliedMonth === 'all' ? undefined : [appliedMonth]
             );
-        } catch (err: any) {
-            const errorMessage = err?.message || 'Failed to delete credit card payment';
+        } catch (err: unknown) {
+            const errorMessage = mutationErrorMessage(err) || 'Failed to delete credit card payment';
             console.error('Error deleting payment:', err);
             setError(errorMessage);
         } finally {
@@ -791,6 +838,12 @@ export default function CreditCardPaymentsPage() {
         </div>
 
 
+            {successMessage && (
+                <div className="mx-8 mb-4 p-3 bg-green-50 border border-green-200 rounded-md shadow-sm">
+                    <p className="text-sm font-medium text-green-800">{successMessage}</p>
+                </div>
+            )}
+
             {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md animate-in fade-in-50">
                     <p className="text-sm text-red-600">{error}</p>
@@ -851,7 +904,14 @@ export default function CreditCardPaymentsPage() {
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
                                             <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                {formatDate(card.paymentDate)}
+                                                <span className="inline-flex flex-wrap items-center gap-1.5">
+                                                    {formatDate(card.paymentDate)}
+                                                    {pendingApprovalIds.has(String(card.id)) && (
+                                                        <span className="inline-flex rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+                                                            Pending approval
+                                                        </span>
+                                                    )}
+                                                </span>
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
                                             {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}

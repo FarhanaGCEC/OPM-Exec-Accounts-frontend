@@ -144,7 +144,6 @@ const menuItems: MenuItem[] = [
     icon: Inbox,
     path: '/monthly-bank-statements',
     sidebarKey: 'monthly_bank_statements',
-    adminOrAccountantOnly: true,
   },
   {
     id: 'user-management',
