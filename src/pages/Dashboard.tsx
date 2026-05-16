@@ -65,13 +65,22 @@ export default function Dashboard() {
           : null;
       const source = nested ?? topLevel;
 
+      const statementTotals =
+        source.statementTotals && typeof source.statementTotals === 'object' && !Array.isArray(source.statementTotals)
+          ? (source.statementTotals as SummarySource)
+          : null;
+
       setAccountSummary({
         totalDebit: toAmount(pickAmountValue(source, ['totalDebit', 'total_debit', 'debitTotal'])),
         totalCredit: toAmount(pickAmountValue(source, ['totalCredit', 'total_credit', 'creditTotal'])),
-        currentBalance: toAmount(pickAmountValue(source, ['totalBalance', 'total_balance', 'currentBalance'])),
+        currentBalance: toAmount(
+          pickAmountValue(source, ['currentBalance', 'current_balance']) ??
+            (statementTotals
+              ? pickAmountValue(statementTotals, ['currentBalance', 'current_balance', 'ledgerBalance'])
+              : undefined)
+        ),
         availableBalance: toAmount(
-          pickAmountValue(source, ['availableBalance', 'available_balance', 'mainAvailableBalance', 'main_available_balance']) ??
-            pickAmountValue(source, ['totalBalance', 'total_balance', 'currentBalance'])
+          pickAmountValue(source, ['availableBalance', 'available_balance', 'mainAvailableBalance', 'main_available_balance'])
         ),
         availableBalanceRemark: '',
       });
@@ -90,7 +99,7 @@ export default function Dashboard() {
   const totalDebitValue = accountSummary?.totalDebit ?? 0;
   const totalCreditValue = accountSummary?.totalCredit ?? 0;
   const currentBalanceValue = accountSummary?.currentBalance ?? 0;
-  const availableBalanceValue = accountSummary?.availableBalance ?? currentBalanceValue;
+  const availableBalanceValue = accountSummary?.availableBalance ?? 0;
   const availableBalanceRemark = accountSummary?.availableBalanceRemark ?? '';
   const shouldHighlightAvailableBalanceCell =
     availableBalanceRemark.trim().toLowerCase() === 'available balance';
