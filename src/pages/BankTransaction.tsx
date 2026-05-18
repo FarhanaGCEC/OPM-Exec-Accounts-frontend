@@ -2614,9 +2614,10 @@ export default function BankTransaction() {
             )}
         </div>
  
- <Card className="bg-white border border-gray-200 shadow-sm rounded-lg mt-18 m-4">
+ <Card className="bg-white border border-gray-200 shadow-sm rounded-lg mt-18 m-4 overflow-hidden">
   <CardContent className="p-4">
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
+    <div className="space-y-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
 
       {/* Start Date */}
       <div>
@@ -2809,20 +2810,22 @@ export default function BankTransaction() {
         </div>
       </div>
 
+    </div>
+
       {/* Filter Actions — filters apply as you pick dates; Clear resets fields */}
-      <div className="flex items-end gap-2 w-full">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
           type="button"
           variant="outline"
           onClick={handleClearFilters}
-          className="h-10 border border-gray-300 bg-white text-black hover:bg-gray-50 px-3"
+          className="h-10 shrink-0 border border-gray-300 bg-white text-black hover:bg-gray-50 px-3"
           title="Clear filters"
         >
           <X className="w-4 h-4" />
         </Button>
         <Button
           type="button"
-          className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-10 flex-1 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
+          className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-10 shrink-0 whitespace-nowrap px-4 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
           title="Filters apply automatically when you pick dates or type search text"
         >
           <Filter className="w-4 h-4" />
