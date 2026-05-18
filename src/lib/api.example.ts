@@ -99,10 +99,10 @@ const createTransactionExample = async () => {
     const response = await transactionService.createBankTransaction({
       date: '2024-01-15',
       type: 'Debit',
-      category: 'Payment',
+      categoryId: 1,
       paymentType: 'creditcard',
       chequeNumber: 'Details here',
-      amount: '1000',
+      amount: 1000,
     });
     return response.data;
   } catch (error: any) {

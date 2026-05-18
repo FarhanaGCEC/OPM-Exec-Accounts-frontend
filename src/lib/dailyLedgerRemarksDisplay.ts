@@ -51,6 +51,30 @@ export function isCustomerPdcRemarksLabel(remarks?: string | null): boolean {
   );
 }
 
+/** Remarks that are only a PDC type label (not a user note). */
+export function isPdcTypeLabelRemarks(remarks?: string | null): boolean {
+  const norm = String(remarks ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!norm) return false;
+  return (
+    norm === 'customer pdc' ||
+    norm === 'gcec pdc' ||
+    norm === 'custom pdc' ||
+    norm === 'pdc customer' ||
+    norm === 'pdc gcec' ||
+    norm === 'pdc custom'
+  );
+}
+
+export type DailyLedgerRemarksDisplayOptions = {
+  /** Approved GCEC PDC: do not inject the "GCEC PDC" fallback label in Remarks. */
+  omitGcecFallback?: boolean;
+  /** When set (incl. `null`), approved GCEC uses this instead of remarks / pdcType. */
+  description?: string | null;
+};
+
 /**
  * **Daily Transaction** remarks for table/export: show **GCEC PDC** when applicable
  * (including when remarks are empty but `pdcType` is GCEC). For Customer PDC,
@@ -58,8 +82,21 @@ export function isCustomerPdcRemarksLabel(remarks?: string | null): boolean {
  */
 export function remarksForDailyLedgerDisplay(
   remarks?: string | null,
-  pdcType?: string
+  pdcType?: string,
+  opts?: DailyLedgerRemarksDisplayOptions
 ): string {
+  if (opts?.omitGcecFallback) {
+    if (opts.description !== undefined) {
+      if (opts.description === null) return '';
+      const d = String(opts.description).trim();
+      if (!d || isPdcTypeLabelRemarks(d)) return '';
+      return d;
+    }
+    const r = String(remarks ?? '').trim();
+    if (r && !isPdcTypeLabelRemarks(r)) return r;
+    return '';
+  }
+
   const r = String(remarks ?? '').trim();
   if (r) return r;
   if (rowIsGcecPdcHighlight(remarks, pdcType)) return 'GCEC PDC';

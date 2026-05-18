@@ -3,6 +3,12 @@ import type { ApiResponse } from '../lib/api';
 import type { BulkApiTransactionRow } from '../lib/bulkTransactionCsv';
 import { isChangeRequestSubmittedEnvelope } from '../lib/changeRequestUi';
 import { expandCenturyYear, formatDateForApi } from '../lib/formatDisplayDate';
+import {
+  ledgerAttachmentViewUrl,
+  mapLedgerChequeAttachmentFromRow,
+  type LedgerChequeAttachmentMeta,
+} from '../lib/ledgerChequeAttachment';
+import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
 
 export interface BankTransaction {
   id?: string | number;
@@ -34,7 +40,31 @@ export interface BankTransaction {
   ledgerApproved?: boolean;
   showLedgerApprovalCheckbox?: boolean;
   approvalPendingFooterDuplicate?: boolean;
+  /** Cheque scan from GET /transactions (`attachment` object or legacy fields). */
+  attachment?: LedgerChequeAttachmentMeta | null;
+  attachmentName?: string | null;
+  attachmentUrl?: string | null;
 }
+
+export type BankTransactionWritePayload = {
+  date: string;
+  type: 'Debit' | 'Credit';
+  categoryId: string | number;
+  paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
+  chequeNumber?: string;
+  remarks?: string;
+  amount: number;
+  transactionTime?: string;
+};
+
+export type BankTransactionWriteOptions = {
+  /** Cheque payment only — File from input (multipart or base64, never both). */
+  attachmentFile?: File | null;
+  /** Change-request path: JSON + attachmentBase64 only (no multipart). */
+  jsonOnly?: boolean;
+  /** Remove stored cheque scan on save (DELETE …/attachment or removeAttachment flag). */
+  removeAttachment?: boolean;
+};
 
 /** POST /transactions/bulk-delete success body (may be nested under `data`). */
 export type BulkDeleteTransactionsResult = {
@@ -126,11 +156,10 @@ function mapPostDatedChequeFromApi(item: PostDatedChequeApiResponse): PostDatedC
   };
   const row = item as unknown as Record<string, unknown>;
   const rawPdcType = row.pdc_type ?? row.pdcType;
-  const nested = item.attachment;
-  const nestedName =
-    nested && typeof nested === 'object' ? nested.name ?? null : null;
-  const nestedUrl =
-    nested && typeof nested === 'object' ? nested.url ?? null : null;
+  const attachmentMeta = mapLedgerChequeAttachmentFromRow(
+    item as unknown as Record<string, unknown>
+  );
+  const displayUrl = ledgerAttachmentViewUrl(attachmentMeta);
   const chequeDateRaw =
     item.cheque_date ?? (row.chequeDate as string | undefined);
   const chequeNumberRaw =
@@ -154,11 +183,21 @@ function mapPostDatedChequeFromApi(item: PostDatedChequeApiResponse): PostDatedC
     amount: item.amount,
     chequeType: item.cheque_type ?? (row.chequeType as string | undefined),
     pdcType: normalizePdcTypeFromApi(rawPdcType),
-    description: item.description || undefined,
+    description: (() => {
+      const note =
+        item.description ??
+        (row.remarks != null ? String(row.remarks) : undefined) ??
+        (row.description != null ? String(row.description) : undefined);
+      return note && String(note).trim() !== '' ? String(note) : undefined;
+    })(),
     attachmentName:
-      item.attachment_name ?? anyItem.attachmentName ?? nestedName ?? null,
-    attachmentUrl:
-      item.attachment_url ?? anyItem.attachmentUrl ?? nestedUrl ?? null,
+      attachmentMeta.name ??
+      item.attachment_name ??
+      anyItem.attachmentName ??
+      null,
+    attachmentUrl: displayUrl
+      ? resolveAttachmentHref(displayUrl) ?? displayUrl
+      : item.attachment_url ?? anyItem.attachmentUrl ?? null,
     createdBy: item.created_by,
     createdByUsername: item.created_by_username,
     createdAt: item.created_at,
@@ -194,7 +233,7 @@ function normalizePdcAmount(v: unknown): number {
 }
 
 /** Data URL (`data:image/jpeg;base64,...`) or raw base64 — backend accepts both. */
-function readFileAsDataUrl(file: File): Promise<string> {
+export function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -272,16 +311,48 @@ function buildPdcUpdateJsonBodyFromApiData(apiData: Record<string, unknown>): Re
   if (Object.prototype.hasOwnProperty.call(apiData, 'pdcType') && apiData.pdcType !== undefined) {
     out.pdcType = String(apiData.pdcType);
   }
-  if (
+  if (Object.prototype.hasOwnProperty.call(apiData, 'remarks')) {
+    out.remarks = String(apiData.remarks ?? '');
+  } else if (
     Object.prototype.hasOwnProperty.call(apiData, 'description') &&
     apiData.description !== undefined &&
-    apiData.description !== null &&
-    String(apiData.description) !== ''
+    apiData.description !== null
   ) {
-    out.description = String(apiData.description);
+    out.remarks = String(apiData.description);
   }
   return out;
 }
+
+function appendPdcFormFields(form: FormData, apiData: Record<string, unknown>): void {
+  if (apiData.chequeDate !== undefined) {
+    form.append('chequeDate', formatChequeDateForPdcMultipart(String(apiData.chequeDate)));
+  }
+  if (apiData.chequeNumber !== undefined) {
+    form.append('chequeNumber', String(apiData.chequeNumber));
+  }
+  if (apiData.customerName !== undefined) {
+    form.append('customerName', String(apiData.customerName ?? '').trim());
+  }
+  if (apiData.amount !== undefined) {
+    form.append('amount', String(normalizePdcAmount(apiData.amount)));
+  }
+  if (apiData.chequeType !== undefined) {
+    form.append('chequeType', String(apiData.chequeType));
+  }
+  if (apiData.pdcType !== undefined) {
+    form.append('pdcType', String(apiData.pdcType));
+  }
+  if (Object.prototype.hasOwnProperty.call(apiData, 'remarks')) {
+    form.append('remarks', String(apiData.remarks ?? ''));
+  }
+}
+
+export type PostDatedChequeUpdateInput = Partial<
+  Omit<PostDatedCheque, 'id' | 'createdBy' | 'createdByUsername' | 'createdAt'>
+> & {
+  /** Clears stored note when `''` — always send on save. */
+  remarks?: string;
+};
 
 // API Response interface (snake_case from backend) - Purchase Bills API
 export interface PaymentMatchingApiResponse {
@@ -417,14 +488,212 @@ export interface PaidAgainstOption {
   paymentStatus?: string;
 }
 
+function mapBankTransactionFromApiRow(
+  item: BankTransaction & Record<string, unknown>
+): BankTransaction {
+  const row = item as Record<string, unknown>;
+  const attachment = mapLedgerChequeAttachmentFromRow(row);
+  const displayUrl = ledgerAttachmentViewUrl(attachment);
+  return {
+    ...item,
+    attachment,
+    attachmentName: attachment.name,
+    attachmentUrl: displayUrl ? resolveAttachmentHref(displayUrl) ?? displayUrl : null,
+  };
+}
+
+function appendBankTransactionFormFields(
+  form: FormData,
+  data: BankTransactionWritePayload,
+  opts?: { alwaysSendRemarks?: boolean }
+): void {
+  form.append('date', data.date);
+  form.append('type', data.type);
+  form.append('paymentType', data.paymentType);
+  form.append('amount', String(data.amount));
+  form.append('categoryId', String(data.categoryId));
+  if (data.chequeNumber) form.append('chequeNumber', data.chequeNumber);
+  if (opts?.alwaysSendRemarks || data.remarks !== undefined) {
+    form.append('remarks', data.remarks ?? '');
+  } else if (data.remarks) {
+    form.append('remarks', data.remarks);
+  }
+  if (data.transactionTime) form.append('transactionTime', data.transactionTime);
+}
+
+async function buildBankTransactionJsonBody(
+  data: BankTransactionWritePayload,
+  attachmentFile?: File | null,
+  opts?: { alwaysSendRemarks?: boolean }
+): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = { ...data };
+  if (opts?.alwaysSendRemarks) {
+    body.remarks = data.remarks ?? '';
+  }
+  if (attachmentFile && attachmentFile.size > 0) {
+    body.attachmentBase64 = await readFileAsDataUrl(attachmentFile);
+    body.attachmentFilename = attachmentFile.name;
+  }
+  return body;
+}
+
+async function postBankTransactionWithAttachment(
+  data: BankTransactionWritePayload,
+  attachmentFile: File,
+  jsonOnly: boolean
+): Promise<ApiResponse<BankTransaction>> {
+  if (jsonOnly) {
+    const json = await buildBankTransactionJsonBody(data, attachmentFile);
+    const response = await api.post<BankTransaction>('/transactions', json);
+    return normalizeBankTransactionMutationResponse(response);
+  }
+
+  const form = new FormData();
+  appendBankTransactionFormFields(form, data);
+  form.append('attachment', attachmentFile, attachmentFile.name);
+  try {
+    const response = await api.post<BankTransaction>('/transactions', form);
+    return normalizeBankTransactionMutationResponse(response);
+  } catch {
+    const json = await buildBankTransactionJsonBody(data, attachmentFile);
+    const response = await api.post<BankTransaction>('/transactions', json);
+    return normalizeBankTransactionMutationResponse(response);
+  }
+}
+
+async function putBankTransactionWithAttachment(
+  id: string,
+  data: BankTransactionWritePayload,
+  attachmentFile: File,
+  jsonOnly: boolean,
+  alwaysSendRemarks?: boolean
+): Promise<ApiResponse<BankTransaction>> {
+  if (jsonOnly) {
+    const json = await buildBankTransactionJsonBody(data, attachmentFile, {
+      alwaysSendRemarks,
+    });
+    const response = await api.put<BankTransaction>(`/transactions/${id}`, json);
+    return normalizeBankTransactionMutationResponse(response);
+  }
+
+  const form = new FormData();
+  appendBankTransactionFormFields(form, data, { alwaysSendRemarks });
+  form.append('attachment', attachmentFile, attachmentFile.name);
+  try {
+    const response = await api.put<BankTransaction>(`/transactions/${id}`, form);
+    return normalizeBankTransactionMutationResponse(response);
+  } catch {
+    const json = await buildBankTransactionJsonBody(data, attachmentFile, {
+      alwaysSendRemarks,
+    });
+    const response = await api.put<BankTransaction>(`/transactions/${id}`, json);
+    return normalizeBankTransactionMutationResponse(response);
+  }
+}
+
+async function deleteBankTransactionAttachmentImpl(
+  id: string | number
+): Promise<ApiResponse<BankTransaction | null>> {
+  try {
+    const response = await api.delete<BankTransaction | null>(
+      `/transactions/${id}/attachment`
+    );
+    if (response.success && response.data) {
+      return normalizeBankTransactionMutationResponse(
+        response as ApiResponse<BankTransaction>
+      );
+    }
+    return response as ApiResponse<BankTransaction | null>;
+  } catch (err: unknown) {
+    const status = (err as { status?: number })?.status;
+    if (status === 404 || status === 405) {
+      const response = await api.put<BankTransaction>(`/transactions/${id}`, {
+        removeAttachment: true,
+      });
+      return normalizeBankTransactionMutationResponse(response);
+    }
+    throw err;
+  }
+}
+
+async function deletePostDatedChequeAttachmentImpl(
+  id: string | number
+): Promise<ApiResponse<PostDatedCheque | null>> {
+  try {
+    const response = await api.delete<PostDatedChequeApiResponse | null>(
+      `/pdc/${id}/attachment`
+    );
+    if (response.success && response.data) {
+      return {
+        ...response,
+        data: mapPostDatedChequeFromApi(response.data),
+      };
+    }
+    return response as unknown as ApiResponse<PostDatedCheque | null>;
+  } catch (err: unknown) {
+    const status = (err as { status?: number })?.status;
+    if (status === 404 || status === 405) {
+      const response = await api.patch<PostDatedChequeApiResponse>(`/pdc/${id}`, {
+        removeAttachment: true,
+      });
+      if (response.success && response.data) {
+        return {
+          ...response,
+          data: mapPostDatedChequeFromApi(response.data),
+        };
+      }
+      return response as unknown as ApiResponse<PostDatedCheque | null>;
+    }
+    throw err;
+  }
+}
+
+function normalizeBankTransactionMutationResponse(
+  response: ApiResponse<BankTransaction>
+): ApiResponse<BankTransaction> {
+  if (!response.success || !response.data) return response;
+  const raw = response.data as unknown;
+  const row =
+    raw && typeof raw === 'object' && 'data' in (raw as object) && (raw as { data?: unknown }).data
+      ? ((raw as { data: BankTransaction }).data as BankTransaction & Record<string, unknown>)
+      : (response.data as BankTransaction & Record<string, unknown>);
+  return {
+    ...response,
+    data: mapBankTransactionFromApiRow(row),
+  };
+}
+
 export const transactionService = {
   // Bank Transactions
   getBankTransactions: async (): Promise<ApiResponse<BankTransaction[]>> => {
-    return api.get<BankTransaction[]>('/transactions');
+    const response = await api.get<BankTransaction[]>('/transactions');
+    if (response.success && Array.isArray(response.data)) {
+      return {
+        ...response,
+        data: response.data.map((row) =>
+          mapBankTransactionFromApiRow(row as BankTransaction & Record<string, unknown>)
+        ),
+      };
+    }
+    return response;
   },
 
-  createBankTransaction: async (data: Omit<BankTransaction, 'id' | 'balance'>): Promise<ApiResponse<BankTransaction>> => {
-    return api.post<BankTransaction>('/transactions', data);
+  createBankTransaction: async (
+    data: BankTransactionWritePayload,
+    options?: BankTransactionWriteOptions
+  ): Promise<ApiResponse<BankTransaction>> => {
+    const file = options?.attachmentFile;
+    const useAttachment =
+      data.paymentType === 'cheque' && file && file.size > 0;
+    if (!useAttachment) {
+      const response = await api.post<BankTransaction>('/transactions', data);
+      return normalizeBankTransactionMutationResponse(response);
+    }
+    return postBankTransactionWithAttachment(
+      data,
+      file,
+      !!options?.jsonOnly
+    );
   },
 
   /**
@@ -445,8 +714,59 @@ export const transactionService = {
     return api.post('/transactions/bulk', { transactions });
   },
 
-  updateBankTransaction: async (id: string, data: Partial<BankTransaction>): Promise<ApiResponse<BankTransaction>> => {
-    return api.put<BankTransaction>(`/transactions/${id}`, data);
+  deleteBankTransactionAttachment: deleteBankTransactionAttachmentImpl,
+
+  deletePostDatedChequeAttachment: deletePostDatedChequeAttachmentImpl,
+
+  updateBankTransaction: async (
+    id: string,
+    data: Partial<BankTransactionWritePayload>,
+    options?: BankTransactionWriteOptions
+  ): Promise<ApiResponse<BankTransaction>> => {
+    const payload = data as BankTransactionWritePayload;
+    const file = options?.attachmentFile;
+    const removing =
+      !!options?.removeAttachment && (!file || file.size === 0);
+
+    if (removing) {
+      try {
+        await deleteBankTransactionAttachmentImpl(id);
+      } catch (deleteErr) {
+        console.warn('[transactionService] remove attachment:', deleteErr);
+      }
+    }
+
+    const useAttachment =
+      payload.paymentType === 'cheque' && file && file.size > 0;
+    const alwaysSendRemarks = Object.prototype.hasOwnProperty.call(data, 'remarks');
+    if (!useAttachment) {
+      const response = await api.put<BankTransaction>(`/transactions/${id}`, data);
+      return normalizeBankTransactionMutationResponse(response);
+    }
+    return putBankTransactionWithAttachment(
+      id,
+      payload,
+      file,
+      !!options?.jsonOnly,
+      alwaysSendRemarks
+    );
+  },
+
+  /** Merge optional cheque scan / removal into a change-request JSON payload (standard users). */
+  appendChequeAttachmentToChangePayload: async (
+    payload: Record<string, unknown>,
+    attachmentFile: File | null | undefined,
+    opts?: { removeAttachment?: boolean }
+  ): Promise<Record<string, unknown>> => {
+    if (opts?.removeAttachment) {
+      return { ...payload, removeAttachment: true };
+    }
+    if (!attachmentFile || attachmentFile.size === 0) return payload;
+    return {
+      ...payload,
+      attachmentBase64: await readFileAsDataUrl(attachmentFile),
+      attachmentFilename: attachmentFile.name,
+    };
   },
 
   deleteBankTransaction: async (id: string): Promise<ApiResponse<void>> => {
@@ -534,13 +854,11 @@ export const transactionService = {
 
   updatePostDatedCheque: async (
     id: string,
-    data: Partial<
-      Omit<PostDatedCheque, 'id' | 'createdBy' | 'createdByUsername' | 'createdAt'>
-    >,
+    data: PostDatedChequeUpdateInput,
     attachment?: File | null,
-    /** With multipart uploads, merged into the form body so the server still receives every required field. */
-    existing?: PostDatedCheque | null
+    _existing?: PostDatedCheque | null
   ): Promise<ApiResponse<PostDatedCheque>> => {
+    void _existing;
     const normalizeAmount = (v: unknown): number | undefined => {
       if (v === undefined || v === null) return undefined;
       if (typeof v === 'number') return v;
@@ -550,60 +868,39 @@ export const transactionService = {
     const hasNewAttachment = Boolean(attachment && attachment.size > 0);
 
     const apiData: Record<string, unknown> = {};
-    const base = existing ?? undefined;
+
+    if (data.chequeDate !== undefined) apiData.chequeDate = data.chequeDate;
+    if (data.chequeNumber !== undefined) apiData.chequeNumber = data.chequeNumber;
+    if (data.customerName !== undefined) apiData.customerName = data.customerName || '';
+    if (data.amount !== undefined) apiData.amount = normalizeAmount(data.amount);
+    if (data.pdcType !== undefined) apiData.pdcType = data.pdcType;
+    if (data.chequeType !== undefined) {
+      apiData.chequeType = data.chequeType || 'Payment Cheque';
+    }
+    if (data.remarks !== undefined) {
+      apiData.remarks = data.remarks;
+    } else if (data.description !== undefined) {
+      apiData.remarks = data.description ?? '';
+    }
+
+    let response: ApiResponse<PostDatedChequeApiResponse>;
 
     if (hasNewAttachment) {
-      if (data.chequeDate !== undefined) apiData.chequeDate = data.chequeDate;
-      else if (base?.chequeDate) apiData.chequeDate = base.chequeDate;
-
-      if (data.chequeNumber !== undefined) apiData.chequeNumber = data.chequeNumber;
-      else if (base?.chequeNumber) apiData.chequeNumber = base.chequeNumber;
-
-      if (data.transactionTime !== undefined) apiData.transactionTime = data.transactionTime;
-      else if (base?.transactionTime) apiData.transactionTime = base.transactionTime;
-
-      if (data.customerName !== undefined) apiData.customerName = data.customerName || '';
-      else apiData.customerName = base?.customerName || '';
-
-      if (data.amount !== undefined) apiData.amount = normalizeAmount(data.amount);
-      else if (base?.amount !== undefined) apiData.amount = normalizeAmount(base.amount);
-
-      if (data.pdcType !== undefined) apiData.pdcType = data.pdcType;
-      else if (base?.pdcType) apiData.pdcType = base.pdcType;
-
-      if (data.chequeType !== undefined) apiData.chequeType = data.chequeType || 'Payment Cheque';
-      else apiData.chequeType = base?.chequeType || 'Payment Cheque';
-
-      if (data.description !== undefined) apiData.description = data.description;
-      else if (base?.description !== undefined) apiData.description = base.description;
+      const form = new FormData();
+      appendPdcFormFields(form, apiData);
+      form.append('attachment', attachment!, attachment!.name);
+      try {
+        response = await api.put<PostDatedChequeApiResponse>(`/pdc/${id}`, form);
+      } catch {
+        const jsonBody = buildPdcUpdateJsonBodyFromApiData(apiData);
+        jsonBody.attachmentBase64 = await readFileAsDataUrl(attachment!);
+        jsonBody.attachmentFilename = attachment!.name;
+        response = await api.patch<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody);
+      }
     } else {
-      if (data.chequeDate) apiData.chequeDate = data.chequeDate;
-      if (data.chequeNumber) apiData.chequeNumber = data.chequeNumber;
-      if (data.transactionTime !== undefined) {
-        apiData.transactionTime = data.transactionTime;
-      }
-      if (data.customerName !== undefined) {
-        apiData.customerName = data.customerName || '';
-      }
-      if (data.amount !== undefined) {
-        apiData.amount = typeof data.amount === 'string' ? parseFloat(data.amount.replace(/,/g, '')) : data.amount;
-      }
-      if (data.pdcType) apiData.pdcType = data.pdcType;
-      if (data.chequeType !== undefined) {
-        apiData.chequeType = data.chequeType || 'Payment Cheque';
-      }
-      if (data.description !== undefined) apiData.description = data.description;
+      const jsonBody = buildPdcUpdateJsonBodyFromApiData(apiData);
+      response = await api.put<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody);
     }
-
-    const jsonBody = buildPdcUpdateJsonBodyFromApiData(apiData);
-    if (hasNewAttachment) {
-      jsonBody.attachmentBase64 = await readFileAsDataUrl(attachment!);
-      jsonBody.attachmentFilename = attachment!.name;
-    }
-
-    const response = hasNewAttachment
-      ? await api.patch<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody)
-      : await api.put<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody);
 
     if (response.success && response.data && isChangeRequestSubmittedEnvelope(response.data)) {
       return response as unknown as ApiResponse<PostDatedCheque>;

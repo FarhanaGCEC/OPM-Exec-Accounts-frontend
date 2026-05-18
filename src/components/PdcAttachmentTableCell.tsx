@@ -30,6 +30,8 @@ export interface PdcAttachmentTableCellProps {
   attachmentUrl?: string | null;
   attachmentName?: string | null;
   variant?: 'default' | 'onDark';
+  /** When true, render nothing if there is no attachment URL (no “—” placeholder). */
+  hideIfMissing?: boolean;
   /** Opens the same edit flow as the row’s Edit action. */
   onEditClick?: () => void;
 }
@@ -38,6 +40,7 @@ export function PdcAttachmentTableCell({
   attachmentUrl,
   attachmentName,
   variant = 'default',
+  hideIfMissing = false,
   onEditClick,
 }: PdcAttachmentTableCellProps) {
   const [open, setOpen] = useState(false);
@@ -125,6 +128,7 @@ export function PdcAttachmentTableCell({
   }, [open, isProbablyPdf, href]);
 
   if (!href) {
+    if (hideIfMissing) return null;
     return <span className={`text-sm ${textClass}`}>—</span>;
   }
 

@@ -34,9 +34,9 @@ export function resolveAttachmentHref(pathOrUrl: string | null | undefined): str
 export function attachmentLooksLikeImage(nameOrUrl: string | null | undefined): boolean {
   if (!nameOrUrl) return false;
   const s = String(nameOrUrl);
-  if (/\.(jpe?g|png|gif|webp|bmp|svg)(\?|$|#)/i.test(s)) return true;
+  if (/\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)(\?|$|#)/i.test(s)) return true;
   if (/res\.cloudinary\.com\/.+\/image\/upload\//i.test(s)) return true;
-  return /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(s);
+  return /\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$/i.test(s);
 }
 
 export function attachmentLooksLikePdf(nameOrUrl: string | null | undefined): boolean {

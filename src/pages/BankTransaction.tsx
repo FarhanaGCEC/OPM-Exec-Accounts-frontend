@@ -45,9 +45,20 @@ import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook } from '../lib/excelExportFont';
 import {
   expandCenturyYear,
+  formatDateForApi,
   formatDisplayYear,
+  formatIsoDateDisplay,
+  formatJsDateDisplay,
   parseCalendarDateLocal,
 } from '../lib/formatDisplayDate';
+import {
+  isChequePaymentType,
+  ledgerAttachmentViewUrl,
+  mapLedgerChequeAttachmentFromRow,
+  validateLedgerChequeAttachmentFile,
+} from '../lib/ledgerChequeAttachment';
+import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
+import { PdcAttachmentTableCell } from '../components/PdcAttachmentTableCell';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
   Tooltip,
@@ -61,6 +72,8 @@ import { receivablesService, type ReceivablesCategory } from '../services/receiv
 import {
   transactionService,
   type BankTransaction as BankTransactionType,
+  type BankTransactionWritePayload,
+  type BankTransactionWriteOptions,
 } from '../services/transactionService';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import BulkTransactionUploadDialog from '../components/BulkTransactionUploadDialog';
@@ -81,6 +94,7 @@ import {
   remarksForDailyLedgerDisplay,
   rowIsGcecPdcHighlight,
   isCustomerPdcRemarksLabel,
+  type DailyLedgerRemarksDisplayOptions,
 } from '../lib/dailyLedgerRemarksDisplay';
 
 /** Normalize PDC / ledger fields from GET /transactions (camelCase or snake_case). */
@@ -98,7 +112,9 @@ function readPdcLedgerRowFlags(tx: Record<string, unknown>) {
     pdcType: pick('pdcType', 'pdc_type') as string | undefined,
     syntheticFromPdc: bool(pick('syntheticFromPdc', 'synthetic_from_pdc')),
     ledgerApprovalRequired: bool(pick('ledgerApprovalRequired', 'ledger_approval_required')),
-    ledgerApproved: bool(pick('ledgerApproved', 'ledger_approved')),
+    ledgerApproved:
+      bool(pick('ledgerApproved', 'ledger_approved')) ||
+      bool(pick('dailyLedgerApproved', 'daily_ledger_approved')),
     showLedgerApprovalCheckbox: bool(
       pick('showLedgerApprovalCheckbox', 'show_ledger_approval_checkbox')
     ),
@@ -179,104 +195,165 @@ function rowIsCustomerPdcHighlight(remarks?: string | null, pdcType?: string): b
   return isCustomerPdcRemarksLabel(remarks);
 }
 
+function remarksDisplayOptsForRow(
+  t: Pick<BankTransaction, 'remarks' | 'pdcType' | 'ledgerApproved' | 'pdcDescription'>
+): DailyLedgerRemarksDisplayOptions {
+  const approvedGcec =
+    !!t.ledgerApproved && rowIsGcecPdcHighlight(t.remarks, t.pdcType);
+  return {
+    omitGcecFallback: approvedGcec,
+    description: approvedGcec ? t.pdcDescription : undefined,
+  };
+}
+
 /** @see remarksForDailyLedgerDisplay — same rules for CSV/Excel. */
-function remarksForExport(remarks?: string | null, pdcType?: string): string {
-  return remarksForDailyLedgerDisplay(remarks, pdcType);
+function remarksForExport(t: BankTransaction): string {
+  return remarksForDailyLedgerDisplay(
+    t.remarks,
+    t.pdcType,
+    remarksDisplayOptsForRow(t)
+  );
 }
 
 /** Daily Transaction table Remarks column — same rules as {@link remarksForExport}. */
-function remarksForTableDisplay(remarks?: string | null, pdcType?: string): string {
-  return remarksForExport(remarks, pdcType);
-}
-
-function sanitizePdcUserNote(note?: string | null): string {
-  const trimmed = String(note ?? '').trim();
-  if (!trimmed) return '';
-  const normalized = trimmed.toLowerCase().replace(/\s+/g, ' ');
-  if (
-    normalized === 'customer pdc' ||
-    normalized === 'gcec pdc' ||
-    normalized === 'custom pdc' ||
-    normalized === 'pdc customer' ||
-    normalized === 'pdc gcec' ||
-    normalized === 'pdc custom'
-  ) {
-    return '';
-  }
-  return trimmed;
+function remarksForTableDisplay(transaction: BankTransaction): string {
+  return remarksForDailyLedgerDisplay(
+    transaction.remarks,
+    transaction.pdcType,
+    remarksDisplayOptsForRow(transaction)
+  );
 }
 
 /**
- * API may still send `approvalPendingFooterDuplicate` reminder rows (no date). We hide them:
- * the “no date” tail rows are **frontend-only** copies of unapproved PDC (`clientPendingBottomDup`)
- * until ledger approval, then they disappear — no separate API rows needed for that UX.
+ * API may still send `approvalPendingFooterDuplicate` reminder rows (no date). We hide them.
+ * GCEC unapproved past-due may get a frontend no-date copy at the top (`clientPendingTopDup`).
  */
 function isPdcLedgerFooterRow(t: BankTransaction): boolean {
   return !!t.approvalPendingFooterDuplicate;
 }
 
-function hasLedgerTransactionDatePassed(t: BankTransaction): boolean {
+/** GCEC forecast rows appear in the ledger this many days before cheque date. */
+const GCEC_LEDGER_UPCOMING_DAYS = 15;
+
+function daysUntilLedgerDate(t: BankTransaction): number | null {
   const parsedDate = parseTransactionDateForSort(t);
-  if (!parsedDate) return true;
+  if (!parsedDate) return null;
+  const today = startOfLocalDay(new Date());
+  const txDay = startOfLocalDay(parsedDate);
+  return Math.round((txDay.getTime() - today.getTime()) / 86400000);
+}
 
-  const transactionDay = new Date(parsedDate);
-  transactionDay.setHours(0, 0, 0, 0);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  // Cheque / ledger date has arrived (today or earlier — not strictly before).
-  return transactionDay.getTime() <= today.getTime();
+function hasLedgerTransactionDatePassed(t: BankTransaction): boolean {
+  const days = daysUntilLedgerDate(t);
+  if (days !== null) return days <= 0;
+  const parsed = parseTransactionDateForSort(t);
+  if (!parsed) return false;
+  return startOfLocalDay(parsed).getTime() <= startOfLocalDay(new Date()).getTime();
 }
 
 function isFutureLedgerTransaction(t: BankTransaction): boolean {
-  const parsedDate = parseTransactionDateForSort(t);
-  if (!parsedDate) return false;
-  const transactionDay = new Date(parsedDate);
-  transactionDay.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return transactionDay.getTime() > today.getTime();
+  const days = daysUntilLedgerDate(t);
+  if (days !== null) return days > 0;
+  const parsed = parseTransactionDateForSort(t);
+  if (!parsed) return false;
+  return startOfLocalDay(parsed).getTime() > startOfLocalDay(new Date()).getTime();
 }
 
-/**
- * Customer PDC not yet ledger-approved: extra copy at table bottom without date (until approved).
- */
-function isUnapprovedPdcPinBottom(t: BankTransaction): boolean {
+/** GCEC PDC dated row in the 1–15 day window before cheque date (shows date + affects balance). */
+function isGcecUpcomingWithinWindow(t: BankTransaction): boolean {
+  if (!isGcecLedgerRow(t)) return false;
+  const days = daysUntilLedgerDate(t);
+  return days !== null && days > 0 && days <= GCEC_LEDGER_UPCOMING_DAYS;
+}
+
+/** Hide GCEC rows until 15 days before cheque date; always keep approved + top pending copy. */
+function shouldIncludeGcecInLedger(t: BankTransaction): boolean {
+  if (!isGcecLedgerRow(t)) return true;
+  if (t.ledgerApproved) return true;
   if (isPdcLedgerFooterRow(t)) return false;
-  if (t.ledgerApproved) return false;
-  if (!hasLedgerTransactionDatePassed(t)) return false;
-  return rowIsCustomerPdcHighlight(t.remarks, t.pdcType);
+  const days = daysUntilLedgerDate(t);
+  if (days === null) return true;
+  if (days > GCEC_LEDGER_UPCOMING_DAYS) return false;
+  return true;
 }
 
-/** Unapproved GCEC PDC (cheque date arrived): extra copy at top without date until approved; dated row stays in list. */
+function isGcecLedgerRow(t: Pick<BankTransaction, 'remarks' | 'pdcType'>): boolean {
+  return pdcKindFromTypeOrRemarks(t) === 'gcec';
+}
+
+/** Yellow highlight for unapproved GCEC rows (upcoming, due, or past-due / top approval copy). */
+function shouldHighlightGcecLedgerRow(
+  t: BankTransaction,
+  opts: {
+    clientPendingBottomDup?: boolean;
+    clientPendingTopDup?: boolean;
+    remarksDisplay?: string;
+  } = {}
+): boolean {
+  if (!isGcecLedgerRow(t) || t.ledgerApproved) return false;
+  if (opts.clientPendingBottomDup) return false;
+  if (opts.clientPendingTopDup) return true;
+  if (isFutureLedgerTransaction(t) || isGcecUpcomingWithinWindow(t)) return true;
+  if (hasLedgerTransactionDatePassed(t)) return true;
+  const remarksBlob = `${opts.remarksDisplay ?? ''} ${t.remarks ?? ''}`
+    .toLowerCase()
+    .trim();
+  return remarksBlob.includes('upcoming');
+}
+
+/** Unapproved GCEC PDC (cheque date arrived): extra copy at top without date until approved. */
 function isUnapprovedGcecPdcPinTop(t: BankTransaction): boolean {
   if (isPdcLedgerFooterRow(t)) return false;
   if (t.ledgerApproved) return false;
-  if (!hasLedgerTransactionDatePassed(t)) return false;
-  return rowIsGcecPdcHighlight(t.remarks, t.pdcType);
+  if (!isGcecLedgerRow(t)) return false;
+  return hasLedgerTransactionDatePassed(t);
+}
+
+/**
+ * GCEC PDC date column: show while cheque date is in the future; hide once due/today until approved.
+ * Returns display text or '' when the column should be blank.
+ */
+function gcecLedgerDateColumnText(
+  t: BankTransaction,
+  opts?: { forceHide?: boolean }
+): string {
+  if (opts?.forceHide) return '';
+  if (!isGcecLedgerRow(t) || t.ledgerApproved) {
+    return ledgerRowDateLabel(t);
+  }
+  if (hasLedgerTransactionDatePassed(t)) return '';
+  return ledgerRowDateLabel(t);
 }
 
 function shouldHideLedgerDateColumn(
   t: BankTransaction,
   clientPendingBottomDup = false,
-  clientPendingTopDup = false
+  _clientPendingTopDup = false
 ): boolean {
   if (isPdcLedgerFooterRow(t)) return true;
   if (clientPendingBottomDup) return true;
-  if (clientPendingTopDup) return true;
-  return false;
+  return gcecLedgerDateColumnText(t) === '';
 }
 
-/** Date in grid / exports. Bottom or top pending copy hides the date column. */
+/** Resolve display date text from row fields (grid + ISO). */
+function ledgerRowDateLabel(t: BankTransaction): string {
+  const fromGrid = t.date?.trim();
+  if (fromGrid) return fromGrid;
+  if (t.originalDate) {
+    const fromIso = formatLedgerGridDate(t.originalDate);
+    if (fromIso && fromIso !== '—') return fromIso;
+  }
+  return '';
+}
+
+/** Date in grid / exports. */
 function displayTransactionDate(
   t: BankTransaction,
   clientPendingBottomDup = false,
-  clientPendingTopDup = false
+  _clientPendingTopDup = false
 ): string {
-  return shouldHideLedgerDateColumn(t, clientPendingBottomDup, clientPendingTopDup)
-    ? ''
-    : t.date || '';
+  if (clientPendingBottomDup) return '';
+  return gcecLedgerDateColumnText(t);
 }
 
 /**
@@ -288,13 +365,14 @@ function shouldSuppressBalanceForDisplay(
   clientPendingBottomDup = false,
   clientPendingTopDup = false
 ): boolean {
-  // Upcoming GCEC rows should always show backend-provided forecast balance.
-  if (rowIsGcecPdcHighlight(t.remarks, t.pdcType) && isFutureLedgerTransaction(t)) {
+  // Upcoming GCEC rows (≤15 days before cheque): show forecast / chained balance.
+  if (isGcecUpcomingWithinWindow(t)) {
     return false;
   }
   const gcecAwaitingApproval =
     rowIsGcecPdcHighlight(t.remarks, t.pdcType) && !t.ledgerApproved;
   if (gcecAwaitingApproval) return false;
+  // Customer PDC (unapproved): show computed running balance (excludes this row’s credit until approved).
   return shouldHideLedgerDateColumn(t, clientPendingBottomDup, clientPendingTopDup);
 }
 
@@ -321,13 +399,12 @@ function shouldAffectRunningBalance(
     return false;
   }
 
-  // GCEC PDC & Customer PDC: running balance moves only after ledger approval (upcoming GCEC never, until dated).
+  // GCEC: include upcoming (≤15 days) and matured rows in running balance; top no-date copy is display-only.
   const kind = pdcKindFromTypeOrRemarks(t);
   if (kind === 'gcec') {
-    if (isFutureLedgerTransaction(t)) return false;
-    return !!t.ledgerApproved;
+    return true;
   }
-  if (kind === 'customer') return !!t.ledgerApproved;
+  if (kind === 'customer') return true;
 
   return true;
 }
@@ -393,28 +470,27 @@ async function resolveClosingBalanceFromAccountSummary(fallback: number): Promis
 /**
  * Balance after each row, chained from the first row’s API balance in sort order.
  * `finalRunning` = balance after the last row in `ordered` (chronological body only).
+ * Keyed by row object so PDC / synthetic rows with missing or duplicate ids still resolve.
  */
-function computeRunningBalanceAfterById(ordered: BankTransaction[]): {
-  afterById: Map<string, number>;
+function computeRunningBalanceAfterByTransaction(ordered: BankTransaction[]): {
+  afterByTransaction: WeakMap<BankTransaction, number>;
   finalRunning: number;
 } {
-  const afterById = new Map<string, number>();
-  if (ordered.length === 0) return { afterById, finalRunning: 0 };
+  const afterByTransaction = new WeakMap<BankTransaction, number>();
+  if (ordered.length === 0) return { afterByTransaction, finalRunning: 0 };
   let after = parseFormattedBalance(ordered[0].balance);
   if (!shouldAffectRunningBalance(ordered[0])) {
     after = after - parseLedgerAmount(ordered[0].credit) + parseLedgerAmount(ordered[0].debit);
   }
-  const id0 = String(ordered[0].id ?? '');
-  if (id0) afterById.set(id0, after);
+  afterByTransaction.set(ordered[0], after);
   for (let i = 1; i < ordered.length; i++) {
     const t = ordered[i];
     if (shouldAffectRunningBalance(t)) {
       after = after + parseLedgerAmount(t.credit) - parseLedgerAmount(t.debit);
     }
-    const id = String(t.id ?? '');
-    if (id) afterById.set(id, after);
+    afterByTransaction.set(t, after);
   }
-  return { afterById, finalRunning: after };
+  return { afterByTransaction, finalRunning: after };
 }
 
 /**
@@ -424,13 +500,14 @@ function computeRunningBalanceAfterById(ordered: BankTransaction[]): {
  */
 function computePendingDupBalanceById(
   finalRunningAfterBody: number,
-  pendingBottomRows: BankTransaction[]
+  pendingRows: BankTransaction[],
+  clientPendingBottomDup: boolean
 ): Map<string, number> {
   const pendingDupById = new Map<string, number>();
   let running = finalRunningAfterBody;
-  for (const t of pendingBottomRows) {
-    if (shouldAffectRunningBalance(t, true)) {
-      const { debit, credit } = getLedgerDebitCreditNumeric(t, true);
+  for (const t of pendingRows) {
+    if (shouldAffectRunningBalance(t, clientPendingBottomDup, false)) {
+      const { debit, credit } = getLedgerDebitCreditNumeric(t, clientPendingBottomDup);
       running = running + credit - debit;
     }
     const id = String(t.id ?? '');
@@ -440,50 +517,65 @@ function computePendingDupBalanceById(
 }
 
 function buildLedgerBalanceMaps(filtered: BankTransaction[]): {
+  bodyAfterByTransaction: WeakMap<BankTransaction, number>;
   bodyAfterById: Map<string, number>;
-  pendingDupAfterById: Map<string, number>;
+  pendingDupAfterByTransaction: WeakMap<BankTransaction, number>;
   statementClosing: number;
 } {
   const ordered = sortTransactionsOldestFirst(filtered);
-  const { afterById: bodyAfterById, finalRunning } =
-    computeRunningBalanceAfterById(ordered);
-  const pendingRows = filtered.filter(
-    (t) => isUnapprovedPdcPinBottom(t) || isUnapprovedGcecPdcPinTop(t)
+  const { afterByTransaction: bodyAfterByTransaction, finalRunning } =
+    computeRunningBalanceAfterByTransaction(ordered);
+  const bodyAfterById = new Map<string, number>();
+  for (const t of ordered) {
+    const id = String(t.id ?? '').trim();
+    if (!id || !bodyAfterByTransaction.has(t)) continue;
+    bodyAfterById.set(id, bodyAfterByTransaction.get(t)!);
+  }
+  const pendingBottomRows = filtered.filter((t) => t.approvalPendingFooterDuplicate);
+  const pendingDupAfterById = computePendingDupBalanceById(
+    finalRunning,
+    pendingBottomRows,
+    true
   );
-  const pendingDupAfterById = computePendingDupBalanceById(finalRunning, pendingRows);
-  let statementClosing = finalRunning;
-  for (const t of pendingRows) {
-    if (shouldAffectRunningBalance(t, true)) {
-      const { debit, credit } = getLedgerDebitCreditNumeric(t, true);
-      statementClosing = statementClosing + credit - debit;
+  const pendingDupAfterByTransaction = new WeakMap<BankTransaction, number>();
+  for (const t of pendingBottomRows) {
+    const id = String(t.id ?? '');
+    if (id && pendingDupAfterById.has(id)) {
+      pendingDupAfterByTransaction.set(t, pendingDupAfterById.get(id)!);
     }
   }
-  return { bodyAfterById, pendingDupAfterById, statementClosing };
+  return {
+    bodyAfterByTransaction,
+    bodyAfterById,
+    pendingDupAfterByTransaction,
+    statementClosing: finalRunning,
+  };
 }
 
 function balanceAfterForDisplay(
   t: BankTransaction,
   clientPendingBottomDup: boolean | undefined,
+  bodyAfterByTransaction: WeakMap<BankTransaction, number>,
   bodyAfterById: Map<string, number>,
-  pendingDupAfterById: Map<string, number>,
+  pendingDupAfterByTransaction: WeakMap<BankTransaction, number>,
   clientPendingTopDup?: boolean | undefined
 ): number {
-  const id = String(t.id ?? '');
-  if (
-    (clientPendingBottomDup || clientPendingTopDup) &&
-    id &&
-    pendingDupAfterById.has(id)
-  ) {
-    return pendingDupAfterById.get(id)!;
+  const id = String(t.id ?? '').trim();
+  const resolveBodyAfter = (): number | null => {
+    if (bodyAfterByTransaction.has(t)) return bodyAfterByTransaction.get(t)!;
+    if (id && bodyAfterById.has(id)) return bodyAfterById.get(id)!;
+    return null;
+  };
+
+  if (clientPendingTopDup) {
+    const chained = resolveBodyAfter();
+    if (chained != null) return chained;
   }
-  // Backend is the source of truth for row-level running balance.
-  // Use API balance directly for normal rows.
-  if (!clientPendingBottomDup && !clientPendingTopDup) {
-    return parseFormattedBalance(t.balance);
+  if (clientPendingBottomDup && pendingDupAfterByTransaction.has(t)) {
+    return pendingDupAfterByTransaction.get(t)!;
   }
-  if (id && bodyAfterById.has(id)) {
-    return bodyAfterById.get(id)!;
-  }
+  const chained = resolveBodyAfter();
+  if (chained != null) return chained;
   return parseFormattedBalance(t.balance);
 }
 
@@ -549,7 +641,9 @@ interface BankTransaction extends BankTransactionType {
   debitFormatted?: string | null; // Formatted debit amount
   creditFormatted?: string | null; // Formatted credit amount
   remarks?: string | null; // Remarks for the transaction
-  
+  /** PDC note from API (`description`); used for Remarks when GCEC is ledger-approved. */
+  pdcDescription?: string | null;
+
   originalDate?: string; // Store original ISO date for editing
   transactionTime?: string;
   createdAtLocal?: string;
@@ -557,124 +651,85 @@ interface BankTransaction extends BankTransactionType {
   ledgerApprovedAtLocal?: string;
 }
 
+function parseSlashDmY(value: string): Date | null {
+  const slash = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!slash) return null;
+  const day = parseInt(slash[1], 10);
+  const month = parseInt(slash[2], 10) - 1;
+  const year = expandCenturyYear(parseInt(slash[3], 10));
+  const fallback = new Date(year, month, day);
+  if (Number.isNaN(fallback.getTime())) return null;
+  if (
+    fallback.getFullYear() === year &&
+    fallback.getMonth() === month &&
+    fallback.getDate() === day
+  ) {
+    return fallback;
+  }
+  return null;
+}
+
+/** First usable date field from GET /transactions (ledger + synthetic PDC rows). */
+function resolveLedgerRowApiDate(row: Record<string, unknown>): string {
+  const keys = [
+    'date',
+    'transaction_date',
+    'transactionDate',
+    'chequeDate',
+    'cheque_date',
+    'payment_date',
+    'paymentDate',
+  ] as const;
+  for (const key of keys) {
+    const v = row[key];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  const nested = row.pdc;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const pdc = nested as Record<string, unknown>;
+    for (const key of ['chequeDate', 'cheque_date', 'date'] as const) {
+      const v = pdc[key];
+      if (v != null && String(v).trim() !== '') return String(v).trim();
+    }
+  }
+  return '';
+}
+
+function formatLedgerGridDate(apiDateStr: string): string {
+  const raw = String(apiDateStr ?? '').trim();
+  if (!raw) return '';
+  const display = formatIsoDateDisplay(raw);
+  if (display && display !== '—') return display;
+  const normalized = formatDateForApi(raw);
+  if (normalized && /^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const fromNorm = formatIsoDateDisplay(normalized);
+    if (fromNorm && fromNorm !== '—') return fromNorm;
+  }
+  return raw;
+}
+
+/** Single calendar-day parser for sort, upcoming GCEC, filters (26 → 2026; no UTC day shift). */
 function parseTransactionDateForSort(t: BankTransaction): Date | null {
   if (t.originalDate) {
-    const direct = new Date(t.originalDate);
-    if (!Number.isNaN(direct.getTime())) return direct;
-
-    // Fallback: support dd/mm/yyyy from API where JS Date parsing is inconsistent.
-    const slashParts = t.originalDate.split('/');
-    if (slashParts.length === 3) {
-      const day = Number(slashParts[0]);
-      const month = Number(slashParts[1]) - 1;
-      const year = Number(slashParts[2]);
-      const fallback = new Date(year, month, day);
-      if (!Number.isNaN(fallback.getTime())) return fallback;
-    }
+    const fromOriginal = parseCalendarDateLocal(t.originalDate);
+    if (fromOriginal) return fromOriginal;
   }
-  // Support API date format: yyyy-mm-dd
-  if (t.date && /^\d{4}-\d{2}-\d{2}$/.test(t.date)) {
-    const direct = new Date(`${t.date}T00:00:00`);
-    if (!Number.isNaN(direct.getTime())) return direct;
-  }
-  const parts = t.date?.split('-');
-  if (parts?.length === 3) {
-    const months: Record<string, string> = {
-      Jan: '01',
-      Feb: '02',
-      Mar: '03',
-      Apr: '04',
-      May: '05',
-      Jun: '06',
-      Jul: '07',
-      Aug: '08',
-      Sep: '09',
-      Oct: '10',
-      Nov: '11',
-      Dec: '12',
-    };
-    const m = months[parts[1] || ''];
-    if (m) {
-      const d = new Date(`${parts[2]}-${m}-${parts[0]}`);
-      return Number.isNaN(d.getTime()) ? null : d;
-    }
-  }
-  // Last fallback for displayed dd/mm/yyyy dates.
-  const slashParts = t.date?.split('/');
-  if (slashParts?.length === 3) {
-    const day = Number(slashParts[0]);
-    const month = Number(slashParts[1]) - 1;
-    const year = Number(slashParts[2]);
-    const fallback = new Date(year, month, day);
-    if (!Number.isNaN(fallback.getTime())) return fallback;
+  if (t.date) {
+    const fromDisplay = parseCalendarDateLocal(t.date);
+    if (fromDisplay) return fromDisplay;
+    const fromSlash = parseSlashDmY(t.date);
+    if (fromSlash) return fromSlash;
   }
   return null;
 }
 
 function formatTransactionDateForForm(t: BankTransaction): string {
-  const formatDateParts = (day: number, month: number, year: number): string =>
-    `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
-
-  const parseSlashDate = (value: string): string | null => {
-    const slash = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-    if (!slash) return null;
-    const day = parseInt(slash[1], 10);
-    const month = parseInt(slash[2], 10);
-    const year = expandCenturyYear(parseInt(slash[3], 10));
-    const parsed = new Date(year, month - 1, day);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return formatDateParts(day, month, year);
-  };
-
-  if (t.originalDate) {
-    const fromSlash = parseSlashDate(t.originalDate);
-    if (fromSlash) return fromSlash;
-
-    const direct = new Date(t.originalDate);
-    if (!Number.isNaN(direct.getTime())) {
-      return formatDateParts(
-        direct.getDate(),
-        direct.getMonth() + 1,
-        direct.getFullYear()
-      );
-    }
-  }
-
-  if (t.date) {
-    const fromSlash = parseSlashDate(t.date);
-    if (fromSlash) return fromSlash;
-
-    const parts = t.date.split('-');
-    if (parts.length === 3) {
-      const months: Record<string, string> = {
-        Jan: '01',
-        Feb: '02',
-        Mar: '03',
-        Apr: '04',
-        May: '05',
-        Jun: '06',
-        Jul: '07',
-        Aug: '08',
-        Sep: '09',
-        Oct: '10',
-        Nov: '11',
-        Dec: '12',
-      };
-      const month = months[parts[1] || ''];
-      if (month) {
-        const day = parseInt(parts[0], 10);
-        const year = expandCenturyYear(parseInt(parts[2], 10));
-        const parsed = new Date(year, parseInt(month, 10) - 1, day);
-        if (!Number.isNaN(parsed.getTime())) {
-          return formatDateParts(day, parseInt(month, 10), year);
-        }
-      }
-    }
-  }
-
   const parsed = parseTransactionDateForSort(t);
   if (!parsed) return '';
-  return formatDateParts(parsed.getDate(), parsed.getMonth() + 1, parsed.getFullYear());
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const year = String(parsed.getFullYear());
+  return `${day}/${month}/${year}`;
 }
 
 function parseLocalDateTimeForSort(value: string | null | undefined): Date | null {
@@ -924,15 +979,14 @@ type LedgerExportRowSpec = {
 };
 
 /**
- * Rows for CSV/Excel (same order as grid): GCEC unapproved no-date at top, then dated body
- * (GCEC included with date), then Customer PDC no-date tail.
+ * Rows for CSV/Excel (same order as grid): GCEC unapproved no-date at top, then full dated body
+ * (Customer PDC in cheque-date order).
  */
 function buildLedgerExportRows(filteredTransactions: BankTransaction[]): LedgerExportRowSpec[] {
   const bodyTransactions = filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t));
   const sortedBody = sortTransactionsOldestFirst(bodyTransactions);
   const pdcPendingTopRows = sortedBody.filter((t) => isUnapprovedGcecPdcPinTop(t));
-  const pdcPendingBottomRows = sortedBody.filter((t) => isUnapprovedPdcPinBottom(t));
-  const sortedBodyDatedOnly = sortedBody.filter((t) => !isUnapprovedPdcPinBottom(t));
+  const sortedBodyDatedOnly = sortedBody.filter((t) => !isUnapprovedGcecPdcPinTop(t));
 
   return [
     ...pdcPendingTopRows.map((t) => ({
@@ -943,11 +997,6 @@ function buildLedgerExportRows(filteredTransactions: BankTransaction[]): LedgerE
     ...sortedBodyDatedOnly.map((t) => ({
       transaction: t,
       clientPendingBottomDup: false,
-      clientPendingTopDup: false,
-    })),
-    ...pdcPendingBottomRows.map((t) => ({
-      transaction: t,
-      clientPendingBottomDup: true,
       clientPendingTopDup: false,
     })),
   ];
@@ -968,6 +1017,112 @@ function ledgerExportDetailsColumn(t: BankTransaction): string {
 function isPdcDueId(id: string | number | undefined | null): boolean {
   if (id === undefined || id === null) return false;
   return String(id).trim().toLowerCase().startsWith('pdc-due-');
+}
+
+/** Ledger / PDC rows that may carry a cheque scan in Actions. */
+function rowMayHaveChequeScan(t: BankTransaction): boolean {
+  if (isChequePaymentType(t.paymentType)) return true;
+  if (t.pdcId != null) return true;
+  if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) return true;
+  if (rowIsCustomerPdcHighlight(t.remarks, t.pdcType)) return true;
+  if (t.syntheticFromPdc && t.chequeNumber && t.chequeNumber !== '-') return true;
+  return false;
+}
+
+function chequeAttachmentHrefForRow(t: BankTransaction): string | null {
+  if (!rowMayHaveChequeScan(t)) return null;
+  const meta =
+    t.attachment ??
+    mapLedgerChequeAttachmentFromRow({
+      attachment: t.attachment,
+      attachment_name: t.attachmentName,
+      attachment_url: t.attachmentUrl,
+    });
+  const raw = ledgerAttachmentViewUrl(meta);
+  return raw ? resolveAttachmentHref(raw) : null;
+}
+
+function enrichLedgerRowsWithPdcAttachments(
+  rows: BankTransaction[],
+  pdcs: Array<{
+    id?: string | number;
+    chequeDate?: string;
+    attachmentName?: string | null;
+    attachmentUrl?: string | null;
+  }>
+): BankTransaction[] {
+  if (!pdcs.length) return rows;
+  const pdcById = new Map<
+    string,
+    {
+      id?: string | number;
+      chequeDate?: string;
+      attachmentName?: string | null;
+      attachmentUrl?: string | null;
+    }
+  >();
+  for (const p of pdcs) {
+    const id = String(p.id ?? '').trim();
+    if (id) pdcById.set(id, p);
+  }
+
+  return rows.map((t) => {
+    const pid =
+      t.pdcId != null ? String(t.pdcId) : resolvePdcIdFromLedgerRow(t);
+    const pdc = pid ? pdcById.get(pid) : undefined;
+
+    let next = t;
+    const missingGridDate = !String(t.date ?? '').trim();
+    const missingIsoDate = !String(t.originalDate ?? '').trim();
+    if (pdc?.chequeDate && (missingGridDate || missingIsoDate)) {
+      const apiDateStr = String(pdc.chequeDate).trim();
+      const isoForEdit =
+        formatDateForApi(apiDateStr) ||
+        (/^\d{4}-\d{2}-\d{2}/.test(apiDateStr) ? apiDateStr.slice(0, 10) : undefined);
+      const formattedDate = formatLedgerGridDate(apiDateStr);
+      next = {
+        ...next,
+        date: missingGridDate ? formattedDate || next.date : next.date,
+        originalDate: missingIsoDate ? isoForEdit || next.originalDate : next.originalDate,
+      };
+    }
+
+    const existingMeta =
+      next.attachment ??
+      mapLedgerChequeAttachmentFromRow({
+        attachment_name: next.attachmentName,
+        attachment_url: next.attachmentUrl,
+      });
+    if (ledgerAttachmentViewUrl(existingMeta)) return next;
+
+    if (!pdc) return next;
+
+    const fromPdc = mapLedgerChequeAttachmentFromRow({
+      attachment: {
+        name: pdc.attachmentName,
+        url: pdc.attachmentUrl,
+        cloudinaryUrl: pdc.attachmentUrl,
+      },
+    });
+    const href = ledgerAttachmentViewUrl(fromPdc);
+    if (!href) return next;
+
+    return {
+      ...next,
+      attachment: fromPdc,
+      attachmentName: fromPdc.name ?? next.attachmentName,
+      attachmentUrl: resolveAttachmentHref(href) ?? href,
+    };
+  });
+}
+
+function resolvePdcIdFromLedgerRow(t: Pick<BankTransaction, 'id' | 'pdcId'>): string | null {
+  if (t.pdcId != null && String(t.pdcId).trim() !== '') {
+    const n = Number(t.pdcId);
+    if (!Number.isNaN(n)) return String(n);
+  }
+  const m = /^pdc-due-(\d+)$/i.exec(String(t.id ?? '').trim());
+  return m ? m[1] : null;
 }
 
 // Zod validation schema
@@ -1047,23 +1202,6 @@ const transactionSchema = z.object({
 
 type TransactionFormData = z.infer<typeof transactionSchema>;
 
-// Date formatting function: Convert ISO date to "DD-MMM-YY" format
-const formatDate = (dateString: string): string => {
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
-    
-    const day = String(date.getDate()).padStart(2, '0');
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const month = months[date.getMonth()];
-    const year = formatDisplayYear(date.getFullYear());
-    
-    return `${day}-${month}-${year}`;
-  } catch (err) {
-    return dateString;
-  }
-};
-
 export default function BankTransaction() {
   const canMutate = canMutateRecords();
   const isViewer = isViewerRole(syncUserRoleFromSession());
@@ -1089,6 +1227,7 @@ export default function BankTransaction() {
 
   type ApprovalOffer =
     | { mode: 'edit'; resourceId: string; payload: Record<string, unknown> }
+    | { mode: 'pdc_edit'; resourceId: string; payload: Record<string, unknown> }
     | { mode: 'delete'; resourceId: string }
     | { mode: 'pdc_daily_ledger'; resourceId: string; payload: Record<string, unknown> }
     | { mode: 'success'; message: string };
@@ -1099,6 +1238,8 @@ export default function BankTransaction() {
   const [pdcApproveDialogOpen, setPdcApproveDialogOpen] = useState(false);
   const [pdcApprovePdcId, setPdcApprovePdcId] = useState<number | null>(null);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  const [chequeAttachmentFile, setChequeAttachmentFile] = useState<File | null>(null);
+  const [removeChequeAttachmentOnSave, setRemoveChequeAttachmentOnSave] = useState(false);
 
   const form = useForm<TransactionFormData>({
     resolver: zodResolver(transactionSchema),
@@ -1130,10 +1271,12 @@ export default function BankTransaction() {
     }
   }, []);
 
-  // Clear cheque number when payment type changes away from cheque
+  // Clear cheque fields when payment type changes away from cheque
   useEffect(() => {
     if (!editingPdcDue && paymentType !== 'cheque') {
       form.setValue('chequeNumber', '');
+      setChequeAttachmentFile(null);
+      setRemoveChequeAttachmentOnSave(false);
     }
   }, [editingPdcDue, paymentType, form]);
 
@@ -1206,19 +1349,17 @@ export default function BankTransaction() {
       
       if (ledgerResponse.success && ledgerResponse.data && Array.isArray(ledgerResponse.data)) {
         // Process transactions from API response
-        const transactionsData: BankTransaction[] = ledgerResponse.data.map((transaction) => {
+        let transactionsData: BankTransaction[] = ledgerResponse.data.map((transaction) => {
           const row = transaction as BankTransactionType & Record<string, unknown>;
           const flags = readPdcLedgerRowFlags(row);
-          const apiDate = (row.date ?? row.transaction_date ?? row.created_at) as
-            | string
-            | null
-            | undefined;
           const isFooterDup = flags.approvalPendingFooterDuplicate;
-          const isoForEdit =
-            apiDate && !isFooterDup && typeof apiDate === 'string' ? apiDate : undefined;
+          const apiDateStr = !isFooterDup ? resolveLedgerRowApiDate(row) : '';
+          const isoForEdit = apiDateStr
+            ? formatDateForApi(apiDateStr) ||
+              (/^\d{4}-\d{2}-\d{2}/.test(apiDateStr) ? apiDateStr.slice(0, 10) : undefined)
+            : undefined;
 
-          const formattedDate =
-            apiDate && !isFooterDup ? formatDate(String(apiDate)) : '';
+          const formattedDate = apiDateStr ? formatLedgerGridDate(apiDateStr) : '';
 
           const normalizedDebit = parseLedgerAmount(
             row.debit ?? row.debit_amount ?? row.debitAmount ?? transaction.debit
@@ -1266,10 +1407,26 @@ export default function BankTransaction() {
           const remarksRaw = row.remarks;
           const remarks =
             remarksRaw === undefined || remarksRaw === null ? undefined : String(remarksRaw);
+          const descriptionRaw = row.description ?? row.pdc_description;
+          const pdcDescription =
+            descriptionRaw === undefined
+              ? undefined
+              : descriptionRaw === null
+                ? null
+                : String(descriptionRaw);
           const isCustomerPdcRow = rowIsCustomerPdcHighlight(remarks, flags.pdcType);
+          const attachmentMeta = mapLedgerChequeAttachmentFromRow(row);
 
           return {
             ...transaction,
+            attachment: attachmentMeta,
+            attachmentName:
+              transaction.attachmentName ?? attachmentMeta.name ?? undefined,
+            attachmentUrl:
+              transaction.attachmentUrl ??
+              attachmentMeta.cloudinaryUrl ??
+              attachmentMeta.url ??
+              undefined,
             id: String(transaction.id ?? ''),
             date: formattedDate,
             originalDate: isoForEdit,
@@ -1316,6 +1473,7 @@ export default function BankTransaction() {
             creditFormatted: creditAmount,
             balance: formattedBalance,
             remarks,
+            pdcDescription,
             pdcId: flags.pdcId,
             pdcType: flags.pdcType,
             syntheticFromPdc: flags.syntheticFromPdc,
@@ -1326,6 +1484,18 @@ export default function BankTransaction() {
             approvalPendingFooterDuplicate: flags.approvalPendingFooterDuplicate,
           };
         });
+
+        try {
+          const pdcRes = await transactionService.getPostDatedCheques();
+          if (pdcRes.success && Array.isArray(pdcRes.data) && pdcRes.data.length > 0) {
+            transactionsData = enrichLedgerRowsWithPdcAttachments(
+              transactionsData,
+              pdcRes.data
+            );
+          }
+        } catch (pdcErr) {
+          console.warn('[BankTransaction] PDC list for attachments:', pdcErr);
+        }
 
         setTransactions(transactionsData);
       } else {
@@ -1407,87 +1577,131 @@ export default function BankTransaction() {
       setError(null);
       setSuccessMessage(null);
 
-      // Convert amount to number (remove commas)
       const amountNumber = parseFloat(data.amount.replace(/,/g, ''));
-
-      // Prepare payload for API
-      // Convert 'banktransfer' to 'online' for API
       const apiPaymentType = data.paymentType === 'banktransfer' ? 'online' : data.paymentType;
-      const normalizeDate = (value: string): string => {
-        const s = String(value || '').trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-        const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
-        if (dmY) {
-          const day = dmY[1].padStart(2, '0');
-          const month = dmY[2].padStart(2, '0');
-          return `${dmY[3]}-${month}-${day}`;
-        }
-        return s;
-      };
-      
-      const payload: {
-        date: string;
-        transactionTime?: string;
-        type: 'Debit' | 'Credit';
-        categoryId: string | number;
-        paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
-        chequeNumber?: string;
-        remarks?: string;
-        amount: number;
-      } = {
-        date: normalizeDate(data.date),
+      const normalizedDate = formatDateForApi(data.date) || data.date.trim();
+
+      const payload: BankTransactionWritePayload = {
+        date: normalizedDate,
         type: data.type,
         categoryId: data.categoryId,
-        paymentType: apiPaymentType as 'creditcard' | 'cheque' | 'cash' | 'online',
+        paymentType: apiPaymentType as BankTransactionWritePayload['paymentType'],
         amount: amountNumber,
       };
 
-      // Only include chequeNumber if payment type is cheque
       if (data.paymentType === 'cheque' && data.chequeNumber) {
-        payload.chequeNumber = data.chequeNumber;
+        payload.chequeNumber = data.chequeNumber.trim();
       }
-
-      // Include remarks if provided
-      if (data.remarks && data.remarks.trim()) {
+      if (editingTransaction && !isPdcDueId(editingTransaction.id)) {
+        payload.remarks = data.remarks?.trim() ?? '';
+      } else if (data.remarks?.trim()) {
         payload.remarks = data.remarks.trim();
       }
       if (data.entryTime && data.entryTime.trim()) {
         payload.transactionTime = data.entryTime.trim();
       }
 
-      console.log('[BankTransaction] Sending payload:', payload);
+      const includeChequeAttachment =
+        chequeAttachmentFile &&
+        chequeAttachmentFile.size > 0 &&
+        (data.paymentType === 'cheque' ||
+          (!!editingTransaction && isPdcDueId(editingTransaction.id)));
+
+      if (includeChequeAttachment && chequeAttachmentFile) {
+        const fileErr = validateLedgerChequeAttachmentFile(chequeAttachmentFile);
+        if (fileErr) {
+          setError(fileErr);
+          return;
+        }
+      }
+
+      const wantsRemoveScan =
+        !!editingTransaction &&
+        removeChequeAttachmentOnSave &&
+        !chequeAttachmentFile &&
+        (data.paymentType === 'cheque' || isPdcDueId(editingTransaction.id));
+
+      const attachmentOpts: BankTransactionWriteOptions | undefined =
+        data.paymentType === 'cheque' &&
+        chequeAttachmentFile &&
+        chequeAttachmentFile.size > 0
+          ? { attachmentFile: chequeAttachmentFile }
+          : wantsRemoveScan
+            ? { removeAttachment: true }
+            : undefined;
 
       let response: ApiResponse<BankTransactionType>;
 
       if (editingTransaction && isPdcDueId(editingTransaction.id)) {
-        const pdcUserNote = sanitizePdcUserNote(data.description);
-        const pdcPayload: Record<string, unknown> = {
-          date: normalizeDate(data.date),
-          chequeDate: normalizeDate(data.date),
-          amount: amountNumber,
+        const noteText = String(data.description ?? '');
+        const pdcId = resolvePdcIdFromLedgerRow(editingTransaction);
+        const pdcUpdateBody = {
+          chequeDate: data.date.trim(),
           chequeNumber: data.chequeNumber?.trim() || '',
           customerName: data.customerName?.trim() || '',
-          category: data.customerName?.trim() || '',
+          amount: amountNumber,
           chequeType: data.chequeType || 'Payment Cheque',
-          pdcType: data.pdcType || 'GCEC PDC',
-          remarks: pdcUserNote,
+          pdcType: (data.pdcType || 'GCEC PDC') as 'GCEC PDC' | 'Customer PDC' | 'Custom PDC',
+          remarks: noteText,
         };
-        if (data.entryTime && data.entryTime.trim()) {
-          pdcPayload.transactionTime = data.entryTime.trim();
-        }
+
+        const pdcPayload: Record<string, unknown> = {
+          date: normalizedDate,
+          chequeDate: normalizedDate,
+          amount: amountNumber,
+          chequeNumber: pdcUpdateBody.chequeNumber,
+          customerName: pdcUpdateBody.customerName,
+          category: pdcUpdateBody.customerName,
+          chequeType: pdcUpdateBody.chequeType,
+          pdcType: pdcUpdateBody.pdcType,
+          remarks: noteText,
+        };
 
         pendingEditPayload = { ...pdcPayload };
-        response = await transactionService.updateBankTransaction(
-          String(editingTransaction.id),
-          pdcPayload
-        );
+        if (wantsRemoveScan) {
+          pendingEditPayload.removeAttachment = true;
+        }
+
+        if (pdcId) {
+          if (wantsRemoveScan && !chequeAttachmentFile) {
+            try {
+              await transactionService.deletePostDatedChequeAttachment(pdcId);
+            } catch (deleteErr) {
+              console.warn('[BankTransaction] PDC attachment remove:', deleteErr);
+            }
+          }
+          const pdcRes = await transactionService.updatePostDatedCheque(
+            pdcId,
+            pdcUpdateBody,
+            chequeAttachmentFile,
+            null
+          );
+          response = pdcRes as unknown as ApiResponse<BankTransactionType>;
+        } else {
+          const pdcDuePayload: BankTransactionWritePayload = {
+            date: normalizedDate,
+            type: data.type,
+            categoryId: data.categoryId,
+            paymentType: 'cheque',
+            amount: amountNumber,
+            chequeNumber: pdcUpdateBody.chequeNumber,
+            remarks: noteText,
+          };
+          response = await transactionService.updateBankTransaction(
+            String(editingTransaction.id),
+            pdcDuePayload,
+            attachmentOpts
+          );
+        }
       } else if (editingTransaction) {
         pendingEditPayload = { ...payload };
-        // Update existing transaction
-        response = await transactionService.updateBankTransaction(String(editingTransaction.id), payload);
+        response = await transactionService.updateBankTransaction(
+          String(editingTransaction.id),
+          payload,
+          attachmentOpts
+        );
       } else {
-        // Create new transaction
-        response = await transactionService.createBankTransaction(payload);
+        response = await transactionService.createBankTransaction(payload, attachmentOpts);
       }
 
       if (response.success && response.data) {
@@ -1545,6 +1759,8 @@ export default function BankTransaction() {
         }
 
         // Reset form and close modal
+        setChequeAttachmentFile(null);
+        setRemoveChequeAttachmentOnSave(false);
         form.reset({
           editMode: 'ledger',
           date: '',
@@ -1570,17 +1786,51 @@ export default function BankTransaction() {
       }
     } catch (err: unknown) {
       if (isApprovalRequiredError(err) && editingTransaction && pendingEditPayload) {
+        let changePayload: Record<string, unknown> = {
+          ...pendingEditPayload,
+          chequeNumber: pendingEditPayload.chequeNumber ?? null,
+          remarks: (pendingEditPayload.remarks as string) ?? '',
+        };
+        const removeScanOnApproval =
+          removeChequeAttachmentOnSave &&
+          !chequeAttachmentFile &&
+          (form.getValues('paymentType') === 'cheque' ||
+            isPdcDueId(editingTransaction.id));
+        if (removeScanOnApproval) {
+          changePayload =
+            await transactionService.appendChequeAttachmentToChangePayload(
+              changePayload,
+              null,
+              { removeAttachment: true }
+            );
+        } else if (
+          chequeAttachmentFile &&
+          (form.getValues('paymentType') === 'cheque' ||
+            (editingTransaction && isPdcDueId(editingTransaction.id)))
+        ) {
+          const fileErr = validateLedgerChequeAttachmentFile(chequeAttachmentFile);
+          if (fileErr) {
+            setError(fileErr);
+            return;
+          }
+          changePayload =
+            await transactionService.appendChequeAttachmentToChangePayload(
+              changePayload,
+              chequeAttachmentFile
+            );
+        }
+        const pdcIdForChange = isPdcDueId(editingTransaction.id)
+          ? resolvePdcIdFromLedgerRow(editingTransaction)
+          : null;
         setApprovalOffer({
-          mode: 'edit',
-          resourceId: String(editingTransaction.id),
-          payload: {
-            ...pendingEditPayload,
-            chequeNumber: pendingEditPayload.chequeNumber ?? null,
-            remarks: (pendingEditPayload.remarks as string) ?? '',
-          },
+          mode: pdcIdForChange ? 'pdc_edit' : 'edit',
+          resourceId: pdcIdForChange ?? String(editingTransaction.id),
+          payload: changePayload,
         });
         setIsModalOpen(false);
         setEditingTransaction(null);
+        setChequeAttachmentFile(null);
+        setRemoveChequeAttachmentOnSave(false);
         form.reset({
           editMode: 'ledger',
           date: '',
@@ -1615,7 +1865,7 @@ export default function BankTransaction() {
     setError(null);
     try {
       const res =
-        mode === 'pdc_daily_ledger'
+        mode === 'pdc_daily_ledger' || mode === 'pdc_edit'
           ? await changeRequestService.submit({
               action: 'edit',
               resourceType: 'post_dated_cheque',
@@ -1629,9 +1879,11 @@ export default function BankTransaction() {
               ...(mode === 'edit' ? { payload: offer.payload } : {}),
             });
       const apiMessage = userMessageFromChangeRequestSubmit(res);
-      if (mode === 'edit') {
+      if (mode === 'edit' || mode === 'pdc_edit') {
         setIsModalOpen(false);
         setEditingTransaction(null);
+        setChequeAttachmentFile(null);
+        setRemoveChequeAttachmentOnSave(false);
         form.reset({
           editMode: 'ledger',
           date: '',
@@ -1650,7 +1902,7 @@ export default function BankTransaction() {
       }
       setSuccessMessage(apiMessage);
       setApprovalOffer({ mode: 'success', message: apiMessage });
-      if (mode === 'pdc_daily_ledger') {
+      if (mode === 'pdc_daily_ledger' || mode === 'pdc_edit') {
         await fetchTransactions();
       }
     } catch (e: unknown) {
@@ -1669,6 +1921,8 @@ export default function BankTransaction() {
     }
 
     setEditingTransaction(transaction);
+    setChequeAttachmentFile(null);
+    setRemoveChequeAttachmentOnSave(false);
     setError(null);
     
     const dateValue = formatTransactionDateForForm(transaction);
@@ -1784,7 +2038,10 @@ export default function BankTransaction() {
         : rowIsGcecPdcHighlight(transaction.remarks, transaction.pdcType)
         ? 'GCEC PDC'
         : 'Customer PDC';
-    const initialPdcNote = String(transaction.remarks ?? '').trim();
+    const initialPdcNote =
+      transaction.pdcDescription !== undefined
+        ? String(transaction.pdcDescription ?? '')
+        : String(transaction.remarks ?? '').trim();
     
     // Reset form with all values
     form.reset({
@@ -1877,6 +2134,8 @@ export default function BankTransaction() {
 
   const handleAddNew = useCallback(() => {
     setEditingTransaction(null);
+    setChequeAttachmentFile(null);
+    setRemoveChequeAttachmentOnSave(false);
     setError(null);
     form.reset({
       editMode: 'ledger',
@@ -1916,6 +2175,7 @@ export default function BankTransaction() {
   // Filter transactions based on active tab, date range, and search
   const filteredTransactions = transactions.filter((transaction) => {
     if (transaction.approvalPendingFooterDuplicate) return false;
+    if (!shouldIncludeGcecInLedger(transaction)) return false;
 
     // Filter by payment type
     // 'online' tab shows both creditcard and banktransfer (which comes as 'online' from API)
@@ -1925,8 +2185,9 @@ export default function BankTransaction() {
     
     // Filter by date range (calendar day, local timezone)
     if (startDate || endDate) {
-      const dateSource = transaction.originalDate || transaction.date || '';
-      const transactionDate = parseDateForFilter(dateSource);
+      const transactionDate =
+        parseDateForFilter(transaction.originalDate || transaction.date || '') ??
+        parseTransactionDateForSort(transaction);
       if (!transactionDate) return false;
 
       const txDay = startOfLocalDay(transactionDate).getTime();
@@ -1996,10 +2257,11 @@ export default function BankTransaction() {
   const bodyTransactions = sortTransactionsStrictDesc(
     filteredTransactions.filter((t) => !isPdcLedgerFooterRow(t))
   );
-  const pdcPendingBottomRows = bodyTransactions.filter((t) => isUnapprovedPdcPinBottom(t));
   const pdcPendingTopRows = bodyTransactions.filter((t) => isUnapprovedGcecPdcPinTop(t));
-  /** Customer PDC unapproved past: dated row hidden here; GCEC unapproved stays dated in this list. */
-  const bodyTransactionsDatedOnly = bodyTransactions.filter((t) => !isUnapprovedPdcPinBottom(t));
+  /** Customer PDC stays in date order; only GCEC may add a no-date copy at the top. */
+  const bodyTransactionsDatedOnly = bodyTransactions.filter(
+    (t) => !isUnapprovedGcecPdcPinTop(t)
+  );
 
   type PaginatedLedgerRow = {
     transaction: BankTransaction;
@@ -2010,7 +2272,6 @@ export default function BankTransaction() {
   const paginatedRows: PaginatedLedgerRow[] = [
     ...pdcPendingTopRows.map((t) => ({ transaction: t, clientPendingTopDup: true as const })),
     ...bodyTransactionsDatedOnly.map((t) => ({ transaction: t })),
-    ...pdcPendingBottomRows.map((t) => ({ transaction: t, clientPendingBottomDup: true as const })),
   ];
 
   // Clear all filters
@@ -2034,30 +2295,14 @@ export default function BankTransaction() {
       return filled.slice(0, 7).map((c) => safe(c)).join(',');
     };
   
-    const parseDate = (t: any) => {
-      if (t.originalDate) return new Date(t.originalDate);
-      const parts = t.date?.split('-');
-      if (parts?.length === 3) {
-        const months: any = {
-          Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
-          Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
-        };
-        return new Date(`${parts[2]}-${months[parts[1]]}-${parts[0]}`);
-      }
-      return null;
-    };
+    const parseDate = (t: BankTransaction) => parseTransactionDateForSort(t);
   
     const dates = filteredTransactions.map(parseDate).filter(Boolean) as Date[];
     const dateTimes = dates.map((d) => d.getTime());
     const exportStartDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
     const exportEndDate = resolveExportEndDate(endDate, parseDateForFilter);
   
-    const formatDate = (d: Date) => {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${formatDisplayYear(d.getFullYear())}`;
-    };
-  
-    const { bodyAfterById, pendingDupAfterById, statementClosing } =
+    const { bodyAfterByTransaction, bodyAfterById, pendingDupAfterByTransaction, statementClosing } =
       buildLedgerBalanceMaps(filteredTransactions);
     const closingBalanceValue = await resolveClosingBalanceFromAccountSummary(statementClosing);
     const closingBalance = closingBalanceValue.toLocaleString('en-US', {
@@ -2074,8 +2319,8 @@ export default function BankTransaction() {
 
     csvRows.push(rowCsv('Account No.', '12990685920001 - AED'));
     csvRows.push(rowCsv('IBAN', 'AE720030012990685920001'));
-    csvRows.push(rowCsv('Start Date', formatDate(exportStartDate)));
-    csvRows.push(rowCsv('End Date', formatDate(exportEndDate)));
+    csvRows.push(rowCsv('Start Date', formatJsDateDisplay(exportStartDate)));
+    csvRows.push(rowCsv('End Date', formatJsDateDisplay(exportEndDate)));
     csvRows.push(rowCsv('Closing (Current)', `AED ${closingBalance}`));
     csvRows.push(rowCsv());
     csvRows.push(rowCsv());
@@ -2101,8 +2346,9 @@ export default function BankTransaction() {
       const balanceValue = balanceAfterForDisplay(
         t,
         clientPendingBottomDup,
+        bodyAfterByTransaction,
         bodyAfterById,
-        pendingDupAfterById,
+        pendingDupAfterByTransaction,
         clientPendingTopDup
       );
       const balance = shouldSuppressBalanceForDisplay(
@@ -2121,7 +2367,7 @@ export default function BankTransaction() {
           debit,
           credit,
           balance,
-          remarksForExport(t.remarks, t.pdcType)
+          remarksForExport(t)
         )
       );
     });
@@ -2132,7 +2378,7 @@ export default function BankTransaction() {
   
     const link = document.createElement('a');
     link.href = url;
-    link.download = `GCEC-Statement-${formatDate(exportStartDate)}-to-${formatDate(exportEndDate)}.csv`;
+    link.download = `GCEC-Statement-${formatJsDateDisplay(exportStartDate)}-to-${formatJsDateDisplay(exportEndDate)}.csv`;
     link.style.visibility = 'hidden';
   
     document.body.appendChild(link);
@@ -2145,57 +2391,14 @@ export default function BankTransaction() {
 
   // Excel Download — ExcelJS so fills/fonts persist (.xlsx styles are not supported by `xlsx` community build).
   const handleDownloadExcel = useCallback(async () => {
-    const parseDateForRange = (t: BankTransaction) => {
-      if (t.originalDate) {
-        const origDate = new Date(t.originalDate);
-        return isNaN(origDate.getTime()) ? null : origDate;
-      }
-      const parts = t.date?.split('-');
-      if (parts?.length === 3) {
-        const months: Record<string, string> = {
-          Jan: '01',
-          Feb: '02',
-          Mar: '03',
-          Apr: '04',
-          May: '05',
-          Jun: '06',
-          Jul: '07',
-          Aug: '08',
-          Sep: '09',
-          Oct: '10',
-          Nov: '11',
-          Dec: '12',
-        };
-        const date = new Date(`${parts[2]}-${months[parts[1] || '']}-${parts[0]}`);
-        return isNaN(date.getTime()) ? null : date;
-      }
-      return null;
-    };
+    const parseDateForRange = (t: BankTransaction) => parseTransactionDateForSort(t);
 
     const dates = filteredTransactions.map(parseDateForRange).filter(Boolean) as Date[];
     const dateTimes = dates.map((d) => d.getTime());
     const exportStartDate = dateTimes.length ? new Date(Math.min(...dateTimes)) : new Date();
     const exportEndDate = resolveExportEndDate(endDate, parseDateForFilter);
 
-    const formatDate = (d: Date) => {
-      const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      return `${String(d.getDate()).padStart(2, '0')}-${months[d.getMonth()]}-${formatDisplayYear(d.getFullYear())}`;
-    };
-
-    const { bodyAfterById, pendingDupAfterById, statementClosing } =
+    const { bodyAfterByTransaction, bodyAfterById, pendingDupAfterByTransaction, statementClosing } =
       buildLedgerBalanceMaps(filteredTransactions);
     const closingBalanceValue = await resolveClosingBalanceFromAccountSummary(statementClosing);
 
@@ -2212,9 +2415,9 @@ export default function BankTransaction() {
       ws.getCell(r, 1).value = 'IBAN:';
       ws.getCell(r++, 2).value = 'AE720030012990685920001';
       ws.getCell(r, 1).value = 'Start Date:';
-      ws.getCell(r++, 2).value = formatDate(exportStartDate);
+      ws.getCell(r++, 2).value = formatJsDateDisplay(exportStartDate);
       ws.getCell(r, 1).value = 'End Date:';
-      ws.getCell(r++, 2).value = formatDate(exportEndDate);
+      ws.getCell(r++, 2).value = formatJsDateDisplay(exportEndDate);
       ws.getCell(r, 1).value = 'Closing (Current):';
       const closingCell = ws.getCell(r, 2);
       closingCell.value = `AED ${closingBalanceValue.toLocaleString('en-US', {
@@ -2239,25 +2442,6 @@ export default function BankTransaction() {
       r++;
 
       const exportRows = buildLedgerExportRows(filteredTransactions);
-      // #region agent log
-      (() => {
-        const dateFlags = exportRows.map(
-          ({ transaction: t, clientPendingBottomDup, clientPendingTopDup = false }, idx) => ({
-            idx,
-            id: String(t.id ?? ''),
-            date: displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup),
-            isBlankDate: !displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup).trim(),
-            clientPendingBottomDup,
-            clientPendingTopDup,
-          })
-        );
-        const blankDateIndexes = dateFlags.filter((r) => r.isBlankDate).map((r) => r.idx);
-        const lastDatedIndex = [...dateFlags]
-          .reverse()
-          .find((r) => !r.isBlankDate)?.idx ?? -1;
-        fetch('http://127.0.0.1:7645/ingest/4e3d99b1-83be-4128-aa73-0b85017ae070',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'a253c0'},body:JSON.stringify({sessionId:'a253c0',runId:'pre-fix',hypothesisId:'H10',location:'BankTransaction.tsx:handleDownloadExcel',message:'Excel export blank-date row positions',data:{totalRows:exportRows.length,blankDateIndexes,lastDatedIndex,sampleFirst:dateFlags.slice(0,8),sampleLast:dateFlags.slice(-8)},timestamp:Date.now()})}).catch(()=>{});
-      })();
-      // #endregion
 
       const ledgerRowFill = (t: BankTransaction): ExcelJS.Fill | undefined => {
         if (isBouncedChequeRemarks(t.remarks)) {
@@ -2265,13 +2449,6 @@ export default function BankTransaction() {
             type: 'pattern',
             pattern: 'solid',
             fgColor: { argb: 'FF95DCF7' },
-          };
-        }
-        if (rowIsGcecPdcHighlight(t.remarks, t.pdcType)) {
-          return {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFFEF9C3' },
           };
         }
         return undefined;
@@ -2283,7 +2460,20 @@ export default function BankTransaction() {
         clientPendingTopDup = false,
       } of exportRows) {
         const details = ledgerExportDetailsColumn(t);
-        const remarksText = remarksForExport(t.remarks, t.pdcType);
+        const remarksText = remarksForExport(t);
+        const rowFill =
+          ledgerRowFill(t) ??
+          (shouldHighlightGcecLedgerRow(t, {
+            clientPendingBottomDup,
+            clientPendingTopDup,
+            remarksDisplay: remarksText,
+          })
+            ? {
+                type: 'pattern' as const,
+                pattern: 'solid' as const,
+                fgColor: { argb: 'FFFEF9C3' },
+              }
+            : undefined);
         const { debit: debitValue, credit: creditValue } = getLedgerDebitCreditNumeric(
           t,
           clientPendingBottomDup,
@@ -2292,8 +2482,9 @@ export default function BankTransaction() {
         const balanceValue = balanceAfterForDisplay(
           t,
           clientPendingBottomDup,
+          bodyAfterByTransaction,
           bodyAfterById,
-          pendingDupAfterById,
+          pendingDupAfterByTransaction,
           clientPendingTopDup
         );
         const suppressBal = shouldSuppressBalanceForDisplay(
@@ -2314,7 +2505,7 @@ export default function BankTransaction() {
         row.getCell(6).numFmt = '#,##0.00';
         row.getCell(7).value = remarksText;
 
-        const fillStyle = ledgerRowFill(t);
+        const fillStyle = rowFill;
         const isAvailableBalanceRemark =
           remarksText.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
         for (let c = 1; c <= 7; c++) {
@@ -2383,7 +2574,7 @@ export default function BankTransaction() {
         { width: 28 },
       ];
 
-      const fileName = `GCEC-Statement-${formatDate(exportStartDate)}-to-${formatDate(exportEndDate)}.xlsx`;
+      const fileName = `GCEC-Statement-${formatJsDateDisplay(exportStartDate)}-to-${formatJsDateDisplay(exportEndDate)}.xlsx`;
       applyArialToExcelJsWorkbook(workbook);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
@@ -2786,23 +2977,20 @@ export default function BankTransaction() {
                   </tr>
                 ) : (
                   paginatedRows.map(({ transaction, clientPendingBottomDup, clientPendingTopDup }) => {
-                    const remarksDisplay = remarksForTableDisplay(
-                      transaction.remarks,
-                      transaction.pdcType
-                    );
+                    const remarksDisplay = remarksForTableDisplay(transaction);
                     const isBouncedCheque = isBouncedChequeRemarks(
                       remarksDisplay
                     );
-                    const isGcecPdc = rowIsGcecPdcHighlight(
-                      transaction.remarks,
-                      transaction.pdcType
-                    );
-                    const isGcecKind = pdcKindFromTypeOrRemarks(transaction) === 'gcec';
+                    const isGcecKind = isGcecLedgerRow(transaction);
                     const isUpcomingGcecRow =
                       isGcecKind &&
                       !clientPendingBottomDup &&
                       !clientPendingTopDup &&
-                      isFutureLedgerTransaction(transaction);
+                      !transaction.ledgerApproved &&
+                      (isFutureLedgerTransaction(transaction) ||
+                        isGcecUpcomingWithinWindow(transaction) ||
+                        /\(upcoming\)/i.test(remarksDisplay) ||
+                        /\(upcoming\)/i.test(String(transaction.remarks ?? '')));
                     /** GCEC PDC: no ledger approve until cheque date; no edit/delete until ledger-approved. */
                     const gcecChequeDateHasArrived =
                       !isGcecKind || !isFutureLedgerTransaction(transaction);
@@ -2815,9 +3003,14 @@ export default function BankTransaction() {
                       : remarksDisplay;
                     const isAvailableBalanceRemark =
                       remarksDisplay.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
+                    const gcecPendingHighlight = shouldHighlightGcecLedgerRow(transaction, {
+                      clientPendingBottomDup: !!clientPendingBottomDup,
+                      clientPendingTopDup: !!clientPendingTopDup,
+                      remarksDisplay,
+                    });
                     const rowTone = isBouncedCheque
                       ? 'bounce'
-                      : isGcecPdc
+                      : gcecPendingHighlight
                         ? 'gcec'
                         : undefined;
                     const { debit: debitShown, credit: creditShown } =
@@ -2843,8 +3036,8 @@ export default function BankTransaction() {
                       className={`border-b border-gray-100 transition-colors ${
                         isBouncedCheque
                           ? 'bg-[#7dd3f0] hover:bg-[#67c6ea]'
-                          : isGcecPdc
-                          ? 'hover:bg-yellow-200/70'
+                          : gcecPendingHighlight
+                          ? 'bg-[#fef9c3] hover:bg-yellow-200/70'
                           : 'hover:bg-gray-50'
                       }`}
                     >
@@ -2887,17 +3080,23 @@ export default function BankTransaction() {
                       <td
                         className="text-gray-600 text-sm py-2 px-4 text-left align-middle"
                       >
-                        {transaction.paymentType === 'cheque' && transaction.chequeNumber && transaction.chequeNumber !== '-'
+                        {transaction.paymentType === 'cheque' &&
+                        transaction.chequeNumber &&
+                        transaction.chequeNumber !== '-'
                           ? `${transaction.chequeNumber}`
                           : transaction.paymentType === 'cash'
-                          ? 'Cash'
-                          : transaction.paymentType === 'creditcard'
-                          ? 'Credit Card'
-                          : transaction.paymentType === 'banktransfer'
-                          ? 'Online'
-                          : transaction.paymentType?.toLowerCase() === 'dd'
-                          ? 'DD'
-                          : <span className="capitalize">{transaction.paymentType || 'N/A'}</span>}
+                            ? 'Cash'
+                            : transaction.paymentType === 'creditcard'
+                              ? 'Credit Card'
+                              : transaction.paymentType === 'banktransfer'
+                                ? 'Online'
+                                : transaction.paymentType?.toLowerCase() === 'dd'
+                                  ? 'DD'
+                                  : (
+                                      <span className="capitalize">
+                                        {transaction.paymentType || 'N/A'}
+                                      </span>
+                                    )}
                       </td>
                       <td className="text-sm py-2 px-4 text-left align-middle">
                         {hasDebit ? (
@@ -2933,8 +3132,9 @@ export default function BankTransaction() {
                             const balanceValue = balanceAfterForDisplay(
                               transaction,
                               clientPendingBottomDup,
+                              ledgerBalanceMaps.bodyAfterByTransaction,
                               ledgerBalanceMaps.bodyAfterById,
-                              ledgerBalanceMaps.pendingDupAfterById,
+                              ledgerBalanceMaps.pendingDupAfterByTransaction,
                               clientPendingTopDup
                             );
                             const formattedBalance =
@@ -2997,6 +3197,21 @@ export default function BankTransaction() {
                                 Awaiting ledger approval (admin / accountant)
                               </span>
                             )}
+                          {(() => {
+                            const chequeHref = chequeAttachmentHrefForRow(transaction);
+                            if (!chequeHref) return null;
+                            return (
+                              <PdcAttachmentTableCell
+                                hideIfMissing
+                                attachmentUrl={chequeHref}
+                                attachmentName={
+                                  transaction.attachment?.name ??
+                                  transaction.attachmentName ??
+                                  'Cheque scan'
+                                }
+                              />
+                            );
+                          })()}
                           {canMutate &&
                             !clientPendingBottomDup &&
                             !clientPendingTopDup &&
@@ -3059,6 +3274,8 @@ export default function BankTransaction() {
             amount: '',
           });
           setEditingTransaction(null);
+          setChequeAttachmentFile(null);
+          setRemoveChequeAttachmentOnSave(false);
           setError(null);
         }
       }}>
@@ -3400,6 +3617,69 @@ export default function BankTransaction() {
                 />
               )}
 
+              {(paymentType === 'cheque' || editingPdcDue) && (
+                <div className="sm:col-span-2 space-y-2">
+                  <span className="text-lg font-medium text-gray-700">
+                    {editingPdcDue ? 'PDC cheque scan' : 'Cheque scan'}{' '}
+                    <span className="text-gray-400 font-normal text-base">
+                      (optional — JPG, PNG, WEBP, GIF, HEIC, PDF, max 15 MB)
+                    </span>
+                  </span>
+                  <Input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.pdf,image/*,application/pdf"
+                    disabled={isSubmitting}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      setChequeAttachmentFile(file);
+                      if (file) setRemoveChequeAttachmentOnSave(false);
+                    }}
+                    className="cursor-pointer"
+                  />
+                  {chequeAttachmentFile && (
+                    <p className="text-sm text-gray-600">Selected: {chequeAttachmentFile.name}</p>
+                  )}
+                  {editingTransaction?.attachmentUrl &&
+                    !chequeAttachmentFile &&
+                    !removeChequeAttachmentOnSave && (
+                      <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                        <span>
+                          Current:{' '}
+                          <a
+                            href={
+                              resolveAttachmentHref(editingTransaction.attachmentUrl) ?? '#'
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#c9a82f] underline"
+                          >
+                            {editingTransaction.attachmentName || 'View cheque'}
+                          </a>
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-red-700 border-red-200 hover:bg-red-50"
+                          disabled={isSubmitting}
+                          onClick={() => {
+                            setRemoveChequeAttachmentOnSave(true);
+                            setChequeAttachmentFile(null);
+                          }}
+                        >
+                          Remove scan
+                        </Button>
+                      </div>
+                    )}
+                  {removeChequeAttachmentOnSave && !chequeAttachmentFile && (
+                    <p className="text-sm text-amber-800">
+                      Scan will be removed when you save. You can upload a new file or save to
+                      confirm.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Remarks Field */}
               {!editingPdcDue && (
                 <FormField
@@ -3554,9 +3834,11 @@ export default function BankTransaction() {
             <p className="text-sm text-gray-600">
               {approvalOffer?.mode === 'edit'
                 ? 'Your account cannot edit transactions directly. Submit this update for an admin to review and apply?'
-                : approvalOffer?.mode === 'pdc_daily_ledger'
-                  ? 'Your account cannot approve this PDC for the daily ledger directly. Submit an approval request for an admin to review?'
-                  : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
+                : approvalOffer?.mode === 'pdc_edit'
+                  ? 'Your account cannot edit this PDC directly. Submit this update (including cheque scan if attached) for an admin to review?'
+                  : approvalOffer?.mode === 'pdc_daily_ledger'
+                    ? 'Your account cannot approve this PDC for the daily ledger directly. Submit an approval request for an admin to review?'
+                    : 'Your account cannot delete transactions directly. Submit this deletion for an admin to review?'}
             </p>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
