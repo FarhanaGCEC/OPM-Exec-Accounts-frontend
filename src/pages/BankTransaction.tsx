@@ -2616,8 +2616,7 @@ export default function BankTransaction() {
  
  <Card className="bg-white border border-gray-200 shadow-sm rounded-lg mt-18 m-4 overflow-hidden">
   <CardContent className="p-4">
-    <div className="space-y-3">
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 xl:grid-cols-[repeat(6,minmax(0,1fr))_auto] xl:items-end">
 
       {/* Start Date */}
       <div>
@@ -2810,10 +2809,8 @@ export default function BankTransaction() {
         </div>
       </div>
 
-    </div>
-
       {/* Filter Actions — filters apply as you pick dates; Clear resets fields */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex shrink-0 items-center justify-end gap-2 sm:col-span-2 md:col-span-3 xl:col-span-1">
         <Button
           type="button"
           variant="outline"
