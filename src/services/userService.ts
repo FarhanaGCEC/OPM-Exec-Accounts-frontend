@@ -68,6 +68,12 @@ function extractUsers(payload: unknown): AppUser[] {
   return [];
 }
 
+function sortUsersAlphabetically(users: AppUser[]): AppUser[] {
+  return [...users].sort((a, b) =>
+    a.username.localeCompare(b.username, undefined, { sensitivity: 'base' })
+  );
+}
+
 function walkObjectGraph(node: unknown, visit: (o: Record<string, unknown>) => void, depth = 0): void {
   if (depth > 8 || !node || typeof node !== 'object' || Array.isArray(node)) return;
   const o = node as Record<string, unknown>;
@@ -169,9 +175,9 @@ export const userService = {
     }
     const raw = res.data as Record<string, unknown>;
     if (typeof raw === 'object' && 'data' in raw && raw.data !== undefined) {
-      return extractUsers((raw as { data: unknown }).data);
+      return sortUsersAlphabetically(extractUsers((raw as { data: unknown }).data));
     }
-    return extractUsers(res.data);
+    return sortUsersAlphabetically(extractUsers(res.data));
   },
 
   /** GET /api/admin/users/:id/sidebar-permissions */
