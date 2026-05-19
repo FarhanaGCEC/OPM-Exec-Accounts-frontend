@@ -184,6 +184,7 @@ export default function CustomerPDC() {
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [pdcAttachmentFile, setPdcAttachmentFile] = useState<File | null>(null);
+  const [removePdcAttachmentOnSave, setRemovePdcAttachmentOnSave] = useState(false);
   const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
   const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
 
@@ -321,6 +322,12 @@ export default function CustomerPDC() {
     
    
 
+      const wantsRemoveAttachment =
+        !!editingCheque &&
+        removePdcAttachmentOnSave &&
+        !pdcAttachmentFile &&
+        !!editingCheque.attachmentUrl;
+
       let response: ApiResponse<PostDatedChequeType>;
       
       if (editingCheque) {
@@ -329,7 +336,8 @@ export default function CustomerPDC() {
           String(editingCheque.id),
           payload,
           pdcAttachmentFile,
-          editingCheque
+          editingCheque,
+          wantsRemoveAttachment ? { removeAttachment: true } : undefined
         );
       } else {
         console.log('[PostDatedCheque] Creating cheque:', payload);
@@ -358,6 +366,7 @@ export default function CustomerPDC() {
         });
         setEditingCheque(null);
         setPdcAttachmentFile(null);
+        setRemovePdcAttachmentOnSave(false);
         setError(null);
         setIsModalOpen(false);
         fetchCheques().catch(err => console.error('Error refetching after save:', err));
@@ -398,6 +407,7 @@ export default function CustomerPDC() {
         });
         setEditingCheque(null);
         setPdcAttachmentFile(null);
+        setRemovePdcAttachmentOnSave(false);
         setError(null);
         setIsModalOpen(false);
         
@@ -409,7 +419,7 @@ export default function CustomerPDC() {
       }
     } catch (err: unknown) {
       if (isApprovalRequiredError(err) && editingCheque) {
-        const payload: Record<string, unknown> = {
+        let payload: Record<string, unknown> = {
           chequeDate: data.chequeDate,
           chequeNumber: data.chequeNumber,
           customerName: (data.customerName ?? '').trim(),
@@ -420,10 +430,24 @@ export default function CustomerPDC() {
         if (data.pdcType === 'Custom PDC' && data.customDetails?.trim()) {
           payload.description = data.customDetails.trim();
         }
+        if (removePdcAttachmentOnSave && !pdcAttachmentFile) {
+          payload = await transactionService.appendChequeAttachmentToChangePayload(
+            payload,
+            null,
+            { removeAttachment: true }
+          );
+        } else if (pdcAttachmentFile && pdcAttachmentFile.size > 0) {
+          payload = await transactionService.appendChequeAttachmentToChangePayload(
+            payload,
+            pdcAttachmentFile
+          );
+        }
         const note =
           pdcAttachmentFile && pdcAttachmentFile.size > 0
             ? `PDC update requested; replace attachment (${pdcAttachmentFile.name}). Admin may need to attach the file after approval.`
-            : undefined;
+            : removePdcAttachmentOnSave
+              ? 'PDC update requested; remove existing attachment.'
+              : undefined;
         setPdcApproval({
           mode: 'edit',
           resourceId: String(editingCheque.id),
@@ -441,6 +465,7 @@ export default function CustomerPDC() {
         });
         setEditingCheque(null);
         setPdcAttachmentFile(null);
+        setRemovePdcAttachmentOnSave(false);
         setIsModalOpen(false);
         setError(null);
       } else {
@@ -452,11 +477,12 @@ export default function CustomerPDC() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [editingCheque, form, fetchCheques, pdcAttachmentFile]);
+  }, [editingCheque, form, fetchCheques, pdcAttachmentFile, removePdcAttachmentOnSave]);
 
   const handleEdit = useCallback((cheque: PostDatedCheque) => {
     setEditingCheque(cheque);
     setPdcAttachmentFile(null);
+    setRemovePdcAttachmentOnSave(false);
     const formDate = convertDateForForm(cheque.chequeDate);
     form.reset({
       chequeDate: formDate,
@@ -478,6 +504,7 @@ export default function CustomerPDC() {
   const handleAddNew = useCallback(() => {
     setEditingCheque(null);
     setPdcAttachmentFile(null);
+    setRemovePdcAttachmentOnSave(false);
     form.reset({
       chequeDate: '',
       chequeNumber: '',
@@ -560,6 +587,7 @@ export default function CustomerPDC() {
       });
       setEditingCheque(null);
       setPdcAttachmentFile(null);
+      setRemovePdcAttachmentOnSave(false);
       setError(null);
     }
   }, [form]);
@@ -1200,23 +1228,49 @@ export default function CustomerPDC() {
                   type="file"
                   accept="image/*,application/pdf"
                   disabled={isSubmitting}
-                  onChange={(e) => setPdcAttachmentFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setPdcAttachmentFile(file);
+                    if (file) setRemovePdcAttachmentOnSave(false);
+                  }}
                   className="cursor-pointer"
                 />
                 {pdcAttachmentFile && (
                   <p className="text-sm text-gray-600">Selected: {pdcAttachmentFile.name}</p>
                 )}
-                {editingCheque?.attachmentUrl && !pdcAttachmentFile && (
-                  <p className="text-sm text-gray-600">
-                    Current:{' '}
-                    <a
-                      href={resolveAttachmentHref(editingCheque.attachmentUrl) ?? '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#c9a82f] underline"
+                {editingCheque?.attachmentUrl &&
+                  !pdcAttachmentFile &&
+                  !removePdcAttachmentOnSave && (
+                  <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                    <span>
+                      Current:{' '}
+                      <a
+                        href={resolveAttachmentHref(editingCheque.attachmentUrl) ?? '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#c9a82f] underline"
+                      >
+                        {editingCheque.attachmentName || 'View attachment'}
+                      </a>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-red-700 border-red-200 hover:bg-red-50"
+                      disabled={isSubmitting}
+                      onClick={() => {
+                        setRemovePdcAttachmentOnSave(true);
+                        setPdcAttachmentFile(null);
+                      }}
                     >
-                      {editingCheque.attachmentName || 'View attachment'}
-                    </a>
+                      Remove image
+                    </Button>
+                  </div>
+                )}
+                {removePdcAttachmentOnSave && !pdcAttachmentFile && (
+                  <p className="text-sm text-amber-800">
+                    Image will be removed when you save. Upload a new file or save to confirm.
                   </p>
                 )}
               </div>

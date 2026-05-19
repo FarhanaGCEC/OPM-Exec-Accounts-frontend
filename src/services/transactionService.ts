@@ -354,6 +354,11 @@ export type PostDatedChequeUpdateInput = Partial<
   remarks?: string;
 };
 
+export type PostDatedChequeWriteOptions = {
+  /** Remove stored cheque scan on save (DELETE …/attachment or removeAttachment flag). */
+  removeAttachment?: boolean;
+};
+
 // API Response interface (snake_case from backend) - Purchase Bills API
 export interface PaymentMatchingApiResponse {
   id: number;
@@ -856,7 +861,8 @@ export const transactionService = {
     id: string,
     data: PostDatedChequeUpdateInput,
     attachment?: File | null,
-    _existing?: PostDatedCheque | null
+    _existing?: PostDatedCheque | null,
+    options?: PostDatedChequeWriteOptions
   ): Promise<ApiResponse<PostDatedCheque>> => {
     void _existing;
     const normalizeAmount = (v: unknown): number | undefined => {
@@ -866,6 +872,16 @@ export const transactionService = {
     };
 
     const hasNewAttachment = Boolean(attachment && attachment.size > 0);
+    const removing =
+      !!options?.removeAttachment && !hasNewAttachment;
+
+    if (removing) {
+      try {
+        await deletePostDatedChequeAttachmentImpl(id);
+      } catch (deleteErr) {
+        console.warn('[transactionService] remove PDC attachment:', deleteErr);
+      }
+    }
 
     const apiData: Record<string, unknown> = {};
 
@@ -899,6 +915,9 @@ export const transactionService = {
       }
     } else {
       const jsonBody = buildPdcUpdateJsonBodyFromApiData(apiData);
+      if (removing) {
+        jsonBody.removeAttachment = true;
+      }
       response = await api.put<PostDatedChequeApiResponse>(`/pdc/${id}`, jsonBody);
     }
 

@@ -1264,6 +1264,9 @@ export default function BankTransaction() {
   const transactionType = form.watch('type');
   const editingPdcDue = !!editingTransaction && isPdcDueId(editingTransaction.id);
   const editingPdcType = form.watch('pdcType');
+  const editingChequeScanHref = editingTransaction
+    ? chequeAttachmentHrefForRow(editingTransaction)
+    : null;
 
   const notifyTransactionDataChanged = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -1674,7 +1677,10 @@ export default function BankTransaction() {
             pdcId,
             pdcUpdateBody,
             chequeAttachmentFile,
-            null
+            null,
+            wantsRemoveScan && !chequeAttachmentFile
+              ? { removeAttachment: true }
+              : undefined
           );
           response = pdcRes as unknown as ApiResponse<BankTransactionType>;
         } else {
@@ -3639,21 +3645,19 @@ export default function BankTransaction() {
                   {chequeAttachmentFile && (
                     <p className="text-sm text-gray-600">Selected: {chequeAttachmentFile.name}</p>
                   )}
-                  {editingTransaction?.attachmentUrl &&
+                  {editingChequeScanHref &&
                     !chequeAttachmentFile &&
                     !removeChequeAttachmentOnSave && (
                       <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
                         <span>
                           Current:{' '}
                           <a
-                            href={
-                              resolveAttachmentHref(editingTransaction.attachmentUrl) ?? '#'
-                            }
+                            href={editingChequeScanHref}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-[#c9a82f] underline"
                           >
-                            {editingTransaction.attachmentName || 'View cheque'}
+                            {editingTransaction?.attachmentName || 'View cheque'}
                           </a>
                         </span>
                         <Button
