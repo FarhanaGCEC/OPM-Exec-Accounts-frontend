@@ -228,14 +228,31 @@ export default function CreditCardStatements() {
         return `AED ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
-    const getDisplayAmountPending = (statement: CreditCardStatement): number => {
-        const amountPending = Number(statement.amountPending) || 0;
-        const creditBalance = Number(statement.creditBalance) || 0;
+    const sanitizeSignedDecimalInput = (value: string): string => {
+        let sanitized = value.replace(/[^0-9.-]/g, '');
+        const isNegative = sanitized.startsWith('-');
+        sanitized = sanitized.replace(/-/g, '').replace(/(\..*)\./g, '$1');
+        return isNegative ? `-${sanitized}` : sanitized;
+    };
 
-        if (amountPending !== 0) {
-            return amountPending;
+    const parseEditNumber = (value: string): number => {
+        const trimmed = value.trim();
+        if (trimmed === '' || trimmed === '-') return 0;
+        const parsed = parseFloat(trimmed);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const getDisplayAmountPending = (statement: CreditCardStatement): number => {
+        const totalPaymentDue = Number(statement.totalPaymentDue) || 0;
+        const paid = Number(statement.paid) || 0;
+        const epp = Number(statement.epp) || 0;
+        const calculatedPending = totalPaymentDue - paid - epp;
+
+        if (calculatedPending !== 0 || totalPaymentDue < 0) {
+            return calculatedPending;
         }
 
+        const creditBalance = Number(statement.creditBalance) || 0;
         if (creditBalance !== 0) {
             return -Math.abs(creditBalance);
         }
@@ -373,9 +390,9 @@ export default function CreditCardStatements() {
             selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
         const monthStr = String(monthIndex + 1).padStart(2, '0');
         const monthParam = `${selectedYear}-${monthStr}`;
-        const totalPaymentDue = parseFloat(editValues.totalPaymentDue) || 0;
-        const paid = parseFloat(editValues.paid) || 0;
-        const epp = parseFloat(editValues.epp) || 0;
+        const totalPaymentDue = parseEditNumber(editValues.totalPaymentDue);
+        const paid = parseEditNumber(editValues.paid);
+        const epp = parseEditNumber(editValues.epp);
         
         try {
             setSaving(true);
@@ -530,12 +547,9 @@ export default function CreditCardStatements() {
 
     const handleEditValueChange = (field: 'totalPaymentDue' | 'paid' | 'epp', value: string) => {
         if (!editValues) return;
-        const sanitizedValue = value
-            .replace(/[^0-9.]/g, '')
-            .replace(/(\..*)\./g, '$1');
         setEditValues({
             ...editValues,
-            [field]: sanitizedValue,
+            [field]: sanitizeSignedDecimalInput(value),
         });
     };
 
@@ -1106,7 +1120,7 @@ export default function CreditCardStatements() {
                                                                             <input
                                                                                 type="text"
                                                                                 inputMode="decimal"
-                                                                                pattern="[0-9]*[.]?[0-9]*"
+                                                                                pattern="-?[0-9]*[.]?[0-9]*"
                                                                                 value={editValues.totalPaymentDue}
                                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1120,7 +1134,7 @@ export default function CreditCardStatements() {
                                                                             <input
                                                                                 type="text"
                                                                                 inputMode="decimal"
-                                                                                pattern="[0-9]*[.]?[0-9]*"
+                                                                                pattern="-?[0-9]*[.]?[0-9]*"
                                                                                 value={editValues.paid}
                                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1134,7 +1148,7 @@ export default function CreditCardStatements() {
                                                                             <input
                                                                                 type="text"
                                                                                 inputMode="decimal"
-                                                                                pattern="[0-9]*[.]?[0-9]*"
+                                                                                pattern="-?[0-9]*[.]?[0-9]*"
                                                                                 value={editValues.epp}
                                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1369,7 +1383,7 @@ export default function CreditCardStatements() {
                                                             <input
                                                                 type="text"
                                                                 inputMode="decimal"
-                                                                pattern="[0-9]*[.]?[0-9]*"
+                                                                pattern="-?[0-9]*[.]?[0-9]*"
                                                                 value={editValues.totalPaymentDue}
                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1383,7 +1397,7 @@ export default function CreditCardStatements() {
                                                             <input
                                                                 type="text"
                                                                 inputMode="decimal"
-                                                                pattern="[0-9]*[.]?[0-9]*"
+                                                                pattern="-?[0-9]*[.]?[0-9]*"
                                                                 value={editValues.paid}
                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
@@ -1397,7 +1411,7 @@ export default function CreditCardStatements() {
                                                             <input
                                                                 type="text"
                                                                 inputMode="decimal"
-                                                                pattern="[0-9]*[.]?[0-9]*"
+                                                                pattern="-?[0-9]*[.]?[0-9]*"
                                                                 value={editValues.epp}
                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
