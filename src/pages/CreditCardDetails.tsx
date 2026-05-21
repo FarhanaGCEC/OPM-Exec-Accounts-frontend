@@ -28,7 +28,7 @@ import {
     TableHeader,
     TableRow,
 } from '../components/ui/table';
-import { Plus, Loader2, Calendar as CalendarIcon, Power, Filter, CircleMinus } from 'lucide-react';
+import { Plus, Loader2, Calendar as CalendarIcon, Power, Filter, CircleMinus, Pencil } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import {
     Select,
@@ -43,28 +43,21 @@ import {
     mapApiResponseToCreditCardDetail,
     type CreditCardDetail 
 } from '../services/creditCardService';
-import { canMutateRecords } from '../lib/authPayload';
+import { canManageCreditCards, creditCardAdminOnlyMessage } from '../lib/authPayload';
 
 const creditCardSchema = z.object({
     issuingBank: z.string().min(1, 'Issuing Bank is required').trim(),
     cardHolder: z.string().min(1, 'MST is required').trim(),
     cardNumber: z.string().min(13, 'Card Number must be at least 13 digits').trim(),
     expiry_date: z.string().min(1, 'Expiry is required').trim(),
-    
-    amountLimit: z.union([
-        z.number(),
-        z.string().transform((val) => {
-            if (val === '' || val === null || val === undefined) return null;
-            const num = parseFloat(val);
-            return isNaN(num) ? null : num;
-        }),
-    ]).optional().nullable(),
 });
 
 type CreditCardFormData = z.infer<typeof creditCardSchema>;
 
+type ToastState = { type: 'error' | 'success'; message: string };
+
 export default function CreditCardDetails() {
-    const canMutate = canMutateRecords();
+    const canManageCards = canManageCreditCards();
     const [creditCards, setCreditCards] = useState<CreditCardDetail[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -81,6 +74,7 @@ export default function CreditCardDetails() {
     const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
     const [selectedYear, setSelectedYear] = useState<number | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'deactive'>('all');
+    const [toast, setToast] = useState<ToastState | null>(null);
 
     const form = useForm<CreditCardFormData>({
         resolver: zodResolver(creditCardSchema),
@@ -89,8 +83,6 @@ export default function CreditCardDetails() {
             cardHolder: '',
             cardNumber: '',
             expiry_date: '',
-           
-            amountLimit: null,
         },
     });
 
@@ -121,6 +113,27 @@ export default function CreditCardDetails() {
     useEffect(() => {
         fetchCreditCards();
     }, [fetchCreditCards]);
+
+    useEffect(() => {
+        if (!toast) return;
+        const timer = window.setTimeout(() => setToast(null), 3200);
+        return () => window.clearTimeout(timer);
+    }, [toast]);
+
+    const showToast = useCallback((type: ToastState['type'], message: string) => {
+        setToast({ type, message });
+    }, []);
+
+    const resolveCardMutationError = useCallback(
+        (err: unknown, fallback: string) => {
+            const adminOnly = creditCardAdminOnlyMessage(err);
+            const message = adminOnly ?? (err as Error)?.message ?? fallback;
+            if (adminOnly) showToast('error', adminOnly);
+            setError(message);
+            return message;
+        },
+        [showToast]
+    );
 
     // Parse expiry date when modal opens or form value changes
     useEffect(() => {
@@ -184,16 +197,15 @@ export default function CreditCardDetails() {
     const formatExpiryDate = (month: number | null, year: number | null): string => {
         if (month === null || year === null) return '';
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const lastTwoDigits = year % 100;
-        return `${monthNames[month]}-${lastTwoDigits}`;
+        const yy = String(year % 100).padStart(2, '0');
+        return `${monthNames[month]}-${yy}`;
     };
 
-    /** API expects full year (e.g. Feb-2026); form/input may use short Mon-yy for display. */
+    /** API expects MMM-YY (e.g. Feb-28, Dec-29) — same as form display. */
     const formatExpiryDateForApi = (expiryDate: string): string => {
         const { month, year } = parseExpiryDate(expiryDate);
         if (month === null || year === null) return expiryDate.trim();
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return `${monthNames[month]}-${year}`;
+        return formatExpiryDate(month, year);
     };
 
     const handleExpiryDateSelect = (month: number, year: number) => {
@@ -234,8 +246,7 @@ export default function CreditCardDetails() {
                 setError(response.message || 'Failed to deactivate credit card');
             }
         } catch (err: any) {
-            const errorMessage = err?.message || err?.error || 'Failed to deactivate credit card';
-            setError(errorMessage);
+            resolveCardMutationError(err, 'Failed to deactivate credit card');
             console.error('[CreditCardDetails] Error deactivating credit card:', err);
             console.error('[CreditCardDetails] Error details:', {
                 message: err?.message,
@@ -245,7 +256,7 @@ export default function CreditCardDetails() {
         } finally {
             setIsDeleting(false);
         }
-    }, [deletingCardId]);
+    }, [deletingCardId, resolveCardMutationError]);
 
     const handleActivate = useCallback((cardId: string) => {
         setActivatingCardId(cardId);
@@ -275,13 +286,12 @@ export default function CreditCardDetails() {
                 setError(response.message || 'Failed to activate credit card');
             }
         } catch (err: any) {
-            const errorMessage = err?.message || err?.error || 'Failed to activate credit card';
-            setError(errorMessage);
+            resolveCardMutationError(err, 'Failed to activate credit card');
             console.error('[CreditCardDetails] Error activating credit card:', err);
         } finally {
             setIsActivating(false);
         }
-    }, [activatingCardId]);
+    }, [activatingCardId, resolveCardMutationError]);
 
     // Get the card name for the delete confirmation dialog
     const deletingCardName = deletingCardId 
@@ -311,7 +321,6 @@ export default function CreditCardDetails() {
             cardHolder: '',
             cardNumber: '',
             expiry_date: '',
-            amountLimit: null,
         });
     }, [form]);
 
@@ -326,10 +335,28 @@ export default function CreditCardDetails() {
             cardHolder: '',
             cardNumber: '',
             expiry_date: '',
-            amountLimit: null,
         });
         setIsModalOpen(true);
     }, [form]);
+
+    const handleEditClick = useCallback(
+        (card: CreditCardDetail) => {
+            setEditingCard(card);
+            setError(null);
+            const { month, year } = parseExpiryDate(card.expiry_date || '');
+            setSelectedMonth(month);
+            setSelectedYear(year);
+            setIsExpiryPopoverOpen(false);
+            form.reset({
+                issuingBank: card.issuingBank,
+                cardHolder: card.cardHolder,
+                cardNumber: card.cardNo,
+                expiry_date: card.expiry_date || '',
+            });
+            setIsModalOpen(true);
+        },
+        [form]
+    );
 
   
 
@@ -343,7 +370,6 @@ export default function CreditCardDetails() {
                 cardHolder: data.cardHolder,
                 cardNumber: data.cardNumber,
                 expiry_date: formatExpiryDateForApi(data.expiry_date),
-                ...(data.amountLimit !== null && data.amountLimit !== undefined && { amountLimit: Number(data.amountLimit) }),
             };
 
             let response;
@@ -363,13 +389,12 @@ export default function CreditCardDetails() {
                 setError(response.message || 'Failed to save credit card');
             }
         } catch (err: any) {
-            const errorMessage = err?.message || 'Failed to save credit card';
-            setError(errorMessage);
+            resolveCardMutationError(err, 'Failed to save credit card');
             console.error('Error saving credit card:', err);
         } finally {
             setIsSubmitting(false);
         }
-    }, [editingCard, fetchCreditCards, handleModalClose]);
+    }, [editingCard, fetchCreditCards, handleModalClose, resolveCardMutationError]);
 
     return (
         <Layout>
@@ -377,7 +402,7 @@ export default function CreditCardDetails() {
                 <div className="flex items-center gap-4 ml-16">
                     <h2 className="text-2xl font-bold text-gray-900">Credit Card Details</h2>
                 </div>
-                {canMutate && (
+                {canManageCards && (
                     <Button
                         onClick={handleAddClick}
                         className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
@@ -444,7 +469,7 @@ export default function CreditCardDetails() {
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Status
                                     </TableHead>
-                                    {canMutate && (
+                                    {canManageCards && (
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
                                             Actions
                                         </TableHead>
@@ -455,16 +480,18 @@ export default function CreditCardDetails() {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-4">
+                                        <TableCell colSpan={canManageCards ? 6 : 5} className="text-center py-4">
                                             <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                             <p className="text-sm text-gray-500">Loading credit card details...</p>
                                         </TableCell>
                                     </TableRow>
                                 ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center py-4">
+                                        <TableCell colSpan={canManageCards ? 6 : 5} className="text-center py-4">
                                             <p className="text-sm text-gray-500 mb-1">No credit card details found.</p>
-                                            <p className="text-sm text-gray-400">Click "Add New" to add your first credit card.</p>
+                                            {canManageCards && (
+                                                <p className="text-sm text-gray-400">Click "Add New" to add your first credit card.</p>
+                                            )}
                                         </TableCell>
                                     </TableRow>
                                 ) : (() => {
@@ -478,7 +505,7 @@ export default function CreditCardDetails() {
                                     if (filteredCards.length === 0) {
                                         return (
                                             <TableRow>
-                                                <TableCell colSpan={6} className="text-center py-4">
+                                                <TableCell colSpan={canManageCards ? 6 : 5} className="text-center py-4">
                                                     <p className="text-sm text-gray-500 mb-1">
                                                         No {statusFilter === 'active' ? 'active' : 'deactive'} credit cards found.
                                                     </p>
@@ -516,9 +543,18 @@ export default function CreditCardDetails() {
                                                     {card.isActive ? 'Active' : 'Deactive'}
                                                 </span>
                                             </TableCell>
-                                            {canMutate && (
+                                            {canManageCards && (
                                                 <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                     <div className="flex items-center gap-2">
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => handleEditClick(card)}
+                                                            className="text-gray-700 hover:text-gray-900"
+                                                            title="Edit card"
+                                                        >
+                                                            <Pencil className="w-4 h-4" />
+                                                        </Button>
                                                         {card.isActive ? (
                                                             <Button
                                                                 variant="outline"
@@ -527,22 +563,22 @@ export default function CreditCardDetails() {
                                                                     setDeletingCardId(card.id);
                                                                     setIsDeleteModalOpen(true);
                                                                 }}
-                                                                className="text-red-600 hover:text-red-700 "
+                                                                className="text-red-600 hover:text-red-700"
                                                                 disabled={isDeleting}
+                                                                title="Deactivate card"
                                                             >
-                                                                <CircleMinus className="w-4 h-4 mr-1" />
-                                                              
+                                                                <CircleMinus className="w-4 h-4" />
                                                             </Button>
                                                         ) : (
                                                             <Button
-                                                                variant="outline" 
+                                                                variant="outline"
                                                                 size="sm"
                                                                 onClick={() => handleActivate(card.id)}
-                                                                className="text-green-600 hover:text-green-700 "
+                                                                className="text-green-600 hover:text-green-700"
                                                                 disabled={isActivating}
+                                                                title="Activate card"
                                                             >
-                                                                <Power className="w-4 h-4 mr-1" />
-                                                               
+                                                                <Power className="w-4 h-4" />
                                                             </Button>
                                                         )}
                                                     </div>
@@ -740,42 +776,6 @@ export default function CreditCardDetails() {
                                     );
                                 }}
                             />
-                         
-                            <FormField
-                                control={form.control}
-                                name="amountLimit"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-base font-medium text-gray-700">
-                                            Amount Limit (Optional)
-                                        </FormLabel>
-                                        <FormControl>
-                                            <Input
-                                                type="text"
-                                                inputMode="decimal"
-                                                pattern="[0-9]*[.]?[0-9]*"
-                                                placeholder="Enter Amount Limit"
-                                                disabled={isSubmitting}
-                                                value={field.value !== null && field.value !== undefined ? String(field.value) : ''}
-                                                onChange={(e) => {
-                                                    const value = e.target.value
-                                                      .replace(/[^0-9.]/g, '')
-                                                      .replace(/(\..*)\./g, '$1');
-                                                    if (value === '' || value === null || value === undefined) {
-                                                        field.onChange(null);
-                                                    } else {
-                                                        const numValue = parseFloat(value);
-                                                        field.onChange(isNaN(numValue) ? null : numValue);
-                                                    }
-                                                }}
-                                                onBlur={field.onBlur}
-                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
-                                            />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
                             <div className="flex justify-end space-x-3 pt-4">
                                 <Button
                                     type="button"
@@ -818,6 +818,19 @@ export default function CreditCardDetails() {
                 confirmButtonText="Deactivate"
                 loadingButtonText="Deactivating..."
             />
+
+            {toast && (
+                <div
+                    className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-lg ${
+                        toast.type === 'error'
+                            ? 'border-red-200 bg-red-50 text-red-800'
+                            : 'border-green-200 bg-green-50 text-green-800'
+                    }`}
+                    role="status"
+                >
+                    {toast.message}
+                </div>
+            )}
 
             <DeleteConfirmationDialog
                 open={isActivateModalOpen}

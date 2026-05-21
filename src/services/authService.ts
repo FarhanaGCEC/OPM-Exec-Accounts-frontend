@@ -15,6 +15,7 @@ export interface AuthUser {
   name?: string;
   role?: string;
   sidebarPermissions?: Record<string, boolean>;
+  canManageCreditCards?: boolean;
 }
 
 export interface UserProfileResponse {
@@ -54,6 +55,9 @@ export const authService = {
       name: user.name,
       role: user.role,
       ...(user.sidebarPermissions ? { sidebarPermissions: user.sidebarPermissions } : {}),
+      ...(typeof user.canManageCreditCards === 'boolean'
+        ? { canManageCreditCards: user.canManageCreditCards }
+        : {}),
     };
   },
 

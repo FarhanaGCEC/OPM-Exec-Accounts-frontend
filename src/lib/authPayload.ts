@@ -16,6 +16,8 @@ export type StoredAuthUser = {
   role: string;
   /** Present for role `user`; from login / profile `user.sidebarPermissions`. */
   sidebarPermissions?: Record<string, boolean>;
+  /** From login / profile — true only for admins who may create/edit/deactivate cards. */
+  canManageCreditCards?: boolean;
 };
 
 function parseSidebarPermissions(raw: unknown): Record<string, boolean> | undefined {
@@ -36,6 +38,7 @@ export function extractLoginData(data: unknown): {
     role?: string;
     id?: number | string;
     sidebarPermissions?: Record<string, boolean>;
+    canManageCreditCards?: boolean;
   };
 } {
   if (!data || typeof data !== 'object') return {};
@@ -53,12 +56,14 @@ export function extractLoginData(data: unknown): {
   }
   const u = userRaw as Record<string, unknown>;
   const sidebarPermissions = parseSidebarPermissions(u.sidebarPermissions);
+  const canManageRaw = u.canManageCreditCards ?? u.can_manage_credit_cards;
   const user = {
     username: typeof u.username === 'string' ? u.username : undefined,
     name: typeof u.name === 'string' ? u.name : undefined,
     role: typeof u.role === 'string' ? u.role : undefined,
     id: (typeof u.id === 'number' || typeof u.id === 'string' ? u.id : undefined) as number | string | undefined,
     ...(sidebarPermissions ? { sidebarPermissions } : {}),
+    ...(typeof canManageRaw === 'boolean' ? { canManageCreditCards: canManageRaw } : {}),
   };
   return { token, user };
 }
@@ -107,6 +112,36 @@ export function isViewerRole(role: string | null | undefined): boolean {
 /** Viewer is read-only; all other roles can perform mutating actions in UI. */
 export function canMutateRecords(): boolean {
   return !isViewerRole(syncUserRoleFromSession());
+}
+
+/**
+ * Credit card master (bank, holder, number, expiry, limit) — admin only.
+ * Uses `canManageCreditCards` from login/profile; falls back to JWT role `admin` until profile loads.
+ */
+export function canManageCreditCards(): boolean {
+  if (isRoleAdmin()) return true;
+  const stored = readStoredAuthUser();
+  if (stored?.canManageCreditCards === true) return true;
+  if (stored?.canManageCreditCards === false) return false;
+  return false;
+}
+
+/** Map 403 ADMIN_ONLY (or equivalent message) to a short UI toast string. */
+export function creditCardAdminOnlyMessage(err: unknown): string | null {
+  const code =
+    typeof (err as { code?: unknown })?.code === 'string'
+      ? (err as { code: string }).code
+      : undefined;
+  if (code === 'ADMIN_ONLY') return 'Only admin can edit cards';
+  const msg = String((err as Error)?.message ?? '').toLowerCase();
+  if (
+    msg.includes('only administrators can create or edit credit cards') ||
+    msg.includes('only admin') ||
+    msg.includes('admin_only')
+  ) {
+    return 'Only admin can edit cards';
+  }
+  return null;
 }
 
 /** Viewers may open/view/download statements but must never upload or replace them. */
@@ -180,6 +215,9 @@ export function persistLoginSession(args: {
   };
   if (roleLower === 'user' && user?.sidebarPermissions && typeof user.sidebarPermissions === 'object') {
     snapshot.sidebarPermissions = user.sidebarPermissions;
+  }
+  if (typeof user?.canManageCreditCards === 'boolean') {
+    snapshot.canManageCreditCards = user.canManageCreditCards;
   }
 
   localStorage.setItem(AUTH_STORAGE_KEYS.authUser, JSON.stringify(snapshot));
@@ -265,6 +303,11 @@ export function applyProfileToSession(profile: StoredAuthUser): void {
   };
   if (role.toLowerCase().trim() === 'user' && profile.sidebarPermissions) {
     snapshot.sidebarPermissions = profile.sidebarPermissions;
+  }
+  if (typeof profile.canManageCreditCards === 'boolean') {
+    snapshot.canManageCreditCards = profile.canManageCreditCards;
+  } else if (typeof existing?.canManageCreditCards === 'boolean') {
+    snapshot.canManageCreditCards = existing.canManageCreditCards;
   }
 
   localStorage.setItem(AUTH_STORAGE_KEYS.authUser, JSON.stringify(snapshot));

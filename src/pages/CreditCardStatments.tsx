@@ -36,6 +36,7 @@ import {
 } from '../lib/excelExportFont';
 import { canMutateRecords } from '../lib/authPayload';
 import { formatDisplayYear } from '../lib/formatDisplayDate';
+import { moneyFromApi, roundMoney, sumMoney } from '../lib/money';
 
 type StatementApprovalOffer =
     | {
@@ -225,7 +226,8 @@ export default function CreditCardStatements() {
     }, []);
 
     const formatCurrency = (value: number) => {
-        return `AED ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const normalized = roundMoney(value);
+        return `AED ${normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
     const sanitizeSignedDecimalInput = (value: string): string => {
@@ -239,42 +241,38 @@ export default function CreditCardStatements() {
         const trimmed = value.trim();
         if (trimmed === '' || trimmed === '-') return 0;
         const parsed = parseFloat(trimmed);
-        return Number.isFinite(parsed) ? parsed : 0;
+        return Number.isFinite(parsed) ? roundMoney(parsed) : 0;
     };
 
     const getDisplayAmountPending = (statement: CreditCardStatement): number => {
-        const totalPaymentDue = Number(statement.totalPaymentDue) || 0;
-        const paid = Number(statement.paid) || 0;
-        const epp = Number(statement.epp) || 0;
-        const calculatedPending = totalPaymentDue - paid - epp;
+        const totalPaymentDue = moneyFromApi(statement.totalPaymentDue);
+        const paid = moneyFromApi(statement.paid);
+        const epp = moneyFromApi(statement.epp);
+        const calculatedPending = roundMoney(totalPaymentDue - paid - epp);
 
         if (calculatedPending !== 0 || totalPaymentDue < 0) {
             return calculatedPending;
         }
 
-        const creditBalance = Number(statement.creditBalance) || 0;
+        const creditBalance = moneyFromApi(statement.creditBalance);
         if (creditBalance !== 0) {
-            return -Math.abs(creditBalance);
+            return roundMoney(-Math.abs(creditBalance));
         }
 
         return 0;
     };
 
     const getStatementTotals = (statements: CreditCardStatement[]): StatementTotals => {
-        return statements.reduce(
-            (totals, card) => ({
-                totalPaymentDue: totals.totalPaymentDue + (Number(card.totalPaymentDue) || 0),
-                paid: totals.paid + (Number(card.paid) || 0),
-                epp: totals.epp + (Number(card.epp) || 0),
-                amountPending: totals.amountPending + getDisplayAmountPending(card),
-            }),
-            {
-                totalPaymentDue: 0,
-                paid: 0,
-                epp: 0,
-                amountPending: 0,
-            }
-        );
+        return {
+            totalPaymentDue: sumMoney(
+                statements.map((card) => moneyFromApi(card.totalPaymentDue))
+            ),
+            paid: sumMoney(statements.map((card) => moneyFromApi(card.paid))),
+            epp: sumMoney(statements.map((card) => moneyFromApi(card.epp))),
+            amountPending: sumMoney(
+                statements.map((card) => getDisplayAmountPending(card))
+            ),
+        };
     };
 
     const formatDate = (dateString: string) => {
@@ -699,13 +697,28 @@ export default function CreditCardStatements() {
                             formatDate(card.statement_date || ''),
                             formatDate(card.due_date || ''),
                             formatMonth(card.due_month || ''),
-                            card.totalPaymentDue || 0,
-                            card.paid || 0,
-                            card.epp || 0,
+                            moneyFromApi(card.totalPaymentDue),
+                            moneyFromApi(card.paid),
+                            moneyFromApi(card.epp),
                             getDisplayAmountPending(card),
                             card.attachmentName || '',
                         ]);
                     });
+
+                    const monthTotals = getStatementTotals(statements);
+                    excelData.push([
+                        'Total',
+                        '',
+                        '',
+                        '',
+                        '',
+                        '',
+                        monthTotals.totalPaymentDue,
+                        monthTotals.paid,
+                        monthTotals.epp,
+                        monthTotals.amountPending,
+                        '',
+                    ]);
 
                     // Create worksheet
                     const worksheet = XLSX.utils.aoa_to_sheet(excelData);
@@ -805,13 +818,28 @@ export default function CreditCardStatements() {
                     formatDate(card.statement_date || ''),
                     formatDate(card.due_date || ''),
                     formatMonth(card.due_month || ''),
-                    card.totalPaymentDue || 0,
-                    card.paid || 0,
-                    card.epp || 0,
+                    moneyFromApi(card.totalPaymentDue),
+                    moneyFromApi(card.paid),
+                    moneyFromApi(card.epp),
                     getDisplayAmountPending(card),
                     card.attachmentName || '',
                 ]);
             });
+
+            const sheetTotals = getStatementTotals(creditCards);
+            excelData.push([
+                'Total',
+                '',
+                '',
+                '',
+                '',
+                '',
+                sheetTotals.totalPaymentDue,
+                sheetTotals.paid,
+                sheetTotals.epp,
+                sheetTotals.amountPending,
+                '',
+            ]);
 
             // Create worksheet
             const worksheet = XLSX.utils.aoa_to_sheet(excelData);
@@ -1258,7 +1286,7 @@ export default function CreditCardStatements() {
                                                             </TableCell>
                                                             <TableCell
                                                                 className={`font-bold py-2 text-left ${
-                                                                    monthlyTotals.amountPending > 0
+                                                                    roundMoney(monthlyTotals.amountPending) > 0
                                                                         ? 'text-red-600'
                                                                         : 'text-green-600'
                                                                 }`}
@@ -1517,7 +1545,7 @@ export default function CreditCardStatements() {
                                                 </TableCell>
                                                 <TableCell
                                                     className={`font-bold py-2 text-left ${
-                                                        monthlyTotals.amountPending > 0
+                                                        roundMoney(monthlyTotals.amountPending) > 0
                                                             ? 'text-red-600'
                                                             : 'text-green-600'
                                                     }`}

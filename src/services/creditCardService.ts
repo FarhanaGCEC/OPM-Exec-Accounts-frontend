@@ -2,6 +2,7 @@ import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
 import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
 import { expandCenturyYear } from '../lib/formatDisplayDate';
+import { moneyFromApi } from '../lib/money';
 
 // API Response interface for Credit Card Details (snake_case from backend)
 export interface CreditCardDetailApiResponse {
@@ -198,11 +199,11 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
     statement_date: item.statement_date ?? null,
     due_date: item.due_date ?? null,
     due_month: item.due_month ?? null,
-    totalPaymentDue: item.total_payment_due !== null && item.total_payment_due !== undefined ? Number(item.total_payment_due) : 0,
-    paid: item.paid !== null && item.paid !== undefined ? Number(item.paid) : 0,
-    epp: item.epp !== null && item.epp !== undefined ? Number(item.epp) : 0,
-    amountPending: item.amount_pending !== null && item.amount_pending !== undefined ? Number(item.amount_pending) : 0,
-    creditBalance: item.credit_balance !== null && item.credit_balance !== undefined ? Number(item.credit_balance) : 0,
+    totalPaymentDue: moneyFromApi(item.total_payment_due),
+    paid: moneyFromApi(item.paid),
+    epp: moneyFromApi(item.epp),
+    amountPending: moneyFromApi(item.amount_pending),
+    creditBalance: moneyFromApi(item.credit_balance),
     attachmentName: att.attachmentName,
     attachmentUrl: att.attachmentUrl,
   };
