@@ -190,6 +190,7 @@ export function persistLoginSession(args: {
     name?: string;
     role?: string;
     sidebarPermissions?: Record<string, boolean>;
+    canManageCreditCards?: boolean;
   };
   /** Used when API omits username on `user` */
   formUsername?: string;
