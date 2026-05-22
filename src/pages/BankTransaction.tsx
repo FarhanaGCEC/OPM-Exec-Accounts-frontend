@@ -1237,6 +1237,8 @@ export default function BankTransaction() {
   const [pdcLedgerApproving, setPdcLedgerApproving] = useState<number | null>(null);
   const [pdcApproveDialogOpen, setPdcApproveDialogOpen] = useState(false);
   const [pdcApprovePdcId, setPdcApprovePdcId] = useState<number | null>(null);
+  const [pdcApproveIsCustomerPdc, setPdcApproveIsCustomerPdc] = useState(false);
+  const [pdcApproveOptionalTime, setPdcApproveOptionalTime] = useState('');
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [chequeAttachmentFile, setChequeAttachmentFile] = useState<File | null>(null);
   const [removeChequeAttachmentOnSave, setRemoveChequeAttachmentOnSave] = useState(false);
@@ -1514,12 +1516,15 @@ export default function BankTransaction() {
   }, []);
 
   const approvePdcDailyLedger = useCallback(
-    async (pdcId: number) => {
+    async (pdcId: number, opts?: { transactionTime?: string }) => {
       try {
         setPdcLedgerApproving(pdcId);
         setError(null);
         setSuccessMessage(null);
-        const response = await transactionService.patchPdcDailyLedgerApproved(pdcId, true);
+        const body: { approved: boolean; transactionTime?: string } = { approved: true };
+        const timeTrim = opts?.transactionTime?.trim();
+        if (timeTrim) body.transactionTime = timeTrim;
+        const response = await transactionService.patchPdcDailyLedgerApproved(pdcId, body);
         if (
           response.success &&
           isChangeRequestSubmittedEnvelope(response.data)
@@ -1540,10 +1545,13 @@ export default function BankTransaction() {
         if (isApprovalRequiredError(e)) {
           setPdcApproveDialogOpen(false);
           setPdcApprovePdcId(null);
+          const crPayload: Record<string, unknown> = { approved: true };
+          const crTime = opts?.transactionTime?.trim();
+          if (crTime) crPayload.transactionTime = crTime;
           setApprovalOffer({
             mode: 'pdc_daily_ledger',
             resourceId: String(pdcId),
-            payload: { approved: true },
+            payload: crPayload,
           });
           setError(null);
         } else {
@@ -1564,10 +1572,21 @@ export default function BankTransaction() {
   const handlePdcApproveConfirm = useCallback(async () => {
     if (pdcApprovePdcId == null) return;
     const id = pdcApprovePdcId;
-    await approvePdcDailyLedger(id);
+    const optionalTime =
+      pdcApproveIsCustomerPdc && pdcApproveOptionalTime.trim()
+        ? pdcApproveOptionalTime.trim()
+        : undefined;
+    await approvePdcDailyLedger(id, { transactionTime: optionalTime });
     setPdcApproveDialogOpen(false);
     setPdcApprovePdcId(null);
-  }, [pdcApprovePdcId, approvePdcDailyLedger]);
+    setPdcApproveIsCustomerPdc(false);
+    setPdcApproveOptionalTime('');
+  }, [
+    pdcApprovePdcId,
+    pdcApproveIsCustomerPdc,
+    pdcApproveOptionalTime,
+    approvePdcDailyLedger,
+  ]);
 
   useEffect(() => {
     fetchTransactions();
@@ -1638,7 +1657,16 @@ export default function BankTransaction() {
       if (editingTransaction && isPdcDueId(editingTransaction.id)) {
         const noteText = String(data.description ?? '');
         const pdcId = resolvePdcIdFromLedgerRow(editingTransaction);
-        const pdcUpdateBody = {
+        const pdcUpdateBody: {
+          chequeDate: string;
+          chequeNumber: string;
+          customerName: string;
+          amount: number;
+          chequeType: string;
+          pdcType: 'GCEC PDC' | 'Customer PDC' | 'Custom PDC';
+          remarks: string;
+          transactionTime?: string;
+        } = {
           chequeDate: data.date.trim(),
           chequeNumber: data.chequeNumber?.trim() || '',
           customerName: data.customerName?.trim() || '',
@@ -1647,6 +1675,9 @@ export default function BankTransaction() {
           pdcType: (data.pdcType || 'GCEC PDC') as 'GCEC PDC' | 'Customer PDC' | 'Custom PDC',
           remarks: noteText,
         };
+        if (data.entryTime && data.entryTime.trim()) {
+          pdcUpdateBody.transactionTime = data.entryTime.trim();
+        }
 
         const pdcPayload: Record<string, unknown> = {
           date: normalizedDate,
@@ -1659,6 +1690,9 @@ export default function BankTransaction() {
           pdcType: pdcUpdateBody.pdcType,
           remarks: noteText,
         };
+        if (pdcUpdateBody.transactionTime) {
+          pdcPayload.transactionTime = pdcUpdateBody.transactionTime;
+        }
 
         pendingEditPayload = { ...pdcPayload };
         if (wantsRemoveScan) {
@@ -3187,6 +3221,13 @@ export default function BankTransaction() {
                                     )
                                       return;
                                     setPdcApprovePdcId(transaction.pdcId);
+                                    setPdcApproveIsCustomerPdc(
+                                      rowIsCustomerPdcHighlight(
+                                        transaction.remarks,
+                                        transaction.pdcType
+                                      )
+                                    );
+                                    setPdcApproveOptionalTime('');
                                     setPdcApproveDialogOpen(true);
                                   }}
                                 />
@@ -3803,22 +3844,80 @@ export default function BankTransaction() {
         }}
       />
 
-      <DeleteConfirmationDialog
+      <Dialog
         open={pdcApproveDialogOpen}
         onOpenChange={(open) => {
           setPdcApproveDialogOpen(open);
-          if (!open) setPdcApprovePdcId(null);
+          if (!open) {
+            setPdcApprovePdcId(null);
+            setPdcApproveIsCustomerPdc(false);
+            setPdcApproveOptionalTime('');
+          }
         }}
-        onConfirm={() => void handlePdcApproveConfirm()}
-        title="Approve for daily ledger?"
-        description="Approve this matured PDC for the daily ledger? Confirm with Yes to continue."
-        variant="activate"
-        confirmButtonText="Yes"
-        loadingButtonText="Approving…"
-        isLoading={
-          pdcApprovePdcId != null && pdcLedgerApproving === pdcApprovePdcId
-        }
-      />
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Approve for daily ledger?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Approve this matured PDC for the daily ledger?
+            {pdcApproveIsCustomerPdc
+              ? ' You can optionally set the transaction time below; leave blank to use server time.'
+              : ' Confirm to continue.'}
+          </p>
+          {pdcApproveIsCustomerPdc && (
+            <div className="space-y-2 pt-1">
+              <label
+                htmlFor="pdc-approve-optional-time"
+                className="text-sm font-medium text-gray-700"
+              >
+                Transaction time (optional)
+              </label>
+              <Input
+                id="pdc-approve-optional-time"
+                type="time"
+                step={60}
+                value={pdcApproveOptionalTime}
+                onChange={(e) => setPdcApproveOptionalTime(e.target.value)}
+              />
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setPdcApproveDialogOpen(false);
+                setPdcApprovePdcId(null);
+                setPdcApproveIsCustomerPdc(false);
+                setPdcApproveOptionalTime('');
+              }}
+              disabled={
+                pdcApprovePdcId != null && pdcLedgerApproving === pdcApprovePdcId
+              }
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black font-semibold"
+              onClick={() => void handlePdcApproveConfirm()}
+              disabled={
+                pdcApprovePdcId != null && pdcLedgerApproving === pdcApprovePdcId
+              }
+            >
+              {pdcApprovePdcId != null && pdcLedgerApproving === pdcApprovePdcId ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Approving…
+                </>
+              ) : (
+                'Yes, approve'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!approvalOffer}

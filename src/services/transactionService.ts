@@ -330,6 +330,9 @@ function appendPdcFormFields(form: FormData, apiData: Record<string, unknown>): 
   if (apiData.chequeNumber !== undefined) {
     form.append('chequeNumber', String(apiData.chequeNumber));
   }
+  if (apiData.transactionTime !== undefined && String(apiData.transactionTime).trim() !== '') {
+    form.append('transactionTime', String(apiData.transactionTime).trim());
+  }
   if (apiData.customerName !== undefined) {
     form.append('customerName', String(apiData.customerName ?? '').trim());
   }
@@ -790,14 +793,35 @@ export const transactionService = {
   },
 
   /**
-   * Approve matured GCEC / Custom PDC for daily ledger (admin / accountant only).
-   * PATCH /pdc/:id/daily-ledger-approved — body `{ approved: true }` or `{ dailyLedgerApproved: true }`.
+   * Approve matured PDC for daily ledger (admin / accountant only).
+   * PATCH /pdc/:id/daily-ledger-approved — `{ approved: true }` and optional `transactionTime` (HH:mm).
    */
   patchPdcDailyLedgerApproved: async (
     pdcId: string | number,
-    approved: boolean
+    body: { approved?: boolean; transactionTime?: string; dailyLedgerApproved?: boolean }
   ): Promise<ApiResponse<unknown>> => {
-    return api.patch<unknown>(`/pdc/${pdcId}/daily-ledger-approved`, { approved });
+    const payload: Record<string, unknown> = {};
+    if (body.approved === true || body.dailyLedgerApproved === true) {
+      payload.approved = true;
+      payload.dailyLedgerApproved = true;
+    }
+    if (body.transactionTime !== undefined && String(body.transactionTime).trim() !== '') {
+      payload.transactionTime = String(body.transactionTime).trim();
+    }
+    return api.patch<unknown>(`/pdc/${pdcId}/daily-ledger-approved`, payload);
+  },
+
+  /**
+   * Update ledger approval time on an already-approved Customer PDC (admin / accountant only).
+   * PATCH /pdc/:id/daily-ledger-approval-time — `{ transactionTime: "HH:mm" }`.
+   */
+  patchPdcDailyLedgerApprovalTime: async (
+    pdcId: string | number,
+    transactionTime: string
+  ): Promise<ApiResponse<unknown>> => {
+    return api.patch<unknown>(`/pdc/${pdcId}/daily-ledger-approval-time`, {
+      transactionTime: String(transactionTime).trim(),
+    });
   },
 
   // Post-Dated Cheques (PDC)
@@ -887,6 +911,10 @@ export const transactionService = {
 
     if (data.chequeDate !== undefined) apiData.chequeDate = data.chequeDate;
     if (data.chequeNumber !== undefined) apiData.chequeNumber = data.chequeNumber;
+    if (data.transactionTime !== undefined) {
+      const timeValue = String(data.transactionTime).trim();
+      if (timeValue) apiData.transactionTime = timeValue;
+    }
     if (data.customerName !== undefined) apiData.customerName = data.customerName || '';
     if (data.amount !== undefined) apiData.amount = normalizeAmount(data.amount);
     if (data.pdcType !== undefined) apiData.pdcType = data.pdcType;
