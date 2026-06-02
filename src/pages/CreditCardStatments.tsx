@@ -15,6 +15,8 @@ import { Calendar as CalendarIcon, Loader2, Pencil, ChevronUp, Check, X, Downloa
 import { StatementAttachmentTableCell } from '../components/StatementAttachmentTableCell';
 import {
     creditCardService,
+    getDefaultStatementPeriod,
+    statementPeriodMonthKey,
     type CreditCardStatement,
 } from '../services/creditCardService';
 import { changeRequestService } from '../services/changeRequestService';
@@ -69,10 +71,11 @@ export default function CreditCardStatements() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     
-    // Period selection state
+    // Period selection state (default: previous + current month)
     const currentDate = new Date();
-    const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
-    const [selectedMonths, setSelectedMonths] = useState<number[]>([currentDate.getMonth()]);
+    const defaultStatementPeriod = getDefaultStatementPeriod(currentDate);
+    const [selectedYear, setSelectedYear] = useState<number>(defaultStatementPeriod.year);
+    const [selectedMonths, setSelectedMonths] = useState<number[]>(defaultStatementPeriod.months);
     const [isPeriodSelectorOpen, setIsPeriodSelectorOpen] = useState(false);
     
     // Edit state - only one card can be edited at a time
@@ -156,44 +159,31 @@ export default function CreditCardStatements() {
             setLoading(true);
             setError(null);
             
-            let allStatements: CreditCardStatement[] = [];
-            
-            if (months.length === 0) {
-                // No months selected, use current month/year (no params)
-                const response = await creditCardService.getCreditCardStatements();
-                if (response.success && response.data) {
-                    allStatements = response.data;
-                }
-            } else if (months.length === 1) {
-                // Single month selected: fetch specific month
-                const response = await creditCardService.getCreditCardStatements({
-                    year: year,
-                    month: months[0], // month index (0-11)
-                });
-                if (response.success && response.data) {
-                    allStatements = response.data;
-                }
-            } else {
-                // Multiple months selected: use months query parameter (pass all selected months)
-                const response = await creditCardService.getCreditCardStatements({
-                    year: year,
-                    months: months, // Array of month indices (0-11) - pass all selected months
-                });
-                if (response.success && response.data) {
-                    allStatements = response.data;
-                }
-            }
-            
-            // Group statements by month if multiple months are selected
-            if (months.length > 1) {
+            const periodMonths =
+                months.length > 0 ? months : getDefaultStatementPeriod().months;
+            const response = await creditCardService.getCreditCardStatements({
+                year,
+                months: periodMonths,
+            });
+            const allStatements =
+                response.success && Array.isArray(response.data) ? response.data : [];
+
+            if (periodMonths.length > 1) {
                 const grouped: GroupedStatements = {};
+                for (const monthIndex of periodMonths) {
+                    const monthKey = statementPeriodMonthKey(year, monthIndex, periodMonths);
+                    grouped[monthKey] = response.groupedByMonth?.[monthKey] ?? [];
+                }
                 allStatements.forEach((statement) => {
                     const statementMonth = getStatementMonth(statement);
-                    if (statementMonth !== null && months.includes(statementMonth)) {
-                        const monthKey = `${year}-${String(statementMonth + 1).padStart(2, '0')}`;
-                        if (!grouped[monthKey]) {
-                            grouped[monthKey] = [];
-                        }
+                    if (statementMonth === null || !periodMonths.includes(statementMonth)) {
+                        return;
+                    }
+                    const monthKey = statementPeriodMonthKey(year, statementMonth, periodMonths);
+                    if (!grouped[monthKey]) {
+                        grouped[monthKey] = [];
+                    }
+                    if (!grouped[monthKey].some((row) => row.id === statement.id)) {
                         grouped[monthKey].push(statement);
                     }
                 });
@@ -1035,16 +1025,27 @@ export default function CreditCardStatements() {
                 </div>
             )}
 
-            {/* Render separate tables for each month when multiple months are selected */}
-            {selectedMonths.length > 1 && Object.keys(groupedStatements).length > 0 ? (
-                // Multiple months: show separate tables
-                Object.keys(groupedStatements)
-                    .sort()
-                    .map((monthKey) => {
+            {/* Render separate tables for each selected month (default: previous + current) */}
+            {selectedMonths.length > 1 ? (
+                loading ? (
+                    <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
+                        <CardContent className="py-12 text-center">
+                            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
+                            <p className="text-sm text-gray-500">Loading credit card statements...</p>
+                        </CardContent>
+                    </Card>
+                ) : (
+                [...selectedMonths]
+                    .sort((a, b) => a - b)
+                    .map((monthIndex) => {
+                        const monthKey = statementPeriodMonthKey(
+                            selectedYear,
+                            monthIndex,
+                            selectedMonths
+                        );
                         const [year, monthNum] = monthKey.split('-');
-                        const monthIndex = parseInt(monthNum, 10) - 1;
-                        const monthName = fullMonthNames[monthIndex];
-                        const statements = groupedStatements[monthKey];
+                        const monthName = fullMonthNames[parseInt(monthNum, 10) - 1];
+                        const statements = groupedStatements[monthKey] ?? [];
                         const monthlyTotals = getStatementTotals(statements);
                         
                         return (
@@ -1304,6 +1305,7 @@ export default function CreditCardStatements() {
                             </Card>
                         );
                     })
+                )
             ) : (
                 // Single month: show single table
                 (() => {

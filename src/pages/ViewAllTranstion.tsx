@@ -1069,17 +1069,6 @@ export default function ViewAllTranstion() {
     addRow(['End Date:', endDate ? formatDateForExcel(endDate) : '']);
     addRow([]);
 
-    // Summary
-    if (summary) {
-      addRow(['Summary:'], { font: { bold: true } });
-      addRow(['Daily Transaction Detail:', summary.dailyTransactions]);
-      addRow(['GCEC Post Dated Cheques in Hand:', summary.gcecPdc]);
-      addRow(['Customers Post Dated Cheques in Hand:', summary.customerPdc]);
-      addRow(['Sales Invoice amount paid against GCEC Purchase Bills:', summary.purchaseBills]);
-      addRow(['Total:', summary.total]);
-      addRow([]);
-    }
-
     // Group transactions by type
     const transactionOrder = ['Daily Transaction', 'GCEC PDC', 'Customer PDC', 'Purchase Bill'];
     
@@ -1110,6 +1099,7 @@ export default function ViewAllTranstion() {
         addRow(headers, { font: { bold: true } });
 
         // Transaction rows
+        let sectionAmountTotal = 0;
         typeTransactions.forEach((transaction) => {
           if (type === 'Daily Transaction') {
             const txn = transaction as DailyTransaction;
@@ -1118,6 +1108,10 @@ export default function ViewAllTranstion() {
             const debitValue = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
             const creditValue = txn.credit ? parseFloat(String(txn.credit).replace(/,/g, '')) : 0;
             const balanceValue = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
+            const rowAmount =
+              (Number.isFinite(debitValue) ? debitValue : 0) +
+              (Number.isFinite(creditValue) ? creditValue : 0);
+            sectionAmountTotal += rowAmount;
             
             const rawRemarks = txn.remarks || '';
             const remarksCell = remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn));
@@ -1174,6 +1168,7 @@ export default function ViewAllTranstion() {
           } else if (type === 'GCEC PDC') {
             const txn = transaction as GCECPDC;
             const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
+            sectionAmountTotal += amountValue;
             const chequeTypeDisplay = txn.chequeType === 'Payment Cheque' ? '' : 'Security Cheque';
             const row = addRow([
               formatDateForExcel(txn.date),
@@ -1191,6 +1186,7 @@ export default function ViewAllTranstion() {
           } else if (type === 'Customer PDC') {
             const txn = transaction as CustomerPDC;
             const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
+            sectionAmountTotal += amountValue;
             const chequeTypeDisplay = txn.chequeType === 'Payment Cheque' ? '' : 'Security Cheque';
             const isSecurityCheque = chequeTypeDisplay === 'Security Cheque';
             
@@ -1216,6 +1212,7 @@ export default function ViewAllTranstion() {
           } else if (type === 'Purchase Bill') {
             const txn = transaction as PurchaseBill;
             const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
+            sectionAmountTotal += amountValue;
             const row = addRow([
               formatDateForExcel(txn.date),
               txn.vendorName,
@@ -1226,7 +1223,34 @@ export default function ViewAllTranstion() {
      
           }
         });
-        
+
+        if (
+          type === 'Daily Transaction' ||
+          type === 'GCEC PDC' ||
+          type === 'Customer PDC' ||
+          type === 'Purchase Bill'
+        ) {
+          addRow([]); // Blank row before section total
+          const totalRowValues =
+            type === 'Purchase Bill'
+              ? ['', '', 'Total', sectionAmountTotal]
+              : type === 'Daily Transaction'
+                ? ['', '', 'Total', '', '', sectionAmountTotal, '']
+                : ['', '', 'Total', sectionAmountTotal, ''];
+          const totalRow = addRow(totalRowValues, { font: { bold: true } });
+          totalRow.getCell(3).alignment = { horizontal: 'right' };
+          const totalAmountCell =
+            type === 'Daily Transaction' ? totalRow.getCell(6) : totalRow.getCell(4);
+          totalAmountCell.numFmt = '#,##0.00';
+          totalAmountCell.font =
+            type === 'Daily Transaction'
+              ? (excelExportFont({
+                  bold: true,
+                  color: { argb: 'FF0003EB' },
+                }) as ExcelJS.Font)
+              : (excelExportFont({ bold: true }) as ExcelJS.Font);
+        }
+
         addRow([]); // Empty row between sections
       }
     });
@@ -1258,7 +1282,7 @@ export default function ViewAllTranstion() {
     link.download = fileName;
     link.click();
     window.URL.revokeObjectURL(url);
-  }, [filteredTransactions, groupedTransactions, summary, startDate, endDate]);
+  }, [filteredTransactions, groupedTransactions, startDate, endDate]);
 
   const handleViewPdf = useCallback(async () => {
     try {

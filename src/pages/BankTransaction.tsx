@@ -42,7 +42,7 @@ import {
   Upload,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { applyArialToExcelJsWorkbook } from '../lib/excelExportFont';
+import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 import {
   expandCenturyYear,
   formatDateForApi,
@@ -1002,9 +1002,36 @@ function buildLedgerExportRows(filteredTransactions: BankTransaction[]): LedgerE
   ];
 }
 
+/** ADCB-style cheque numbers in exports (leading zeros, e.g. 0050301). */
+const LEDGER_CHEQUE_EXPORT_WIDTH = 7;
+
+function formatChequeNumberForLedgerExport(
+  chequeNumber: string | number | null | undefined
+): string {
+  const raw = String(chequeNumber ?? '').replace(/,/g, '').trim();
+  if (!raw || raw === '-') return '';
+  if (/^0\d*$/.test(raw)) {
+    return raw.length >= LEDGER_CHEQUE_EXPORT_WIDTH
+      ? raw
+      : raw.padStart(LEDGER_CHEQUE_EXPORT_WIDTH, '0');
+  }
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return raw;
+  return digits.padStart(LEDGER_CHEQUE_EXPORT_WIDTH, '0');
+}
+
+/** Excel often strips leading zeros from .csv — prefix tab so values open as text. */
+function csvValueForExcelOpen(value: string): string {
+  const v = String(value ?? '');
+  if (!v) return v;
+  if (/^\d+$/.test(v)) return `\t${v}`;
+  if (/^\d{1,2}-[A-Za-z]{3}-\d{2,4}$/.test(v.trim())) return `\t${v}`;
+  return v;
+}
+
 function ledgerExportDetailsColumn(t: BankTransaction): string {
   if (t.paymentType === 'cheque' && t.chequeNumber && t.chequeNumber !== '-') {
-    return String(t.chequeNumber).replace(/,/g, '').trim().padStart(6, '0');
+    return formatChequeNumberForLedgerExport(t.chequeNumber);
   }
   if (t.paymentType === 'cash') return 'Cash';
   if (t.paymentType === 'creditcard') return 'Credit Card';
@@ -2369,8 +2396,12 @@ export default function BankTransaction() {
 
     csvRows.push(rowCsv('Account No.', '12990685920001 - AED'));
     csvRows.push(rowCsv('IBAN', 'AE720030012990685920001'));
-    csvRows.push(rowCsv('Start Date', formatJsDateDisplay(exportStartDate)));
-    csvRows.push(rowCsv('End Date', formatJsDateDisplay(exportEndDate)));
+    csvRows.push(
+      rowCsv('Start Date', csvValueForExcelOpen(formatJsDateDisplay(exportStartDate)))
+    );
+    csvRows.push(
+      rowCsv('End Date', csvValueForExcelOpen(formatJsDateDisplay(exportEndDate)))
+    );
     csvRows.push(rowCsv('Closing (Current)', `AED ${closingBalance}`));
     csvRows.push(rowCsv());
     csvRows.push(rowCsv());
@@ -2409,11 +2440,12 @@ export default function BankTransaction() {
         ? ''
         : `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
+      const exportDate = displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup);
       csvRows.push(
         rowCsv(
-          displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup),
+          exportDate ? csvValueForExcelOpen(exportDate) : exportDate,
           t.categoryName || 'N/A',
-          details,
+          details ? csvValueForExcelOpen(details) : details,
           debit,
           credit,
           balance,
@@ -2422,7 +2454,7 @@ export default function BankTransaction() {
       );
     });
   
-    const csvContent = csvRows.join('\n');
+    const csvContent = `\uFEFF${csvRows.join('\n')}`;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
   
@@ -2456,8 +2488,13 @@ export default function BankTransaction() {
       const workbook = new ExcelJS.Workbook();
       const ws = workbook.addWorksheet('Account Statement');
 
+      const leftAlign = { horizontal: 'left' as const, vertical: 'middle' as const };
+
       let r = 1;
-      ws.getCell(r++, 1).value = 'GCEC CLOUD SECURITY & SURVEILLANCE L.L.C';
+      const titleCell = ws.getCell(r++, 1);
+      titleCell.value = 'GCEC CLOUD SECURITY & SURVEILLANCE L.L.C';
+      titleCell.font = excelExportFont({ bold: true }) as ExcelJS.Font;
+      titleCell.alignment = leftAlign;
       r += 2;
 
       ws.getCell(r, 1).value = 'Account No.:';
@@ -2465,15 +2502,22 @@ export default function BankTransaction() {
       ws.getCell(r, 1).value = 'IBAN:';
       ws.getCell(r++, 2).value = 'AE720030012990685920001';
       ws.getCell(r, 1).value = 'Start Date:';
-      ws.getCell(r++, 2).value = formatJsDateDisplay(exportStartDate);
+      const startDateCell = ws.getCell(r, 2);
+      startDateCell.value = formatJsDateDisplay(exportStartDate);
+      startDateCell.alignment = leftAlign;
+      r++;
       ws.getCell(r, 1).value = 'End Date:';
-      ws.getCell(r++, 2).value = formatJsDateDisplay(exportEndDate);
+      const endDateCell = ws.getCell(r, 2);
+      endDateCell.value = formatJsDateDisplay(exportEndDate);
+      endDateCell.alignment = leftAlign;
+      r++;
       ws.getCell(r, 1).value = 'Closing (Current):';
       const closingCell = ws.getCell(r, 2);
       closingCell.value = `AED ${closingBalanceValue.toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}`;
+      closingCell.alignment = leftAlign;
       r++;
       r += 2;
 
@@ -2481,13 +2525,13 @@ export default function BankTransaction() {
       headers.forEach((h, i) => {
         const cell = ws.getCell(r, i + 1);
         cell.value = h;
-        cell.font = { bold: true, color: { argb: 'FF000000' } };
+        cell.font = excelExportFont({ bold: true, color: { argb: 'FF000000' } }) as ExcelJS.Font;
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FFF7C46D' },
         };
-        cell.alignment = { vertical: 'middle' };
+        cell.alignment = leftAlign;
       });
       r++;
 
@@ -2544,9 +2588,18 @@ export default function BankTransaction() {
         );
 
         const row = ws.getRow(r);
-        row.getCell(1).value = displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup);
+        const exportDate = displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup);
+        row.getCell(1).value = exportDate;
+        row.getCell(1).alignment = leftAlign;
+        if (exportDate) {
+          row.getCell(1).numFmt = '@';
+        }
         row.getCell(2).value = t.categoryName || 'N/A';
-        row.getCell(3).value = details;
+        const detailsCell = row.getCell(3);
+        detailsCell.value = details;
+        if (details && /^\d+$/.test(details)) {
+          detailsCell.numFmt = '@';
+        }
         row.getCell(4).value = debitValue;
         row.getCell(4).numFmt = '#,##0.00';
         row.getCell(5).value = creditValue;
@@ -2566,41 +2619,25 @@ export default function BankTransaction() {
         }
 
         // Date, Description, Details, Remarks: black. Debit: red. Credit: black.
-        const blackFont: Partial<ExcelJS.Font> = {
-          name: 'Calibri',
-          size: 11,
-          color: { argb: 'FF000000' },
-        };
-        row.getCell(1).font = blackFont as ExcelJS.Font;
-        row.getCell(2).font = blackFont as ExcelJS.Font;
-        row.getCell(3).font = blackFont as ExcelJS.Font;
-        row.getCell(7).font = blackFont as ExcelJS.Font;
+        const blackFont = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
+        row.getCell(1).font = blackFont;
+        row.getCell(2).font = blackFont;
+        row.getCell(3).font = blackFont;
+        row.getCell(7).font = blackFont;
 
-        row.getCell(4).font = {
-          name: 'Calibri',
-          size: 11,
-          bold: false,
+        row.getCell(4).font = excelExportFont({
           color: { argb: 'FFDC2626' },
-        };
-        row.getCell(5).font = {
-          name: 'Calibri',
-          size: 11,
-          bold: false,
-          color: { argb: 'FF000000' },
-        };
+        }) as ExcelJS.Font;
+        row.getCell(5).font = blackFont;
         if (!suppressBal) {
-          row.getCell(6).font = {
-            name: 'Calibri',
-            size: 11,
+          row.getCell(6).font = excelExportFont({
             bold: true,
             color: { argb: balanceValue < 0 ? 'FFDC2626' : 'FF0003EB' },
-          };
+          }) as ExcelJS.Font;
         } else {
-          row.getCell(6).font = {
-            name: 'Calibri',
-            size: 11,
+          row.getCell(6).font = excelExportFont({
             color: { argb: 'FF9CA3AF' },
-          };
+          }) as ExcelJS.Font;
         }
         // Match on-screen ledger: green background on Balance column for "Available balance" rows.
         if (isAvailableBalanceRemark && !suppressBal) {

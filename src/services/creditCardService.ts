@@ -189,6 +189,188 @@ function assertPatchBodyIsStatementRow(statementData: unknown): void {
   throw e;
 }
 
+export type CreditCardStatementsGrouped = Record<string, CreditCardStatement[]>;
+
+export type CreditCardStatementsListResult = ApiResponse<CreditCardStatement[]> & {
+  groupedByMonth?: CreditCardStatementsGrouped;
+};
+
+function isCreditCardStatementRow(item: unknown): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const o = item as Record<string, unknown>;
+  return (
+    o.issuing_bank != null ||
+    o.issuingBank != null ||
+    o.card_holder != null ||
+    o.cardHolder != null ||
+    o.card_no != null ||
+    o.card_number != null ||
+    o.cardNumber != null ||
+    o.card_id != null ||
+    o.credit_card_id != null
+  );
+}
+
+const MONTH_BUCKET_KEY_RE = /^(\d{4})-(\d{1,2})$/;
+const MONTH_NUM_BUCKET_KEY_RE = /^(\d{1,2})$/;
+
+function normalizeStatementMonthBucketKey(key: string, fallbackYear: number): string | null {
+  const trimmed = key.trim();
+  const yearMonth = trimmed.match(MONTH_BUCKET_KEY_RE);
+  if (yearMonth) {
+    return `${yearMonth[1]}-${yearMonth[2].padStart(2, '0')}`;
+  }
+  const monthOnly = trimmed.match(MONTH_NUM_BUCKET_KEY_RE);
+  if (monthOnly) {
+    const num = parseInt(monthOnly[1], 10);
+    if (num >= 1 && num <= 12) {
+      return `${fallbackYear}-${String(num).padStart(2, '0')}`;
+    }
+  }
+  return null;
+}
+
+/** UI/API month bucket key (handles Dec+Jan spanning two years). */
+export function statementPeriodMonthKey(
+  selectedYear: number,
+  monthIndex: number,
+  selectedMonthIndices: number[]
+): string {
+  if (selectedMonthIndices.includes(0) && selectedMonthIndices.includes(11) && monthIndex === 11) {
+    return `${selectedYear - 1}-12`;
+  }
+  return `${selectedYear}-${String(monthIndex + 1).padStart(2, '0')}`;
+}
+
+function monthKeyFromStatementRow(item: Record<string, unknown>, fallbackYear: number): string | null {
+  const fromDate = item.statement_date ?? item.statementDate;
+  if (fromDate != null) {
+    const parts = String(fromDate).split('-');
+    if (parts.length >= 2) {
+      const y = parts[0];
+      const m = parts[1].padStart(2, '0');
+      if (/^\d{4}$/.test(y)) return `${y}-${m}`;
+    }
+  }
+  const period = item.statement_month ?? item.statementMonth ?? item.month ?? item.period;
+  if (period != null) {
+    return normalizeStatementMonthBucketKey(String(period), fallbackYear);
+  }
+  return null;
+}
+
+function statementRowsFromMonthEntry(entry: Record<string, unknown>): unknown[] {
+  for (const key of ['statements', 'items', 'data', 'records', 'rows']) {
+    const v = entry[key];
+    if (Array.isArray(v)) return v;
+  }
+  return isCreditCardStatementRow(entry) ? [entry] : [];
+}
+
+function emptyGroupedBuckets(year: number, monthIndices: number[]): CreditCardStatementsGrouped {
+  const grouped: CreditCardStatementsGrouped = {};
+  for (const m of monthIndices) {
+    grouped[statementPeriodMonthKey(year, m, monthIndices)] = [];
+  }
+  return grouped;
+}
+
+/** Multi-month GET may return a flat array or month buckets under `data`. */
+export function parseCreditCardStatementsApiData(
+  data: unknown,
+  year: number,
+  monthIndices: number[],
+  depth = 0
+): { statements: CreditCardStatement[]; groupedByMonth: CreditCardStatementsGrouped } {
+  const groupedByMonth = emptyGroupedBuckets(year, monthIndices);
+  const statements: CreditCardStatement[] = [];
+
+  const pushStatement = (raw: unknown, monthKey: string | null) => {
+    if (!isCreditCardStatementRow(raw)) return;
+    const stmt = mapCreditCardStatementFromApi(raw);
+    statements.push(stmt);
+    const key =
+      monthKey ??
+      monthKeyFromStatementRow(raw as Record<string, unknown>, year) ??
+      null;
+    if (key) {
+      if (!groupedByMonth[key]) groupedByMonth[key] = [];
+      groupedByMonth[key].push(stmt);
+    }
+  };
+
+  const ingestFlat = (rows: unknown[]) => {
+    for (const raw of rows) {
+      pushStatement(raw, null);
+    }
+  };
+
+  if (depth > 8 || data == null) {
+    return { statements, groupedByMonth };
+  }
+
+  if (Array.isArray(data)) {
+    ingestFlat(data);
+    return { statements, groupedByMonth };
+  }
+
+  if (typeof data !== 'object') {
+    return { statements, groupedByMonth };
+  }
+
+  const o = data as Record<string, unknown>;
+
+  if (Array.isArray(o.months)) {
+    let matched = false;
+    for (const entry of o.months) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+      const e = entry as Record<string, unknown>;
+      const monthKey = normalizeStatementMonthBucketKey(
+        String(e.month ?? e.monthKey ?? e.period ?? e.statement_month ?? e.statementMonth ?? ''),
+        year
+      );
+      const rows = statementRowsFromMonthEntry(e);
+      if (rows.length === 0) continue;
+      matched = true;
+      for (const raw of rows) {
+        pushStatement(raw, monthKey);
+      }
+    }
+    if (matched) return { statements, groupedByMonth };
+  }
+
+  let foundBuckets = false;
+  for (const [key, value] of Object.entries(o)) {
+    if (!Array.isArray(value) || !value.some(isCreditCardStatementRow)) continue;
+    const monthKey = normalizeStatementMonthBucketKey(key, year);
+    if (!monthKey) continue;
+    foundBuckets = true;
+    for (const raw of value) {
+      pushStatement(raw, monthKey);
+    }
+  }
+  if (foundBuckets) return { statements, groupedByMonth };
+
+  for (const key of ['statements', 'items', 'results', 'rows', 'records']) {
+    const v = o[key];
+    if (Array.isArray(v)) {
+      ingestFlat(v);
+      return { statements, groupedByMonth };
+    }
+  }
+
+  if (isCreditCardStatementRow(o)) {
+    pushStatement(o, null);
+    return { statements, groupedByMonth };
+  }
+
+  if (o.data != null) {
+    return parseCreditCardStatementsApiData(o.data, year, monthIndices, depth + 1);
+  }
+
+  return { statements, groupedByMonth };
+}
+
 export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
   const att = mapStatementAttachmentFields(item);
   return {
@@ -212,6 +394,34 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
 /** Turn API attachment path into a browser-openable URL (same-origin /api proxy or absolute). */
 export function resolveStatementAttachmentHref(pathOrUrl: string | null | undefined): string | null {
   return resolveAttachmentHref(pathOrUrl);
+}
+
+/** Default period: previous calendar month + current month (0-based indices). */
+export function getDefaultStatementPeriod(date = new Date()): {
+  year: number;
+  months: number[];
+} {
+  const currentMonth = date.getMonth();
+  const year = date.getFullYear();
+  if (currentMonth === 0) {
+    return { year, months: [11, 0] };
+  }
+  return { year, months: [currentMonth - 1, currentMonth] };
+}
+
+/** When both Dec (11) and Jan (0) are selected, December belongs to the prior year. */
+function groupStatementMonthIndicesByYear(
+  year: number,
+  monthIndices: number[]
+): { year: number; months: number[] }[] {
+  if (monthIndices.includes(0) && monthIndices.includes(11)) {
+    const other = monthIndices.filter((m) => m !== 0 && m !== 11);
+    return [
+      { year: year - 1, months: [11, ...other] },
+      { year, months: [0, ...other] },
+    ];
+  }
+  return [{ year, months: monthIndices }];
 }
 
 export const creditCardService = {
@@ -259,73 +469,71 @@ export const creditCardService = {
     return api.patch<CreditCardDetailApiResponse>(`/cards/${id}/activate`, {});
   },
 
-  // Get credit card statements
-  // Options:
-  // - No params: Returns current month/year statements
-  // - month & year: Returns statements for specific month (format: /statements/YYYY-MM)
-  // - months & year: Returns statements for multiple months (format: /statements?year=YYYY&months=1,2,3)
-  // - year only: Returns all months for that year
+  // Get credit card statements via /statements?year=YYYY&months=1,2,3
+  // - No params / empty months: previous + current calendar month (e.g. ?year=2026&months=5,6)
+  // - month & year: single month (same query format)
+  // - months & year: explicit month list (0–11 indices)
   getCreditCardStatements: async (options?: {
     month?: number; // 0-11 (0 = January) - single month
     months?: number[]; // Array of month indices (0-11) - multiple months
     year?: number;
-  }): Promise<ApiResponse<CreditCardStatement[]>> => {
-    let url = '/statements';
-    
-    // Build query parameters if provided
-    const params: string[] = [];
-    
-    if (options?.year !== undefined) {
-      params.push(`year=${expandCenturyYear(options.year)}`);
-    }
-    
-    // Handle multiple months first
+  }): Promise<CreditCardStatementsListResult> => {
+    const defaults = getDefaultStatementPeriod();
+    const year = options?.year ?? defaults.year;
+    let monthIndices: number[];
+
     if (options?.months && options.months.length > 0) {
-      // Convert month indices (0-11) to month numbers (1-12) for API
-      const monthNumbers = options.months.map(m => m + 1);
-      params.push(`months=${monthNumbers.join(',')}`);
+      monthIndices = options.months;
+    } else if (options?.month !== undefined) {
+      monthIndices = [options.month];
+    } else {
+      monthIndices = defaults.months;
     }
-    // Handle single month (only if months array is not provided)
-    else if (options?.month !== undefined) {
-      // Format month as 2-digit string (1-12)
-      const monthStr = String(options.month + 1).padStart(2, '0');
-      const yearStr = String(expandCenturyYear(options.year ?? new Date().getFullYear()));
-      url = `/statements/${yearStr}-${monthStr}`;
-      // If we're using path format, return early
+
+    const yearGroups = groupStatementMonthIndicesByYear(year, monthIndices);
+
+    const fetchQuery = async (
+      groupYear: number,
+      indices: number[]
+    ): Promise<CreditCardStatementsListResult> => {
+      const monthNumbers = indices.map((m) => m + 1);
+      const url = `/statements?year=${expandCenturyYear(groupYear)}&months=${monthNumbers.join(',')}`;
       const response = await api.get<CreditCardStatementApiResponse[]>(url);
-      
-      if (response.success && response.data) {
-        // Map snake_case API response to camelCase
-        const mappedData: CreditCardStatement[] = response.data.map((item: any) => mapCreditCardStatementFromApi(item));
-        
-        return {
-          ...response,
-          data: mappedData,
-        };
+
+      if (response.success && response.data != null) {
+        const parsed = parseCreditCardStatementsApiData(response.data, groupYear, indices);
+        return { ...response, data: parsed.statements, groupedByMonth: parsed.groupedByMonth };
       }
-      
-      return response as unknown as ApiResponse<CreditCardStatement[]>;
+
+      return response as unknown as CreditCardStatementsListResult;
+    };
+
+    if (yearGroups.length === 1) {
+      return fetchQuery(yearGroups[0].year, yearGroups[0].months);
     }
-    
-    // Build URL with query parameters if any
-    if (params.length > 0) {
-      url += `?${params.join('&')}`;
+
+    const responses = await Promise.all(
+      yearGroups.map((g) => fetchQuery(g.year, g.months))
+    );
+    const allData: CreditCardStatement[] = [];
+    const groupedByMonth: CreditCardStatementsGrouped = {};
+    let success = true;
+    let message: string | undefined;
+
+    for (const response of responses) {
+      if (!response.success) {
+        success = false;
+        message = response.message;
+      }
+      if (response.data) {
+        allData.push(...response.data);
+      }
+      if (response.groupedByMonth) {
+        Object.assign(groupedByMonth, response.groupedByMonth);
+      }
     }
-    // If no params, use /statements (returns current month/year)
-    
-    const response = await api.get<CreditCardStatementApiResponse[]>(url);
-    
-    if (response.success && response.data) {
-      // Map snake_case API response to camelCase
-      const mappedData: CreditCardStatement[] = response.data.map((item: any) => mapCreditCardStatementFromApi(item));
-      
-      return {
-        ...response,
-        data: mappedData,
-      };
-    }
-    
-    return response as unknown as ApiResponse<CreditCardStatement[]>;
+
+    return { success, data: allData, message, groupedByMonth };
   },
 
   /** PATCH numeric fields only (total_due, paid_amount, epp_balance). Does not upload PDFs. */
