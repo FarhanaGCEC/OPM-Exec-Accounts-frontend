@@ -1137,7 +1137,7 @@ const transactionSchema = z.object({
   }),
   categoryId: z.string()
     .min(1, 'Category is required'),
-  paymentType: z.enum(['creditcard', 'cheque', 'cash', 'banktransfer'], {
+  paymentType: z.enum(['creditcard', 'cheque', 'cash', 'banktransfer', 'dd'], {
     required_error: 'Please select a payment type',
   }),
   chequeNumber: z.string().optional(),
@@ -1398,16 +1398,18 @@ export default function BankTransaction() {
                   maximumFractionDigits: 2,
                 });
 
-          const frontendPaymentType =
-            (String(row.paymentType ?? row.payment_type ?? transaction.paymentType ?? '')
-              .trim()
-              .toLowerCase() === 'online'
+          const rawPaymentType = String(
+            row.paymentType ?? row.payment_type ?? transaction.paymentType ?? ''
+          )
+            .trim()
+            .toLowerCase();
+          const frontendPaymentType = (
+            rawPaymentType === 'online'
               ? 'banktransfer'
-              : String(row.paymentType ?? row.payment_type ?? transaction.paymentType ?? '')) as
-              | 'creditcard'
-              | 'cheque'
-              | 'cash'
-              | 'banktransfer';
+              : rawPaymentType === 'dd'
+                ? 'dd'
+                : String(row.paymentType ?? row.payment_type ?? transaction.paymentType ?? '')
+          ) as 'creditcard' | 'cheque' | 'cash' | 'banktransfer' | 'dd';
 
           const remarksRaw = row.remarks;
           const remarks =
@@ -1600,7 +1602,8 @@ export default function BankTransaction() {
       setSuccessMessage(null);
 
       const amountNumber = parseFloat(data.amount.replace(/,/g, ''));
-      const apiPaymentType = data.paymentType === 'banktransfer' ? 'online' : data.paymentType;
+      const apiPaymentType =
+        data.paymentType === 'banktransfer' ? 'online' : data.paymentType;
       const normalizedDate = formatDateForApi(data.date) || data.date.trim();
 
       const payload: BankTransactionWritePayload = {
@@ -2070,8 +2073,10 @@ export default function BankTransaction() {
     const formPaymentType = isPdcDueId(transaction.id)
       ? 'cheque'
       : transaction.paymentType === 'online'
-      ? 'banktransfer'
-      : transaction.paymentType;
+        ? 'banktransfer'
+        : transaction.paymentType?.toLowerCase() === 'dd'
+          ? 'dd'
+          : transaction.paymentType;
     const initialPdcType =
       transaction.pdcType === 'Custom PDC' || transaction.pdcType === 'Customer PDC'
         ? transaction.pdcType
@@ -2090,7 +2095,12 @@ export default function BankTransaction() {
       entryTime: entryTimeValue,
       type: transactionType as 'Debit' | 'Credit',
       categoryId: categoryId,
-      paymentType: formPaymentType as 'creditcard' | 'cheque' | 'cash' | 'banktransfer',
+      paymentType: formPaymentType as
+        | 'creditcard'
+        | 'cheque'
+        | 'cash'
+        | 'banktransfer'
+        | 'dd',
       chequeNumber: transaction.chequeNumber && transaction.chequeNumber !== '-' ? transaction.chequeNumber : '' ,
       remarks: transaction.remarks || '',
       customerName: transaction.categoryName || '',
@@ -3567,7 +3577,7 @@ export default function BankTransaction() {
                             <SelectItem value="cheque">Cheque</SelectItem>
                            
                             <SelectItem value="banktransfer">Online</SelectItem>
-                            <SelectItem value="other">DD</SelectItem>
+                            <SelectItem value="dd">DD</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

@@ -50,7 +50,7 @@ export type BankTransactionWritePayload = {
   date: string;
   type: 'Debit' | 'Credit';
   categoryId: string | number;
-  paymentType: 'creditcard' | 'cheque' | 'cash' | 'online';
+  paymentType: 'creditcard' | 'cheque' | 'cash' | 'online' | 'dd';
   chequeNumber?: string;
   remarks?: string;
   amount: number;
