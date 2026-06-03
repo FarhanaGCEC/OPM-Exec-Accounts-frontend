@@ -115,6 +115,16 @@ export function canMutateRecords(): boolean {
 }
 
 /**
+ * POST /credit-card-payments is allowed for viewers (payment_date + amount required).
+ * Edit/delete remain gated by {@link canMutateRecords}.
+ */
+export function canCreateCreditCardPayment(): boolean {
+  const role = syncUserRoleFromSession();
+  if (!role) return false;
+  return canMutateRecords() || isViewerRole(role);
+}
+
+/**
  * Credit card master (bank, holder, number, expiry, limit) — admin only.
  * Uses `canManageCreditCards` from login/profile; falls back to JWT role `admin` until profile loads.
  */

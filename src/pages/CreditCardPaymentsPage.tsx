@@ -48,7 +48,7 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords } from '../lib/authPayload';
+import { canCreateCreditCardPayment, canMutateRecords } from '../lib/authPayload';
 import { expandCenturyYear, formatDisplayYear } from '../lib/formatDisplayDate';
 import type { ApiResponse } from '../lib/api';
 import {
@@ -90,6 +90,7 @@ type PaymentFormData = z.infer<typeof paymentSchema>;
 
 export default function CreditCardPaymentsPage() {
     const canMutate = canMutateRecords();
+    const canCreatePayment = canCreateCreditCardPayment();
     const [creditCards, setCreditCards] = useState<CreditCardPayment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -282,6 +283,11 @@ export default function CreditCardPaymentsPage() {
             setIsSubmitting(true);
             setError(null);
             setSuccessMessage(null);
+
+            if (editingPayment && !canMutate) {
+                setError('You do not have permission to edit payments.');
+                return;
+            }
 
             // Format payment date - API accepts "2026-01-15", "15/01/2026", or "15-Jan-2026"
             let formattedDate = data.paymentDate;
@@ -771,7 +777,7 @@ export default function CreditCardPaymentsPage() {
             <Download className="w-4 h-4" />
             <span>Download Excel</span>
             </Button>
-            {canMutate && (
+            {canCreatePayment && (
                 <Button
                 onClick={handleAddNew}
                 className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
