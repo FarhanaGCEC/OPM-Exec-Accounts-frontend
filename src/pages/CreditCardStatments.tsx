@@ -289,6 +289,27 @@ export default function CreditCardStatements() {
         return isNegative ? `-${sanitized}` : sanitized;
     };
 
+    /** Lone zero placeholder only — not amounts like 207 or 1000. */
+    const isLoneZeroEditString = (value: string): boolean => {
+        const t = value.trim();
+        return t === '0' || t === '-0' || t === '0.' || t === '-0.' || /^-?0\.0+$/.test(t);
+    };
+
+    const toEditableMoneyFieldValue = (amount: number | null | undefined): string => {
+        const normalized = moneyFromApi(amount);
+        if (normalized === 0) return '';
+        return sanitizeSignedDecimalInput(String(normalized));
+    };
+
+    const normalizeEditFieldWhileTyping = (prev: string, rawNext: string): string => {
+        const next = sanitizeSignedDecimalInput(rawNext);
+        // Only strip when the field held a single "0" and typing appended a digit (05 → 5).
+        // Do not touch 207, 20, or user-entered 0 / 0.5 / 0.50.
+        if (prev === '0' && /^0[1-9]/.test(next)) return next.slice(1);
+        if (prev === '-0' && /^-0[1-9]/.test(next)) return `-${next.slice(2)}`;
+        return next;
+    };
+
     const getDisplayAmountPending = (statement: CreditCardStatement): number => {
         const totalPaymentDue = moneyFromApi(statement.totalPaymentDue);
         const paid = moneyFromApi(statement.paid);
@@ -368,9 +389,9 @@ export default function CreditCardStatements() {
         setEditingMonthKey(periodKey ?? null);
         setStatementAttachmentFile(null);
         setEditValues({
-            totalPaymentDue: sanitizeSignedDecimalInput(String(card.totalPaymentDue ?? '')),
-            paid: sanitizeSignedDecimalInput(String(card.paid ?? '')),
-            epp: sanitizeSignedDecimalInput(String(card.epp ?? '')),
+            totalPaymentDue: toEditableMoneyFieldValue(card.totalPaymentDue),
+            paid: toEditableMoneyFieldValue(card.paid),
+            epp: toEditableMoneyFieldValue(card.epp),
         });
     }, []);
 
@@ -564,11 +585,18 @@ export default function CreditCardStatements() {
         }
     };
 
+    const handleEditFieldFocus = (field: 'totalPaymentDue' | 'paid' | 'epp') => {
+        if (!editValues) return;
+        if (isLoneZeroEditString(editValues[field])) {
+            setEditValues({ ...editValues, [field]: '' });
+        }
+    };
+
     const handleEditValueChange = (field: 'totalPaymentDue' | 'paid' | 'epp', value: string) => {
         if (!editValues) return;
         setEditValues({
             ...editValues,
-            [field]: sanitizeSignedDecimalInput(value),
+            [field]: normalizeEditFieldWhileTyping(editValues[field], value),
         });
     };
 
@@ -1184,6 +1212,7 @@ export default function CreditCardStatements() {
                                                                                 inputMode="decimal"
                                                                                 pattern="-?[0-9]*[.]?[0-9]*"
                                                                                 value={editValues!.totalPaymentDue}
+                                                                                onFocus={() => handleEditFieldFocus('totalPaymentDue')}
                                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                                             />
@@ -1198,6 +1227,7 @@ export default function CreditCardStatements() {
                                                                                 inputMode="decimal"
                                                                                 pattern="-?[0-9]*[.]?[0-9]*"
                                                                                 value={editValues!.paid}
+                                                                                onFocus={() => handleEditFieldFocus('paid')}
                                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                                             />
@@ -1212,6 +1242,7 @@ export default function CreditCardStatements() {
                                                                                 inputMode="decimal"
                                                                                 pattern="-?[0-9]*[.]?[0-9]*"
                                                                                 value={editValues!.epp}
+                                                                                onFocus={() => handleEditFieldFocus('epp')}
                                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                                             />
@@ -1448,6 +1479,7 @@ export default function CreditCardStatements() {
                                                                 inputMode="decimal"
                                                                 pattern="-?[0-9]*[.]?[0-9]*"
                                                                 value={editValues!.totalPaymentDue}
+                                                                onFocus={() => handleEditFieldFocus('totalPaymentDue')}
                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                             />
@@ -1462,6 +1494,7 @@ export default function CreditCardStatements() {
                                                                 inputMode="decimal"
                                                                 pattern="-?[0-9]*[.]?[0-9]*"
                                                                 value={editValues!.paid}
+                                                                onFocus={() => handleEditFieldFocus('paid')}
                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                             />
@@ -1476,6 +1509,7 @@ export default function CreditCardStatements() {
                                                                 inputMode="decimal"
                                                                 pattern="-?[0-9]*[.]?[0-9]*"
                                                                 value={editValues!.epp}
+                                                                onFocus={() => handleEditFieldFocus('epp')}
                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                             />
