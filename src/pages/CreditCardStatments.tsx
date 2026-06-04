@@ -38,7 +38,7 @@ import {
 } from '../lib/excelExportFont';
 import { canMutateRecords } from '../lib/authPayload';
 import { formatDisplayYear } from '../lib/formatDisplayDate';
-import { moneyFromApi, roundMoney, sumMoney } from '../lib/money';
+import { moneyFromApi, parseMoneyInput, roundMoney, sumMoney } from '../lib/money';
 
 type StatementApprovalOffer =
     | {
@@ -80,6 +80,8 @@ export default function CreditCardStatements() {
     
     // Edit state - only one card can be edited at a time
     const [editingId, setEditingId] = useState<string | null>(null);
+    /** YYYY-MM bucket when multiple months are shown (same card id can appear twice). */
+    const [editingMonthKey, setEditingMonthKey] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<{
         totalPaymentDue: string;
         paid: string;
@@ -152,6 +154,66 @@ export default function CreditCardStatements() {
         }
         
         return null;
+    };
+
+    const statementMatchesPeriodKey = (
+        statement: CreditCardStatement,
+        periodKey: string
+    ): boolean => {
+        const statementMonth = getStatementMonth(statement);
+        if (statementMonth === null) return false;
+        return statementPeriodMonthKey(selectedYear, statementMonth, selectedMonths) === periodKey;
+    };
+
+    const resolveStatementMonthParam = (periodKey?: string | null): string => {
+        if (periodKey) return periodKey;
+        const monthIndex =
+            selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
+        return statementPeriodMonthKey(selectedYear, monthIndex, selectedMonths);
+    };
+
+    const applyStatementPatchToCard = (
+        card: CreditCardStatement,
+        responseData: CreditCardStatement
+    ): CreditCardStatement => ({
+        ...card,
+        totalPaymentDue:
+            responseData.totalPaymentDue !== undefined && responseData.totalPaymentDue !== null
+                ? Number(responseData.totalPaymentDue)
+                : card.totalPaymentDue,
+        paid:
+            responseData.paid !== undefined && responseData.paid !== null
+                ? Number(responseData.paid)
+                : card.paid,
+        epp:
+            responseData.epp !== undefined && responseData.epp !== null
+                ? Number(responseData.epp)
+                : card.epp,
+        amountPending:
+            responseData.amountPending !== undefined && responseData.amountPending !== null
+                ? Number(responseData.amountPending)
+                : card.amountPending,
+        creditBalance:
+            responseData.creditBalance !== undefined && responseData.creditBalance !== null
+                ? Number(responseData.creditBalance)
+                : card.creditBalance,
+        statement_date: responseData.statement_date || card.statement_date,
+        due_date: responseData.due_date || card.due_date,
+        due_month: responseData.due_month || card.due_month,
+        attachmentName:
+            responseData.attachmentName !== undefined
+                ? responseData.attachmentName
+                : card.attachmentName,
+        attachmentUrl:
+            responseData.attachmentUrl !== undefined ? responseData.attachmentUrl : card.attachmentUrl,
+    });
+
+    const isEditingStatement = (card: CreditCardStatement, periodKey?: string): boolean => {
+        if (!editingId || String(editingId) !== String(card.id) || !editValues) return false;
+        if (selectedMonths.length > 1) {
+            return Boolean(periodKey && editingMonthKey === periodKey);
+        }
+        return true;
     };
 
     const fetchCreditCards = useCallback(async (year: number, months: number[]) => {
@@ -227,13 +289,6 @@ export default function CreditCardStatements() {
         return isNegative ? `-${sanitized}` : sanitized;
     };
 
-    const parseEditNumber = (value: string): number => {
-        const trimmed = value.trim();
-        if (trimmed === '' || trimmed === '-') return 0;
-        const parsed = parseFloat(trimmed);
-        return Number.isFinite(parsed) ? roundMoney(parsed) : 0;
-    };
-
     const getDisplayAmountPending = (statement: CreditCardStatement): number => {
         const totalPaymentDue = moneyFromApi(statement.totalPaymentDue);
         const paid = moneyFromApi(statement.paid);
@@ -303,24 +358,25 @@ export default function CreditCardStatements() {
         return monthNames[monthNum - 1];
     };
 
-    const handleEdit = useCallback((card: CreditCardStatement) => {
-       
+    const handleEdit = useCallback((card: CreditCardStatement, periodKey?: string) => {
         if (!card.id) {
             console.error('Card ID is missing:', card);
             return;
         }
         const cardId = String(card.id);
         setEditingId(cardId);
+        setEditingMonthKey(periodKey ?? null);
         setStatementAttachmentFile(null);
         setEditValues({
-            totalPaymentDue: String(card.totalPaymentDue ?? ''),
-            paid: String(card.paid ?? ''),
-            epp: String(card.epp ?? ''),
+            totalPaymentDue: sanitizeSignedDecimalInput(String(card.totalPaymentDue ?? '')),
+            paid: sanitizeSignedDecimalInput(String(card.paid ?? '')),
+            epp: sanitizeSignedDecimalInput(String(card.epp ?? '')),
         });
     }, []);
 
     const handleCancelEdit = () => {
         setEditingId(null);
+        setEditingMonthKey(null);
         setEditValues(null);
         setStatementAttachmentFile(null);
     };
@@ -355,6 +411,7 @@ export default function CreditCardStatements() {
             }
             const apiMessage = userMessageFromChangeRequestSubmit(res);
             setEditingId(null);
+            setEditingMonthKey(null);
             setEditValues(null);
             setStatementAttachmentFile(null);
             setSuccessMessage(apiMessage);
@@ -366,7 +423,7 @@ export default function CreditCardStatements() {
         }
     };
 
-    const handleSave = async (cardId: string) => {
+    const handleSave = async (cardId: string, periodKey?: string) => {
         if (!editValues) return;
         const validCardId = String(cardId);
         if (!validCardId || validCardId === 'null' || validCardId === 'undefined' || validCardId === '') {
@@ -374,13 +431,11 @@ export default function CreditCardStatements() {
             return;
         }
 
-        const monthIndex =
-            selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
-        const monthStr = String(monthIndex + 1).padStart(2, '0');
-        const monthParam = `${selectedYear}-${monthStr}`;
-        const totalPaymentDue = parseEditNumber(editValues.totalPaymentDue);
-        const paid = parseEditNumber(editValues.paid);
-        const epp = parseEditNumber(editValues.epp);
+        const bucketKey = periodKey ?? editingMonthKey;
+        const monthParam = resolveStatementMonthParam(bucketKey);
+        const totalPaymentDue = parseMoneyInput(editValues.totalPaymentDue);
+        const paid = parseMoneyInput(editValues.paid);
+        const epp = parseMoneyInput(editValues.epp);
         
         try {
             setSaving(true);
@@ -428,73 +483,40 @@ export default function CreditCardStatements() {
             }
 
             const responseData = merged;
+            const updateBucketKey = bucketKey ?? monthParam;
 
-            // Update only the specific card in the list, preserve all other fields
-            let updatedCard: CreditCardStatement | null = null;
-            setCreditCards(prev => {
-                const updated = prev.map(card => {
-                    if (String(card.id) === validCardId) {
-                        updatedCard = {
-                            ...card,
-                            totalPaymentDue:
-                                responseData.totalPaymentDue !== undefined &&
-                                responseData.totalPaymentDue !== null
-                                    ? Number(responseData.totalPaymentDue)
-                                    : card.totalPaymentDue,
-                            paid:
-                                responseData.paid !== undefined && responseData.paid !== null
-                                    ? Number(responseData.paid)
-                                    : card.paid,
-                            epp:
-                                responseData.epp !== undefined && responseData.epp !== null
-                                    ? Number(responseData.epp)
-                                    : card.epp,
-                            amountPending:
-                                responseData.amountPending !== undefined &&
-                                responseData.amountPending !== null
-                                    ? Number(responseData.amountPending)
-                                    : card.amountPending,
-                            creditBalance:
-                                responseData.creditBalance !== undefined &&
-                                responseData.creditBalance !== null
-                                    ? Number(responseData.creditBalance)
-                                    : card.creditBalance,
-                            statement_date: responseData.statement_date || card.statement_date,
-                            due_date: responseData.due_date || card.due_date,
-                            due_month: responseData.due_month || card.due_month,
-                            attachmentName:
-                                responseData.attachmentName !== undefined
-                                    ? responseData.attachmentName
-                                    : card.attachmentName,
-                            attachmentUrl:
-                                responseData.attachmentUrl !== undefined
-                                    ? responseData.attachmentUrl
-                                    : card.attachmentUrl,
-                        };
-                        return updatedCard;
+            if (selectedMonths.length > 1) {
+                setGroupedStatements((prevGrouped) => {
+                    const updatedGrouped = { ...prevGrouped };
+                    if (updatedGrouped[updateBucketKey]) {
+                        updatedGrouped[updateBucketKey] = updatedGrouped[updateBucketKey].map((c) =>
+                            String(c.id) === validCardId
+                                ? applyStatementPatchToCard(c, responseData)
+                                : c
+                        );
                     }
-                    return card;
+                    return updatedGrouped;
                 });
-                return updated;
-            });
-
-            if (updatedCard && selectedMonths.length > 1) {
-                const statementMonth = getStatementMonth(updatedCard);
-                if (statementMonth !== null && selectedMonths.includes(statementMonth)) {
-                    const monthKey = `${selectedYear}-${String(statementMonth + 1).padStart(2, '0')}`;
-                    setGroupedStatements(prevGrouped => {
-                        const updatedGrouped = { ...prevGrouped };
-                        if (updatedGrouped[monthKey]) {
-                            updatedGrouped[monthKey] = updatedGrouped[monthKey].map(c =>
-                                String(c.id) === validCardId ? updatedCard! : c
-                            );
-                        }
-                        return updatedGrouped;
-                    });
-                }
+                setCreditCards((prev) =>
+                    prev.map((card) =>
+                        String(card.id) === validCardId &&
+                        statementMatchesPeriodKey(card, updateBucketKey)
+                            ? applyStatementPatchToCard(card, responseData)
+                            : card
+                    )
+                );
+            } else {
+                setCreditCards((prev) =>
+                    prev.map((card) =>
+                        String(card.id) === validCardId
+                            ? applyStatementPatchToCard(card, responseData)
+                            : card
+                    )
+                );
             }
 
             setEditingId(null);
+            setEditingMonthKey(null);
             setEditValues(null);
             setStatementAttachmentFile(null);
         } catch (err: unknown) {
@@ -521,6 +543,7 @@ export default function CreditCardStatements() {
                         : {}),
                 });
                 setEditingId(null);
+                setEditingMonthKey(null);
                 setEditValues(null);
                 setStatementAttachmentFile(null);
                 setError(null);
@@ -542,7 +565,7 @@ export default function CreditCardStatements() {
     };
 
     const handleDeleteStatementAttachment = useCallback(
-        async (cardId: string) => {
+        async (cardId: string, periodKey?: string) => {
             if (
                 !window.confirm(
                     'Remove this statement PDF from the server? This uses DELETE …/statements/:id/attachment.'
@@ -551,10 +574,8 @@ export default function CreditCardStatements() {
                 return;
             }
             const validCardId = String(cardId);
-            const monthIndex =
-                selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth();
-            const monthStr = String(monthIndex + 1).padStart(2, '0');
-            const monthParam = `${selectedYear}-${monthStr}`;
+            const monthParam = resolveStatementMonthParam(periodKey ?? editingMonthKey);
+            const updateBucketKey = periodKey ?? editingMonthKey ?? monthParam;
             try {
                 setDeletingAttachment(true);
                 setError(null);
@@ -566,36 +587,40 @@ export default function CreditCardStatements() {
                     setError(res.message || 'Failed to remove attachment');
                     return;
                 }
-                setCreditCards((prev) => {
-                    let merged: CreditCardStatement | null = null;
-                    const next = prev.map((card) => {
-                        if (String(card.id) !== validCardId) return card;
-                        merged = res.data
-                            ? {
-                                  ...card,
-                                  attachmentName: res.data.attachmentName ?? null,
-                                  attachmentUrl: res.data.attachmentUrl ?? null,
-                              }
-                            : { ...card, attachmentName: null, attachmentUrl: null };
-                        return merged;
-                    });
-                    if (merged && selectedMonths.length > 1) {
-                        const statementMonth = getStatementMonth(merged);
-                        if (statementMonth !== null && selectedMonths.includes(statementMonth)) {
-                            const monthKey = `${selectedYear}-${String(statementMonth + 1).padStart(2, '0')}`;
-                            setGroupedStatements((prevGrouped) => {
-                                const updatedGrouped = { ...prevGrouped };
-                                if (updatedGrouped[monthKey]) {
-                                    updatedGrouped[monthKey] = updatedGrouped[monthKey].map((c) =>
-                                        String(c.id) === validCardId ? merged! : c
-                                    );
-                                }
-                                return updatedGrouped;
-                            });
+                const patchAttachment = (card: CreditCardStatement): CreditCardStatement =>
+                    res.data
+                        ? {
+                              ...card,
+                              attachmentName: res.data!.attachmentName ?? null,
+                              attachmentUrl: res.data!.attachmentUrl ?? null,
+                          }
+                        : { ...card, attachmentName: null, attachmentUrl: null };
+
+                if (selectedMonths.length > 1) {
+                    setGroupedStatements((prevGrouped) => {
+                        const updatedGrouped = { ...prevGrouped };
+                        if (updatedGrouped[updateBucketKey]) {
+                            updatedGrouped[updateBucketKey] = updatedGrouped[updateBucketKey].map(
+                                (c) => (String(c.id) === validCardId ? patchAttachment(c) : c)
+                            );
                         }
-                    }
-                    return next;
-                });
+                        return updatedGrouped;
+                    });
+                    setCreditCards((prev) =>
+                        prev.map((card) =>
+                            String(card.id) === validCardId &&
+                            statementMatchesPeriodKey(card, updateBucketKey)
+                                ? patchAttachment(card)
+                                : card
+                        )
+                    );
+                } else {
+                    setCreditCards((prev) =>
+                        prev.map((card) =>
+                            String(card.id) === validCardId ? patchAttachment(card) : card
+                        )
+                    );
+                }
                 setStatementAttachmentFile(null);
             } catch (err: unknown) {
                 if (isApprovalRequiredError(err)) {
@@ -613,7 +638,7 @@ export default function CreditCardStatements() {
                 setDeletingAttachment(false);
             }
         },
-        [selectedMonths, selectedYear]
+        [selectedMonths, selectedYear, editingMonthKey]
     );
 
     const fullMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -1112,7 +1137,7 @@ export default function CreditCardStatements() {
                                                         {statements.map((card) => {
                                                             return (
                                                                 <TableRow
-                                                                    key={card.id}
+                                                                    key={`${monthKey}-${card.id}`}
                                                                     className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                                                 >
                                                                     <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
@@ -1145,12 +1170,12 @@ export default function CreditCardStatements() {
                                                                         {formatMonth(card.due_month || '')}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
-                                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                                        {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
                                                                                 inputMode="decimal"
                                                                                 pattern="-?[0-9]*[.]?[0-9]*"
-                                                                                value={editValues.totalPaymentDue}
+                                                                                value={editValues!.totalPaymentDue}
                                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                                             />
@@ -1159,12 +1184,12 @@ export default function CreditCardStatements() {
                                                                         )}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                                        {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
                                                                                 inputMode="decimal"
                                                                                 pattern="-?[0-9]*[.]?[0-9]*"
-                                                                                value={editValues.paid}
+                                                                                value={editValues!.paid}
                                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                                             />
@@ -1173,12 +1198,12 @@ export default function CreditCardStatements() {
                                                                         )}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                                        {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
                                                                                 inputMode="decimal"
                                                                                 pattern="-?[0-9]*[.]?[0-9]*"
-                                                                                value={editValues.epp}
+                                                                                value={editValues!.epp}
                                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                                             />
@@ -1196,12 +1221,7 @@ export default function CreditCardStatements() {
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
                                                                         <StatementAttachmentTableCell
                                                                             card={card}
-                                                                            isEditing={Boolean(
-                                                                                editingId &&
-                                                                                    String(editingId) ===
-                                                                                        String(card.id) &&
-                                                                                    editValues
-                                                                            )}
+                                                                            isEditing={isEditingStatement(card, monthKey)}
                                                                             statementAttachmentFile={
                                                                                 statementAttachmentFile
                                                                             }
@@ -1212,24 +1232,29 @@ export default function CreditCardStatements() {
                                                                                 canMutate && card.id
                                                                                     ? () =>
                                                                                           void handleDeleteStatementAttachment(
-                                                                                              String(card.id)
+                                                                                              String(card.id),
+                                                                                              monthKey
                                                                                           )
                                                                                     : undefined
                                                                             }
                                                                             deleteAttachmentBusy={deletingAttachment}
-                                                                            onEditClick={canMutate ? () => handleEdit(card) : undefined}
+                                                                            onEditClick={
+                                                                                canMutate
+                                                                                    ? () => handleEdit(card, monthKey)
+                                                                                    : undefined
+                                                                            }
                                                                         />
                                                                     </TableCell>
                                                                     {canMutate && (
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
-                                                                        {editingId && String(editingId) === String(card.id) ? (
+                                                                        {isEditingStatement(card, monthKey) ? (
                                                                             <div className="flex gap-2">
                                                                                 <Button
                                                                                     variant="outline"
                                                                                     size="sm"
                                                                                     onClick={() => {
                                                                                         if (card.id) {
-                                                                                            handleSave(String(card.id));
+                                                                                            handleSave(String(card.id), monthKey);
                                                                                         }
                                                                                     }}
                                                                                     disabled={
@@ -1258,7 +1283,7 @@ export default function CreditCardStatements() {
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
                                                                                     if (card.id) {
-                                                                                        handleEdit(card);
+                                                                                        handleEdit(card, monthKey);
                                                                                     }
                                                                                 }}
                                                                                 disabled={!card.id}
@@ -1409,12 +1434,12 @@ export default function CreditCardStatements() {
                                                         {formatMonth(card.due_month || '')}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
-                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                        {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
                                                                 inputMode="decimal"
                                                                 pattern="-?[0-9]*[.]?[0-9]*"
-                                                                value={editValues.totalPaymentDue}
+                                                                value={editValues!.totalPaymentDue}
                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                             />
@@ -1423,12 +1448,12 @@ export default function CreditCardStatements() {
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                        {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
                                                                 inputMode="decimal"
                                                                 pattern="-?[0-9]*[.]?[0-9]*"
-                                                                value={editValues.paid}
+                                                                value={editValues!.paid}
                                                                 onChange={(e) => handleEditValueChange('paid', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                             />
@@ -1437,12 +1462,12 @@ export default function CreditCardStatements() {
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                        {editingId && String(editingId) === String(card.id) && editValues ? (
+                                                        {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
                                                                 inputMode="decimal"
                                                                 pattern="-?[0-9]*[.]?[0-9]*"
-                                                                value={editValues.epp}
+                                                                value={editValues!.epp}
                                                                 onChange={(e) => handleEditValueChange('epp', e.target.value)}
                                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                                                             />
@@ -1462,11 +1487,7 @@ export default function CreditCardStatements() {
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
                                                         <StatementAttachmentTableCell
                                                             card={card}
-                                                            isEditing={Boolean(
-                                                                editingId &&
-                                                                    String(editingId) === String(card.id) &&
-                                                                    editValues
-                                                            )}
+                                                            isEditing={isEditingStatement(card)}
                                                             statementAttachmentFile={statementAttachmentFile}
                                                             onAttachmentFileChange={setStatementAttachmentFile}
                                                             onDeleteAttachment={
@@ -1483,7 +1504,7 @@ export default function CreditCardStatements() {
                                                     </TableCell>
                                                     {canMutate && (
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
-                                                        {editingId && String(editingId) === String(card.id) ? (
+                                                        {isEditingStatement(card) ? (
                                                             <div className="flex gap-2">
                                                                 <Button
                                                                     variant="outline"
