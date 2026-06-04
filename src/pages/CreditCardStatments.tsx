@@ -14,9 +14,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { Calendar as CalendarIcon, Loader2, Pencil, ChevronUp, Check, X, Download } from 'lucide-react';
 import { StatementAttachmentTableCell } from '../components/StatementAttachmentTableCell';
 import {
+    appendStatementAttachmentToChangePayload,
     creditCardService,
     getDefaultStatementPeriod,
     statementPeriodMonthKey,
+    validateStatementPdfFile,
     type CreditCardStatement,
 } from '../services/creditCardService';
 import { changeRequestService } from '../services/changeRequestService';
@@ -36,7 +38,7 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords } from '../lib/authPayload';
+import { canMutateRecords, showMyChangeRequestsInNav } from '../lib/authPayload';
 import { formatDisplayYear } from '../lib/formatDisplayDate';
 import { moneyFromApi, parseMoneyInput, roundMoney, sumMoney } from '../lib/money';
 
@@ -402,10 +404,127 @@ export default function CreditCardStatements() {
         setStatementAttachmentFile(null);
     };
 
+    const handleStatementAttachmentFileChange = useCallback((file: File | null) => {
+        if (file) {
+            const fileErr = validateStatementPdfFile(file);
+            if (fileErr) {
+                setError(fileErr);
+                return;
+            }
+        }
+        setStatementAttachmentFile(file);
+    }, []);
+
     useEffect(() => {
         if (!successMessage) return;
         successBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, [successMessage]);
+
+    const findStatementCard = (
+        cardId: string,
+        periodKey?: string | null
+    ): CreditCardStatement | undefined => {
+        if (periodKey && groupedStatements[periodKey]) {
+            return groupedStatements[periodKey].find((c) => String(c.id) === cardId);
+        }
+        return creditCards.find((c) => String(c.id) === cardId);
+    };
+
+    const statementAmountsUnchanged = (
+        card: CreditCardStatement,
+        values: { totalPaymentDue: string; paid: string; epp: string }
+    ): boolean =>
+        parseMoneyInput(values.totalPaymentDue) === moneyFromApi(card.totalPaymentDue) &&
+        parseMoneyInput(values.paid) === moneyFromApi(card.paid) &&
+        parseMoneyInput(values.epp) === moneyFromApi(card.epp);
+
+    const applySavedStatementToState = (
+        responseData: CreditCardStatement,
+        validCardId: string,
+        updateBucketKey: string
+    ) => {
+        const patchRowInList = (rows: CreditCardStatement[]) =>
+            rows.map((c) =>
+                String(c.id) === validCardId ? applyStatementPatchToCard(c, responseData) : c
+            );
+
+        if (selectedMonths.length > 1) {
+            setGroupedStatements((prevGrouped) => {
+                const updatedGrouped = { ...prevGrouped };
+                if (updatedGrouped[updateBucketKey]) {
+                    updatedGrouped[updateBucketKey] = patchRowInList(updatedGrouped[updateBucketKey]);
+                } else {
+                    for (const key of Object.keys(updatedGrouped)) {
+                        if (updatedGrouped[key].some((c) => String(c.id) === validCardId)) {
+                            updatedGrouped[key] = patchRowInList(updatedGrouped[key]);
+                            break;
+                        }
+                    }
+                }
+                return updatedGrouped;
+            });
+            setCreditCards((prev) =>
+                prev.map((card) =>
+                    String(card.id) === validCardId &&
+                    statementMatchesPeriodKey(card, updateBucketKey)
+                        ? applyStatementPatchToCard(card, responseData)
+                        : card
+                )
+            );
+        } else {
+            setCreditCards((prev) =>
+                prev.map((card) =>
+                    String(card.id) === validCardId
+                        ? applyStatementPatchToCard(card, responseData)
+                        : card
+                )
+            );
+        }
+    };
+
+    const openStatementApprovalOffer = async (opts: {
+        resourceId: string;
+        statementMonth: string;
+        totalPaymentDue: number;
+        paid: number;
+        epp: number;
+        attachmentFile?: File | null;
+        amountsUnchanged?: boolean;
+    }) => {
+        let payload: Record<string, unknown> = {
+            statementMonth: opts.statementMonth,
+            total_due: opts.totalPaymentDue,
+            paid_amount: opts.paid,
+            epp_balance: opts.epp,
+        };
+        let note: string | undefined;
+        if (opts.attachmentFile) {
+            const fileErr = validateStatementPdfFile(opts.attachmentFile);
+            if (fileErr) {
+                setError(fileErr);
+                return;
+            }
+            payload = await appendStatementAttachmentToChangePayload(payload, opts.attachmentFile);
+            note = opts.amountsUnchanged
+                ? `Attach statement PDF (${opts.attachmentFile.name}) for admin approval.`
+                : `Statement figures update; also attach PDF (${opts.attachmentFile.name}).`;
+        } else if (opts.amountsUnchanged) {
+            setError('No changes to save');
+            return;
+        }
+        setApprovalOffer({
+            mode: 'edit',
+            resourceId: opts.resourceId,
+            statementMonth: opts.statementMonth,
+            payload,
+            ...(note ? { note } : {}),
+        });
+        setEditingId(null);
+        setEditingMonthKey(null);
+        setEditValues(null);
+        setStatementAttachmentFile(null);
+        setError(null);
+    };
 
     const submitStatementApprovalRequest = async () => {
         if (!approvalOffer || approvalOffer.mode === 'success') return;
@@ -454,28 +573,85 @@ export default function CreditCardStatements() {
 
         const bucketKey = periodKey ?? editingMonthKey;
         const monthParam = resolveStatementMonthParam(bucketKey);
+        const updateBucketKey = bucketKey ?? monthParam;
         const totalPaymentDue = parseMoneyInput(editValues.totalPaymentDue);
         const paid = parseMoneyInput(editValues.paid);
         const epp = parseMoneyInput(editValues.epp);
-        
+        const card = findStatementCard(validCardId, bucketKey);
+        const amountsUnchanged = card ? statementAmountsUnchanged(card, editValues) : false;
+        const newAttachment =
+            statementAttachmentFile && statementAttachmentFile.size > 0
+                ? statementAttachmentFile
+                : undefined;
+
+        if (newAttachment) {
+            const fileErr = validateStatementPdfFile(newAttachment);
+            if (fileErr) {
+                setError(fileErr);
+                return;
+            }
+        } else if (amountsUnchanged) {
+            setError('No changes to save');
+            return;
+        }
+
         try {
             setSaving(true);
             setError(null);
             setSuccessMessage(null);
-            
-            // amountPending is auto-calculated by backend, so we don't send it
-            const newAttachment =
-                statementAttachmentFile && statementAttachmentFile.size > 0
-                    ? statementAttachmentFile
-                    : undefined;
 
-            const patchRes = await creditCardService.updateCreditCardStatement(
-                validCardId,
-                {
+            // Standard users: only show confirmation — POST /user/change-requests runs on "Submit request".
+            if (showMyChangeRequestsInNav()) {
+                await openStatementApprovalOffer({
+                    resourceId: validCardId,
+                    statementMonth: monthParam,
                     totalPaymentDue,
                     paid,
                     epp,
-                },
+                    attachmentFile: newAttachment ?? null,
+                    amountsUnchanged,
+                });
+                return;
+            }
+
+            // PDF only — try upload first (skips PATCH when amounts unchanged).
+            if (newAttachment && amountsUnchanged) {
+                try {
+                    const uploadRes = await creditCardService.uploadCreditCardStatementPdf(
+                        validCardId,
+                        newAttachment,
+                        monthParam
+                    );
+                    if (!uploadRes.success || !uploadRes.data) {
+                        setError(uploadRes.message || 'Failed to upload statement PDF');
+                        return;
+                    }
+                    applySavedStatementToState(uploadRes.data, validCardId, updateBucketKey);
+                    setEditingId(null);
+                    setEditingMonthKey(null);
+                    setEditValues(null);
+                    setStatementAttachmentFile(null);
+                    return;
+                } catch (uploadErr: unknown) {
+                    if (isApprovalRequiredError(uploadErr)) {
+                        await openStatementApprovalOffer({
+                            resourceId: validCardId,
+                            statementMonth: monthParam,
+                            totalPaymentDue,
+                            paid,
+                            epp,
+                            attachmentFile: newAttachment,
+                            amountsUnchanged: true,
+                        });
+                        return;
+                    }
+                    throw uploadErr;
+                }
+            }
+
+            const patchRes = await creditCardService.updateCreditCardStatement(
+                validCardId,
+                { totalPaymentDue, paid, epp },
                 monthParam
             );
 
@@ -493,7 +669,10 @@ export default function CreditCardStatements() {
                     monthParam
                 );
                 if (!uploadRes.success || !uploadRes.data) {
-                    setError(uploadRes.message || 'Statement saved, but PDF upload failed — try uploading the file again.');
+                    setError(
+                        uploadRes.message ||
+                            'Statement saved, but PDF upload failed — try uploading the file again.'
+                    );
                     return;
                 }
                 merged = {
@@ -503,47 +682,7 @@ export default function CreditCardStatements() {
                 };
             }
 
-            const responseData = merged;
-            const updateBucketKey = bucketKey ?? monthParam;
-
-            const patchRowInList = (rows: CreditCardStatement[]) =>
-                rows.map((c) =>
-                    String(c.id) === validCardId ? applyStatementPatchToCard(c, responseData) : c
-                );
-
-            if (selectedMonths.length > 1) {
-                setGroupedStatements((prevGrouped) => {
-                    const updatedGrouped = { ...prevGrouped };
-                    if (updatedGrouped[updateBucketKey]) {
-                        updatedGrouped[updateBucketKey] = patchRowInList(updatedGrouped[updateBucketKey]);
-                    } else {
-                        for (const key of Object.keys(updatedGrouped)) {
-                            if (updatedGrouped[key].some((c) => String(c.id) === validCardId)) {
-                                updatedGrouped[key] = patchRowInList(updatedGrouped[key]);
-                                break;
-                            }
-                        }
-                    }
-                    return updatedGrouped;
-                });
-                setCreditCards((prev) =>
-                    prev.map((card) =>
-                        String(card.id) === validCardId &&
-                        statementMatchesPeriodKey(card, updateBucketKey)
-                            ? applyStatementPatchToCard(card, responseData)
-                            : card
-                    )
-                );
-            } else {
-                setCreditCards((prev) =>
-                    prev.map((card) =>
-                        String(card.id) === validCardId
-                            ? applyStatementPatchToCard(card, responseData)
-                            : card
-                    )
-                );
-            }
-
+            applySavedStatementToState(merged, validCardId, updateBucketKey);
             setEditingId(null);
             setEditingMonthKey(null);
             setEditValues(null);
@@ -551,31 +690,21 @@ export default function CreditCardStatements() {
         } catch (err: unknown) {
             console.error('Error updating statement:', err);
             if (isApprovalRequiredError(err) && editValues) {
-                const payload: Record<string, unknown> = {
-                    statementMonth: monthParam,
-                    total_due: totalPaymentDue,
-                    paid_amount: paid,
-                    epp_balance: epp,
-                };
-                if (statementAttachmentFile && statementAttachmentFile.name) {
-                    payload.replace_attachment_requested = true;
+                try {
+                    await openStatementApprovalOffer({
+                        resourceId: validCardId,
+                        statementMonth: monthParam,
+                        totalPaymentDue,
+                        paid,
+                        epp,
+                        attachmentFile: newAttachment ?? null,
+                        amountsUnchanged,
+                    });
+                } catch (offerErr: unknown) {
+                    setError(
+                        offerErr instanceof Error ? offerErr.message : 'Could not prepare change request'
+                    );
                 }
-                setApprovalOffer({
-                    mode: 'edit',
-                    resourceId: validCardId,
-                    statementMonth: monthParam,
-                    payload,
-                    ...(statementAttachmentFile
-                        ? {
-                              note: `Statement figures update; also replace PDF (${statementAttachmentFile.name}). Admin may need to attach the file after approval.`,
-                          }
-                        : {}),
-                });
-                setEditingId(null);
-                setEditingMonthKey(null);
-                setEditValues(null);
-                setStatementAttachmentFile(null);
-                setError(null);
             } else {
                 const errorMessage = err instanceof Error ? err.message : 'Failed to update statement';
                 setError(errorMessage);
@@ -602,6 +731,24 @@ export default function CreditCardStatements() {
 
     const handleDeleteStatementAttachment = useCallback(
         async (cardId: string, periodKey?: string) => {
+            const validCardId = String(cardId);
+            const monthParam = resolveStatementMonthParam(periodKey ?? editingMonthKey);
+            const updateBucketKey = periodKey ?? editingMonthKey ?? monthParam;
+
+            if (showMyChangeRequestsInNav()) {
+                setApprovalOffer({
+                    mode: 'delete_attachment',
+                    resourceId: validCardId,
+                    statementMonth: monthParam,
+                });
+                setEditingId(null);
+                setEditingMonthKey(null);
+                setEditValues(null);
+                setStatementAttachmentFile(null);
+                setError(null);
+                return;
+            }
+
             if (
                 !window.confirm(
                     'Remove this statement PDF from the server? This uses DELETE …/statements/:id/attachment.'
@@ -609,9 +756,6 @@ export default function CreditCardStatements() {
             ) {
                 return;
             }
-            const validCardId = String(cardId);
-            const monthParam = resolveStatementMonthParam(periodKey ?? editingMonthKey);
-            const updateBucketKey = periodKey ?? editingMonthKey ?? monthParam;
             try {
                 setDeletingAttachment(true);
                 setError(null);
@@ -1265,7 +1409,7 @@ export default function CreditCardStatements() {
                                                                                 statementAttachmentFile
                                                                             }
                                                                             onAttachmentFileChange={
-                                                                                setStatementAttachmentFile
+                                                                                handleStatementAttachmentFileChange
                                                                             }
                                                                             onDeleteAttachment={
                                                                                 canMutate && card.id
@@ -1531,7 +1675,9 @@ export default function CreditCardStatements() {
                                                             card={card}
                                                             isEditing={isEditingStatement(card)}
                                                             statementAttachmentFile={statementAttachmentFile}
-                                                            onAttachmentFileChange={setStatementAttachmentFile}
+                                                            onAttachmentFileChange={
+                                                                handleStatementAttachmentFileChange
+                                                            }
                                                             onDeleteAttachment={
                                                                 canMutate && card.id
                                                                     ? () =>
@@ -1652,7 +1798,11 @@ export default function CreditCardStatements() {
                         <p className="text-sm text-gray-600">
                             {approvalOffer?.mode === 'delete_attachment'
                                 ? 'Your account cannot remove this statement PDF directly. Submit a request so an admin can review and remove it?'
-                                : 'Your account cannot edit statement amounts directly. Submit these changes for an admin to review and apply?'}
+                                : approvalOffer?.mode === 'edit' &&
+                                    (approvalOffer.payload.attachmentFilename != null ||
+                                        approvalOffer.payload.attachment_filename != null)
+                                  ? 'Your account cannot upload statement PDFs directly. The PDF will be sent with your request for admin approval.'
+                                  : 'Your account cannot edit statement amounts directly. Submit these changes for an admin to review and apply?'}
                         </p>
                     )}
                     <DialogFooter className="gap-2 sm:gap-0">

@@ -26,6 +26,7 @@ import {
 import { useAdminChangeRequestStream } from '../context/AdminChangeRequestStreamContext';
 import { formatIsoDateTimeDisplay } from '../lib/formatDisplayDate';
 import type { ApiResponse } from '../lib/api';
+import { ChangeRequestPayloadSummary } from '../components/ChangeRequestPayloadSummary';
 import {
   changeRequestResourceLabel,
   duplicatePendingHint,
@@ -248,8 +249,8 @@ export default function ApprovalQueue() {
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Status
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
-                      Payload
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle min-w-[220px]">
+                      Requested changes
                     </th>
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       User note
@@ -279,10 +280,6 @@ export default function ApprovalQueue() {
                   ) : (
                     rows.map((r) => {
                       const pending = r.status.toLowerCase() === 'pending';
-                      const payloadStr =
-                        r.payload && typeof r.payload === 'object'
-                          ? JSON.stringify(r.payload)
-                          : '—';
                       const dupHint = pending ? duplicatePendingHint(r, pendingGroups) : null;
                       const isLatest = isLatestPendingInResourceGroup(r, pendingGroups);
                       const showApprove = pending && isLatest;
@@ -324,11 +321,8 @@ export default function ApprovalQueue() {
                               {r.status}
                             </span>
                           </td>
-                          <td
-                            className="px-4 py-2 align-middle text-xs font-mono text-gray-700 max-w-[200px] truncate"
-                            title={payloadStr}
-                          >
-                            {payloadStr}
+                          <td className="px-4 py-2 align-middle text-sm min-w-[220px] max-w-[320px]">
+                            <ChangeRequestPayloadSummary row={r} compact />
                           </td>
                           <td
                             className="px-4 py-2 align-middle text-sm text-gray-700 max-w-[140px] truncate"

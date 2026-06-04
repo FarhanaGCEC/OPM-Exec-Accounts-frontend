@@ -3,6 +3,37 @@ import type { ApiResponse } from '../lib/api';
 import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
 import { expandCenturyYear } from '../lib/formatDisplayDate';
 import { moneyFromApi } from '../lib/money';
+import { readFileAsDataUrl } from './transactionService';
+
+/** Max PDF size for POST /statements/:id/attachment and change-request payloads. */
+export const MAX_STATEMENT_PDF_BYTES = 15 * 1024 * 1024;
+
+export function validateStatementPdfFile(file: File): string | null {
+  if (file.size <= 0) return 'PDF file is empty';
+  if (file.size > MAX_STATEMENT_PDF_BYTES) {
+    return `PDF must be under ${Math.round(MAX_STATEMENT_PDF_BYTES / (1024 * 1024))} MB`;
+  }
+  const name = file.name.toLowerCase();
+  const type = (file.type || '').toLowerCase();
+  if (type !== 'application/pdf' && !name.endsWith('.pdf')) {
+    return 'Only PDF files are allowed';
+  }
+  return null;
+}
+
+/** Standard users: embed PDF in change-request JSON (same pattern as bank cheque scans). */
+export async function appendStatementAttachmentToChangePayload(
+  payload: Record<string, unknown>,
+  attachmentFile: File | null | undefined
+): Promise<Record<string, unknown>> {
+  if (!attachmentFile || attachmentFile.size === 0) return payload;
+  return {
+    ...payload,
+    attachmentBase64: await readFileAsDataUrl(attachmentFile),
+    attachmentFilename: attachmentFile.name,
+    replace_attachment_requested: true,
+  };
+}
 
 // API Response interface for Credit Card Details (snake_case from backend)
 export interface CreditCardDetailApiResponse {

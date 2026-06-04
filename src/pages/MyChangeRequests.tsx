@@ -8,6 +8,7 @@ import {
   type ChangeRequestRow,
 } from '../services/changeRequestService';
 import { formatIsoDateTimeDisplay } from '../lib/formatDisplayDate';
+import { ChangeRequestPayloadSummary } from '../components/ChangeRequestPayloadSummary';
 import {
   changeRequestResourceLabel,
   userChangeRequestStatusHint,
@@ -97,8 +98,8 @@ export default function MyChangeRequests() {
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Status
                     </th>
-                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
-                      Update
+                    <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle min-w-[220px]">
+                      Your requested changes
                     </th>
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       Your note
@@ -155,8 +156,9 @@ export default function MyChangeRequests() {
                             {r.status}
                           </span>
                         </td>
-                        <td className="px-4 py-2 align-middle text-sm text-gray-700 max-w-[220px]">
-                          {userChangeRequestStatusHint(r)}
+                        <td className="px-4 py-2 align-middle text-sm min-w-[220px] max-w-[320px]">
+                          <ChangeRequestPayloadSummary row={r} compact />
+                          <p className="text-xs text-gray-500 mt-1.5">{userChangeRequestStatusHint(r)}</p>
                         </td>
                         <td
                           className="px-4 py-2 align-middle text-sm text-gray-700 max-w-xs truncate"
