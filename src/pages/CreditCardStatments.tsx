@@ -485,15 +485,23 @@ export default function CreditCardStatements() {
             const responseData = merged;
             const updateBucketKey = bucketKey ?? monthParam;
 
+            const patchRowInList = (rows: CreditCardStatement[]) =>
+                rows.map((c) =>
+                    String(c.id) === validCardId ? applyStatementPatchToCard(c, responseData) : c
+                );
+
             if (selectedMonths.length > 1) {
                 setGroupedStatements((prevGrouped) => {
                     const updatedGrouped = { ...prevGrouped };
                     if (updatedGrouped[updateBucketKey]) {
-                        updatedGrouped[updateBucketKey] = updatedGrouped[updateBucketKey].map((c) =>
-                            String(c.id) === validCardId
-                                ? applyStatementPatchToCard(c, responseData)
-                                : c
-                        );
+                        updatedGrouped[updateBucketKey] = patchRowInList(updatedGrouped[updateBucketKey]);
+                    } else {
+                        for (const key of Object.keys(updatedGrouped)) {
+                            if (updatedGrouped[key].some((c) => String(c.id) === validCardId)) {
+                                updatedGrouped[key] = patchRowInList(updatedGrouped[key]);
+                                break;
+                            }
+                        }
                     }
                     return updatedGrouped;
                 });

@@ -16,6 +16,11 @@ export function moneyFromApi(value: unknown): number {
   return roundMoney(Number.isFinite(n) ? n : 0);
 }
 
+/** Parse edit-form money strings (commas, decimals) before PATCH. */
+export function parseMoneyInput(value: unknown): number {
+  return moneyFromApi(value);
+}
+
 /** Sum money using integer cents so totals match displayed row values. */
 export function sumMoney(values: number[]): number {
   const totalCents = values.reduce((sum, v) => sum + Math.round(roundMoney(v) * 100), 0);

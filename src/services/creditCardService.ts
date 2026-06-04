@@ -373,6 +373,12 @@ export function parseCreditCardStatementsApiData(
 
 export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
   const att = mapStatementAttachmentFields(item);
+  // PATCH/POST bodies often use total_due / paid_amount / epp_balance; GET uses total_payment_due / paid / epp.
+  const totalPaymentDue = item.total_payment_due ?? item.total_due ?? item.totalDue;
+  const paid = item.paid ?? item.paid_amount ?? item.paidAmount;
+  const epp = item.epp ?? item.epp_balance ?? item.eppBalance;
+  const amountPending = item.amount_pending ?? item.amountPending;
+  const creditBalance = item.credit_balance ?? item.creditBalance;
   return {
     id: item.card_id ? String(item.card_id) : (item.credit_card_id ? String(item.credit_card_id) : String(item.id || '')),
     issuingBank: item.issuing_bank || '',
@@ -381,11 +387,11 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
     statement_date: item.statement_date ?? null,
     due_date: item.due_date ?? null,
     due_month: item.due_month ?? null,
-    totalPaymentDue: moneyFromApi(item.total_payment_due),
-    paid: moneyFromApi(item.paid),
-    epp: moneyFromApi(item.epp),
-    amountPending: moneyFromApi(item.amount_pending),
-    creditBalance: moneyFromApi(item.credit_balance),
+    totalPaymentDue: moneyFromApi(totalPaymentDue),
+    paid: moneyFromApi(paid),
+    epp: moneyFromApi(epp),
+    amountPending: moneyFromApi(amountPending),
+    creditBalance: moneyFromApi(creditBalance),
     attachmentName: att.attachmentName,
     attachmentUrl: att.attachmentUrl,
   };
