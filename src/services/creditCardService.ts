@@ -8,18 +8,29 @@ import { expandCenturyYear } from '../lib/formatDisplayDate';
 import { moneyFromApi } from '../lib/money';
 import { readFileAsDataUrl } from './transactionService';
 
-/** Max PDF size for POST /statements/:id/attachment and change-request payloads. */
+/** Max size for POST /statements/:id/attachment and change-request payloads. */
 export const MAX_STATEMENT_PDF_BYTES = 15 * 1024 * 1024;
 
-export function validateStatementPdfFile(file: File): string | null {
-  if (file.size <= 0) return 'PDF file is empty';
-  if (file.size > MAX_STATEMENT_PDF_BYTES) {
-    return `PDF must be under ${Math.round(MAX_STATEMENT_PDF_BYTES / (1024 * 1024))} MB`;
-  }
+function statementAttachmentFileKind(file: File): 'pdf' | 'image' | null {
   const name = file.name.toLowerCase();
   const type = (file.type || '').toLowerCase();
-  if (type !== 'application/pdf' && !name.endsWith('.pdf')) {
-    return 'Only PDF files are allowed';
+  if (type === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+  if (
+    type.startsWith('image/') ||
+    /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(name)
+  ) {
+    return 'image';
+  }
+  return null;
+}
+
+export function validateStatementPdfFile(file: File): string | null {
+  if (file.size <= 0) return 'Attachment file is empty';
+  if (file.size > MAX_STATEMENT_PDF_BYTES) {
+    return `File must be under ${Math.round(MAX_STATEMENT_PDF_BYTES / (1024 * 1024))} MB`;
+  }
+  if (!statementAttachmentFileKind(file)) {
+    return 'Only PDF or image files (JPG, PNG, etc.) are allowed';
   }
   return null;
 }

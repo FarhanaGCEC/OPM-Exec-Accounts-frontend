@@ -25,6 +25,7 @@ import MyChangeRequestsRoute from './components/MyChangeRequestsRoute';
 import MyChangeRequests from './pages/MyChangeRequests';
 import ApprovalQueue from './pages/ApprovalQueue';
 import { AdminChangeRequestStreamProvider } from './context/AdminChangeRequestStreamContext';
+import { StatementApprovalModalProvider } from './context/StatementApprovalModalContext';
 import MonthlyBankStatements from './pages/MonthlyBankStatements';
 
 console.log('[App] App component loading...');
@@ -40,6 +41,7 @@ const App = () => {
       }}
     >
       <AdminChangeRequestStreamProvider>
+      <StatementApprovalModalProvider>
       <Routes>
         <Route path="/" element={<Auth />} />
         <Route
@@ -210,6 +212,7 @@ const App = () => {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </StatementApprovalModalProvider>
       </AdminChangeRequestStreamProvider>
     </Router>
   );

@@ -25,34 +25,20 @@ import { changeRequestService } from '../services/changeRequestService';
 import type { ApiResponse } from '../lib/api';
 import { userMessageFromChangeRequestSubmit } from '../lib/changeRequestUi';
 import { isApprovalRequiredError } from '../lib/approvalError';
-import {
-    Dialog,
-    DialogContent,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '../components/ui/dialog';
 import * as XLSX from 'xlsx';
 import {
   applyXlsxArialToWorkbook,
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords, showMyChangeRequestsInNav } from '../lib/authPayload';
+import { canMutateRecords, usesChangeRequestApprovalFlow } from '../lib/authPayload';
 import { formatDisplayYear } from '../lib/formatDisplayDate';
 import { moneyFromApi, parseMoneyInput, roundMoney, sumMoney } from '../lib/money';
-
-type StatementApprovalOffer =
-    | {
-          mode: 'edit';
-          resourceId: string;
-          statementMonth: string;
-          payload: Record<string, unknown>;
-          note?: string;
-      }
-    | { mode: 'delete_attachment'; resourceId: string; statementMonth: string }
-    /** Shown after POST /user/change-requests succeeds — keeps feedback inside the dialog. */
-    | { mode: 'success'; message: string };
+import {
+    useRegisterStatementApprovalSubmit,
+    useStatementApprovalModal,
+    type StatementApprovalOffer,
+} from '../context/StatementApprovalModalContext';
 
 // Group statements by month
 interface GroupedStatements {
@@ -68,6 +54,13 @@ interface StatementTotals {
 
 export default function CreditCardStatements() {
     const canMutate = canMutateRecords();
+    const {
+        offer: approvalOffer,
+        openApproval,
+        setModalError: setApprovalModalError,
+        setSubmitting: setApprovalSubmitting,
+        showSuccess: showApprovalSuccess,
+    } = useStatementApprovalModal();
     const [creditCards, setCreditCards] = useState<CreditCardStatement[]>([]);
     const [groupedStatements, setGroupedStatements] = useState<GroupedStatements>({});
     const [loading, setLoading] = useState(true);
@@ -93,8 +86,8 @@ export default function CreditCardStatements() {
     const [statementAttachmentFile, setStatementAttachmentFile] = useState<File | null>(null);
     const [saving, setSaving] = useState(false);
     const [deletingAttachment, setDeletingAttachment] = useState(false);
-    const [approvalOffer, setApprovalOffer] = useState<StatementApprovalOffer | null>(null);
-    const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+    const pendingApprovalAttachmentRef = useRef<File | null>(null);
+    const attachmentInputRef = useRef<HTMLInputElement | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const successBannerRef = useRef<HTMLDivElement>(null);
 
@@ -381,6 +374,26 @@ export default function CreditCardStatements() {
         return monthNames[monthNum - 1];
     };
 
+    const getPendingStatementAttachment = useCallback((): File | undefined => {
+        if (statementAttachmentFile && statementAttachmentFile.size > 0) {
+            return statementAttachmentFile;
+        }
+        if (pendingApprovalAttachmentRef.current && pendingApprovalAttachmentRef.current.size > 0) {
+            return pendingApprovalAttachmentRef.current;
+        }
+        const fromInput = attachmentInputRef.current?.files?.[0];
+        if (fromInput && fromInput.size > 0) {
+            return fromInput;
+        }
+        const fromDom = document.querySelector<HTMLInputElement>(
+            '[data-statement-attachment-input]'
+        )?.files?.[0];
+        if (fromDom && fromDom.size > 0) {
+            return fromDom;
+        }
+        return undefined;
+    }, [statementAttachmentFile]);
+
     const handleEdit = useCallback((card: CreditCardStatement, periodKey?: string) => {
         if (!card.id) {
             console.error('Card ID is missing:', card);
@@ -389,6 +402,7 @@ export default function CreditCardStatements() {
         const cardId = String(card.id);
         setEditingId(cardId);
         setEditingMonthKey(periodKey ?? null);
+        pendingApprovalAttachmentRef.current = null;
         setStatementAttachmentFile(null);
         setEditValues({
             totalPaymentDue: toEditableMoneyFieldValue(card.totalPaymentDue),
@@ -401,6 +415,7 @@ export default function CreditCardStatements() {
         setEditingId(null);
         setEditingMonthKey(null);
         setEditValues(null);
+        pendingApprovalAttachmentRef.current = null;
         setStatementAttachmentFile(null);
     };
 
@@ -409,8 +424,12 @@ export default function CreditCardStatements() {
             const fileErr = validateStatementPdfFile(file);
             if (fileErr) {
                 setError(fileErr);
+                pendingApprovalAttachmentRef.current = null;
                 return;
             }
+            pendingApprovalAttachmentRef.current = file;
+        } else {
+            pendingApprovalAttachmentRef.current = null;
         }
         setStatementAttachmentFile(file);
     }, []);
@@ -482,7 +501,7 @@ export default function CreditCardStatements() {
         }
     };
 
-    const openStatementApprovalOffer = async (opts: {
+    const openStatementApprovalOffer = (opts: {
         resourceId: string;
         statementMonth: string;
         totalPaymentDue: number;
@@ -490,55 +509,83 @@ export default function CreditCardStatements() {
         epp: number;
         attachmentFile?: File | null;
         amountsUnchanged?: boolean;
-    }) => {
-        let payload: Record<string, unknown> = {
+    }): boolean => {
+        const attachmentFile =
+            opts.attachmentFile && opts.attachmentFile.size > 0 ? opts.attachmentFile : undefined;
+        if (attachmentFile) {
+            const fileErr = validateStatementPdfFile(attachmentFile);
+            if (fileErr) {
+                setError(fileErr);
+                return false;
+            }
+        } else if (opts.amountsUnchanged) {
+            setError('No changes to save');
+            return false;
+        }
+
+        const note = attachmentFile
+            ? opts.amountsUnchanged
+                ? `Attach statement file (${attachmentFile.name}) for admin approval.`
+                : `Statement figures update; also attach file (${attachmentFile.name}).`
+            : undefined;
+
+        const payload: Record<string, unknown> = {
             statementMonth: opts.statementMonth,
             total_due: opts.totalPaymentDue,
             paid_amount: opts.paid,
             epp_balance: opts.epp,
+            ...(attachmentFile ? { replace_attachment_requested: true } : {}),
         };
-        let note: string | undefined;
-        if (opts.attachmentFile) {
-            const fileErr = validateStatementPdfFile(opts.attachmentFile);
-            if (fileErr) {
-                setError(fileErr);
-                return;
-            }
-            payload = await appendStatementAttachmentToChangePayload(payload, opts.attachmentFile);
-            note = opts.amountsUnchanged
-                ? `Attach statement PDF (${opts.attachmentFile.name}) for admin approval.`
-                : `Statement figures update; also attach PDF (${opts.attachmentFile.name}).`;
-        } else if (opts.amountsUnchanged) {
-            setError('No changes to save');
-            return;
-        }
-        setApprovalOffer({
+
+        pendingApprovalAttachmentRef.current = attachmentFile ?? null;
+
+        const offer: StatementApprovalOffer = {
             mode: 'edit',
             resourceId: opts.resourceId,
             statementMonth: opts.statementMonth,
             payload,
+            ...(attachmentFile ? { hasAttachment: true, attachmentFile } : {}),
             ...(note ? { note } : {}),
-        });
-        setEditingId(null);
-        setEditingMonthKey(null);
-        setEditValues(null);
-        setStatementAttachmentFile(null);
+        };
+
         setError(null);
+        setSuccessMessage(null);
+        openApproval(offer);
+        return true;
     };
 
-    const submitStatementApprovalRequest = async () => {
+    const submitStatementApprovalRequest = useCallback(async () => {
         if (!approvalOffer || approvalOffer.mode === 'success') return;
         const offer = approvalOffer;
         setApprovalSubmitting(true);
         setError(null);
+        setApprovalModalError(null);
         try {
             let res: ApiResponse<unknown>;
             if (offer.mode === 'edit') {
+                let payload = { ...offer.payload };
+                const hasEmbeddedAttachment =
+                    payload.attachmentBase64 != null ||
+                    payload.attachment_base64 != null;
+                if (offer.hasAttachment && !hasEmbeddedAttachment) {
+                    const attachmentFile =
+                        offer.attachmentFile ?? pendingApprovalAttachmentRef.current;
+                    if (!attachmentFile) {
+                        setApprovalModalError(
+                            'Attachment was lost — edit the row and choose the file again.'
+                        );
+                        return;
+                    }
+                    payload = await appendStatementAttachmentToChangePayload(
+                        payload,
+                        attachmentFile
+                    );
+                }
                 res = await changeRequestService.submit({
                     action: 'edit',
                     resourceType: 'card_statement',
                     resourceId: offer.resourceId,
-                    payload: offer.payload,
+                    payload,
                     ...(offer.note?.trim() ? { note: offer.note.trim() } : {}),
                 });
             } else {
@@ -550,18 +597,33 @@ export default function CreditCardStatements() {
                 });
             }
             const apiMessage = userMessageFromChangeRequestSubmit(res);
+            setSuccessMessage(apiMessage);
+            pendingApprovalAttachmentRef.current = null;
+            showApprovalSuccess(apiMessage);
             setEditingId(null);
             setEditingMonthKey(null);
             setEditValues(null);
             setStatementAttachmentFile(null);
-            setSuccessMessage(apiMessage);
-            setApprovalOffer({ mode: 'success', message: apiMessage });
         } catch (e: unknown) {
-            setError(e instanceof Error ? e.message : 'Could not submit change request');
+            const message =
+                e instanceof Error ? e.message : 'Could not submit change request';
+            setApprovalModalError(message);
+            setError(message);
         } finally {
             setApprovalSubmitting(false);
         }
-    };
+    }, [
+        approvalOffer,
+        setApprovalModalError,
+        setApprovalSubmitting,
+        showApprovalSuccess,
+    ]);
+
+    const triggerApprovalSubmit = useCallback(() => {
+        void submitStatementApprovalRequest();
+    }, [submitStatementApprovalRequest]);
+
+    useRegisterStatementApprovalSubmit(triggerApprovalSubmit);
 
     const handleSave = async (cardId: string, periodKey?: string) => {
         if (!editValues) return;
@@ -579,10 +641,7 @@ export default function CreditCardStatements() {
         const epp = parseMoneyInput(editValues.epp);
         const card = findStatementCard(validCardId, bucketKey);
         const amountsUnchanged = card ? statementAmountsUnchanged(card, editValues) : false;
-        const newAttachment =
-            statementAttachmentFile && statementAttachmentFile.size > 0
-                ? statementAttachmentFile
-                : undefined;
+        const newAttachment = getPendingStatementAttachment();
 
         if (newAttachment) {
             const fileErr = validateStatementPdfFile(newAttachment);
@@ -595,24 +654,26 @@ export default function CreditCardStatements() {
             return;
         }
 
+        // Standard users: ✓ opens confirmation overlay — API only on "Submit request".
+        if (usesChangeRequestApprovalFlow()) {
+            setError(null);
+            setSuccessMessage(null);
+            openStatementApprovalOffer({
+                resourceId: validCardId,
+                statementMonth: monthParam,
+                totalPaymentDue,
+                paid,
+                epp,
+                attachmentFile: newAttachment ?? null,
+                amountsUnchanged,
+            });
+            return;
+        }
+
         try {
             setSaving(true);
             setError(null);
             setSuccessMessage(null);
-
-            // Standard users: only show confirmation — POST /user/change-requests runs on "Submit request".
-            if (showMyChangeRequestsInNav()) {
-                await openStatementApprovalOffer({
-                    resourceId: validCardId,
-                    statementMonth: monthParam,
-                    totalPaymentDue,
-                    paid,
-                    epp,
-                    attachmentFile: newAttachment ?? null,
-                    amountsUnchanged,
-                });
-                return;
-            }
 
             // PDF only — try upload first (skips PATCH when amounts unchanged).
             if (newAttachment && amountsUnchanged) {
@@ -634,7 +695,7 @@ export default function CreditCardStatements() {
                     return;
                 } catch (uploadErr: unknown) {
                     if (isApprovalRequiredError(uploadErr)) {
-                        await openStatementApprovalOffer({
+                        openStatementApprovalOffer({
                             resourceId: validCardId,
                             statementMonth: monthParam,
                             totalPaymentDue,
@@ -690,21 +751,15 @@ export default function CreditCardStatements() {
         } catch (err: unknown) {
             console.error('Error updating statement:', err);
             if (isApprovalRequiredError(err) && editValues) {
-                try {
-                    await openStatementApprovalOffer({
-                        resourceId: validCardId,
-                        statementMonth: monthParam,
-                        totalPaymentDue,
-                        paid,
-                        epp,
-                        attachmentFile: newAttachment ?? null,
-                        amountsUnchanged,
-                    });
-                } catch (offerErr: unknown) {
-                    setError(
-                        offerErr instanceof Error ? offerErr.message : 'Could not prepare change request'
-                    );
-                }
+                openStatementApprovalOffer({
+                    resourceId: validCardId,
+                    statementMonth: monthParam,
+                    totalPaymentDue,
+                    paid,
+                    epp,
+                    attachmentFile: newAttachment ?? null,
+                    amountsUnchanged,
+                });
             } else {
                 const errorMessage = err instanceof Error ? err.message : 'Failed to update statement';
                 setError(errorMessage);
@@ -735,17 +790,14 @@ export default function CreditCardStatements() {
             const monthParam = resolveStatementMonthParam(periodKey ?? editingMonthKey);
             const updateBucketKey = periodKey ?? editingMonthKey ?? monthParam;
 
-            if (showMyChangeRequestsInNav()) {
-                setApprovalOffer({
+            if (usesChangeRequestApprovalFlow()) {
+                pendingApprovalAttachmentRef.current = null;
+                setError(null);
+                openApproval({
                     mode: 'delete_attachment',
                     resourceId: validCardId,
                     statementMonth: monthParam,
                 });
-                setEditingId(null);
-                setEditingMonthKey(null);
-                setEditValues(null);
-                setStatementAttachmentFile(null);
-                setError(null);
                 return;
             }
 
@@ -804,13 +856,13 @@ export default function CreditCardStatements() {
                 setStatementAttachmentFile(null);
             } catch (err: unknown) {
                 if (isApprovalRequiredError(err)) {
-                    setApprovalOffer({
+                    setError(null);
+                    setSuccessMessage(null);
+                    openApproval({
                         mode: 'delete_attachment',
                         resourceId: validCardId,
                         statementMonth: monthParam,
                     });
-                    setError(null);
-                    setSuccessMessage(null);
                 } else {
                     setError(err instanceof Error ? err.message : 'Failed to remove attachment');
                 }
@@ -818,7 +870,7 @@ export default function CreditCardStatements() {
                 setDeletingAttachment(false);
             }
         },
-        [selectedMonths, selectedYear, editingMonthKey]
+        [selectedMonths, selectedYear, editingMonthKey, openApproval]
     );
 
     const fullMonthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -1408,6 +1460,11 @@ export default function CreditCardStatements() {
                                                                             statementAttachmentFile={
                                                                                 statementAttachmentFile
                                                                             }
+                                                                            attachmentInputRef={
+                                                                                isEditingStatement(card, monthKey)
+                                                                                    ? attachmentInputRef
+                                                                                    : undefined
+                                                                            }
                                                                             onAttachmentFileChange={
                                                                                 handleStatementAttachmentFileChange
                                                                             }
@@ -1433,11 +1490,14 @@ export default function CreditCardStatements() {
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <div className="flex gap-2">
                                                                                 <Button
+                                                                                    type="button"
                                                                                     variant="outline"
                                                                                     size="sm"
-                                                                                    onClick={() => {
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault();
+                                                                                        e.stopPropagation();
                                                                                         if (card.id) {
-                                                                                            handleSave(String(card.id), monthKey);
+                                                                                            void handleSave(String(card.id), monthKey);
                                                                                         }
                                                                                     }}
                                                                                     disabled={
@@ -1447,9 +1507,14 @@ export default function CreditCardStatements() {
                                                                                     }
                                                                                     className="bg-green-500 hover:bg-green-600 text-white border-0"
                                                                                 >
-                                                                                    <Check className="w-4 h-4" />
+                                                                                    {saving ? (
+                                                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                                                    ) : (
+                                                                                        <Check className="w-4 h-4" />
+                                                                                    )}
                                                                                 </Button>
                                                                                 <Button
+                                                                                    type="button"
                                                                                     variant="outline"
                                                                                     size="sm"
                                                                                     onClick={handleCancelEdit}
@@ -1675,6 +1740,11 @@ export default function CreditCardStatements() {
                                                             card={card}
                                                             isEditing={isEditingStatement(card)}
                                                             statementAttachmentFile={statementAttachmentFile}
+                                                            attachmentInputRef={
+                                                                isEditingStatement(card)
+                                                                    ? attachmentInputRef
+                                                                    : undefined
+                                                            }
                                                             onAttachmentFileChange={
                                                                 handleStatementAttachmentFileChange
                                                             }
@@ -1695,11 +1765,14 @@ export default function CreditCardStatements() {
                                                         {isEditingStatement(card) ? (
                                                             <div className="flex gap-2">
                                                                 <Button
+                                                                    type="button"
                                                                     variant="outline"
                                                                     size="sm"
-                                                                    onClick={() => {
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
                                                                         if (card.id) {
-                                                                            handleSave(String(card.id));
+                                                                            void handleSave(String(card.id));
                                                                         }
                                                                     }}
                                                                     disabled={
@@ -1707,9 +1780,14 @@ export default function CreditCardStatements() {
                                                                     }
                                                                     className="bg-green-500 hover:bg-green-600 text-white border-0"
                                                                 >
-                                                                    <Check className="w-4 h-4" />
+                                                                    {saving ? (
+                                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    ) : (
+                                                                        <Check className="w-4 h-4" />
+                                                                    )}
                                                                 </Button>
                                                                 <Button
+                                                                    type="button"
                                                                     variant="outline"
                                                                     size="sm"
                                                                     onClick={handleCancelEdit}
@@ -1776,74 +1854,6 @@ export default function CreditCardStatements() {
                 })()
             )}
 
-            <Dialog
-                open={!!approvalOffer}
-                onOpenChange={(open) => {
-                    if (!open) setApprovalOffer(null);
-                }}
-            >
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>
-                            {approvalOffer?.mode === 'success'
-                                ? 'Request submitted'
-                                : 'Admin approval required'}
-                        </DialogTitle>
-                    </DialogHeader>
-                    {approvalOffer?.mode === 'success' ? (
-                        <p className="text-sm text-green-800 font-medium leading-relaxed">
-                            {approvalOffer.message}
-                        </p>
-                    ) : (
-                        <p className="text-sm text-gray-600">
-                            {approvalOffer?.mode === 'delete_attachment'
-                                ? 'Your account cannot remove this statement PDF directly. Submit a request so an admin can review and remove it?'
-                                : approvalOffer?.mode === 'edit' &&
-                                    (approvalOffer.payload.attachmentFilename != null ||
-                                        approvalOffer.payload.attachment_filename != null)
-                                  ? 'Your account cannot upload statement PDFs directly. The PDF will be sent with your request for admin approval.'
-                                  : 'Your account cannot edit statement amounts directly. Submit these changes for an admin to review and apply?'}
-                        </p>
-                    )}
-                    <DialogFooter className="gap-2 sm:gap-0">
-                        {approvalOffer?.mode === 'success' ? (
-                            <Button
-                                type="button"
-                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
-                                onClick={() => setApprovalOffer(null)}
-                            >
-                                Done
-                            </Button>
-                        ) : (
-                            <>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setApprovalOffer(null)}
-                                    disabled={approvalSubmitting}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    type="button"
-                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                                    onClick={() => void submitStatementApprovalRequest()}
-                                    disabled={approvalSubmitting}
-                                >
-                                    {approvalSubmitting ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin inline" />
-                                            Submitting…
-                                        </>
-                                    ) : (
-                                        'Submit request'
-                                    )}
-                                </Button>
-                            </>
-                        )}
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </Layout>
     );
 }

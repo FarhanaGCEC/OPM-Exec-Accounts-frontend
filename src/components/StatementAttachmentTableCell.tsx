@@ -26,6 +26,8 @@ export interface StatementAttachmentTableCellProps {
   isEditing: boolean;
   statementAttachmentFile: File | null;
   onAttachmentFileChange: (file: File | null) => void;
+  /** Active row file input — read on save if React state lags behind the picker. */
+  attachmentInputRef?: React.RefObject<HTMLInputElement | null>;
   /** Remove stored PDF via DELETE /statements/:id/attachment (when provided). */
   onDeleteAttachment?: () => void;
   deleteAttachmentBusy?: boolean;
@@ -119,6 +121,7 @@ export function StatementAttachmentTableCell({
   onDeleteAttachment,
   deleteAttachmentBusy = false,
   onEditClick,
+  attachmentInputRef,
 }: StatementAttachmentTableCellProps) {
   const [open, setOpen] = useState(false);
   const href = resolveStatementAttachmentHref(card.attachmentUrl);
@@ -135,7 +138,7 @@ export function StatementAttachmentTableCell({
       Boolean(card.attachmentName?.trim()) || Boolean(card.attachmentUrl?.trim());
     return (
       <div className="flex flex-col gap-2 min-w-[160px] max-w-[260px]">
-        <Label className="text-xs text-gray-600">Attachment (PDF)</Label>
+        <Label className="text-xs text-gray-600">Attachment (PDF or image)</Label>
         {hasStored && !statementAttachmentFile ? (
           <span
             className="text-xs text-gray-700 truncate border border-gray-100 rounded px-2 py-1 bg-gray-50"
@@ -160,8 +163,10 @@ export function StatementAttachmentTableCell({
         ) : null}
 
         <input
+          ref={attachmentInputRef}
           type="file"
-          accept=".pdf,application/pdf"
+          data-statement-attachment-input
+          accept=".pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif"
           className="block w-full text-xs text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs"
           onChange={(e) => onAttachmentFileChange(e.target.files?.[0] ?? null)}
         />

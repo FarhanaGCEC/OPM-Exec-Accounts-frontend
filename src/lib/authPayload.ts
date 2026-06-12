@@ -178,6 +178,13 @@ export function showMyChangeRequestsInNav(): boolean {
   return true;
 }
 
+/** Standard `user` role — edits go through POST /user/change-requests, not direct PATCH/upload. */
+export function usesChangeRequestApprovalFlow(): boolean {
+  const role = syncUserRoleFromSession();
+  if (isAdminRole(role) || isAccountantRole(role) || isViewerRole(role)) return false;
+  return true;
+}
+
 /**
  * Whether a canonical sidebar key is allowed for the current session.
  * Admin / accountant: always true. Role `user`: from `authUser.sidebarPermissions` in localStorage (login).
