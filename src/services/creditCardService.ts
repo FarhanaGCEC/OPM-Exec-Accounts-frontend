@@ -1,6 +1,9 @@
 import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
-import { resolveAttachmentHref } from '../lib/resolveAttachmentUrl';
+import {
+  attachmentLooksLikeImage,
+  resolveAttachmentHref,
+} from '../lib/resolveAttachmentUrl';
 import { expandCenturyYear } from '../lib/formatDisplayDate';
 import { moneyFromApi } from '../lib/money';
 import { readFileAsDataUrl } from './transactionService';
@@ -143,32 +146,44 @@ export interface PaidAgainstOption {
   paymentStatus?: string;
 }
 
+function pickStatementAttachmentDisplayUrl(
+  name: string | null,
+  apiUrl: string | null,
+  cloudUrl: string | null
+): string | null {
+  if (cloudUrl) return cloudUrl;
+  const hint = `${name ?? ''} ${apiUrl ?? ''}`;
+  if (attachmentLooksLikeImage(hint) && apiUrl) return apiUrl;
+  return apiUrl;
+}
+
 function mapStatementAttachmentFields(item: any): {
   attachmentName: string | null;
   attachmentUrl: string | null;
 } {
-  const nested = item?.attachment;
-  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-    const name = nested.name ?? item.attachment_name ?? item.attachmentName ?? null;
-    const url = nested.url ?? item.attachment_url ?? item.attachmentUrl ?? null;
-    return {
-      attachmentName: name != null ? String(name) : null,
-      attachmentUrl: url != null ? String(url) : null,
-    };
-  }
+  const nested =
+    item?.attachment && typeof item.attachment === 'object' && !Array.isArray(item.attachment)
+      ? item.attachment
+      : null;
+
+  const name = nested?.name ?? item.attachment_name ?? item.attachmentName ?? null;
+  const nameStr = name != null ? String(name).trim() : null;
+
+  const apiRaw =
+    nested?.url ?? item.attachment_url ?? item.attachmentUrl ?? null;
+  const cloudRaw =
+    nested?.cloudinaryUrl ??
+    nested?.cloudinary_url ??
+    item.cloudinary_url ??
+    item.cloudinaryUrl ??
+    null;
+
+  const apiUrl = apiRaw != null && String(apiRaw).trim() ? String(apiRaw).trim() : null;
+  const cloudUrl = cloudRaw != null && String(cloudRaw).trim() ? String(cloudRaw).trim() : null;
+
   return {
-    attachmentName:
-      item.attachment_name != null
-        ? String(item.attachment_name)
-        : item.attachmentName != null
-          ? String(item.attachmentName)
-          : null,
-    attachmentUrl:
-      item.attachment_url != null
-        ? String(item.attachment_url)
-        : item.attachmentUrl != null
-          ? String(item.attachmentUrl)
-          : null,
+    attachmentName: nameStr,
+    attachmentUrl: pickStatementAttachmentDisplayUrl(nameStr, apiUrl, cloudUrl),
   };
 }
 

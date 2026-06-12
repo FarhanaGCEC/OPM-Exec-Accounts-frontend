@@ -11,6 +11,14 @@ import {
 } from './ui/dialog';
 import type { CreditCardStatement } from '../services/creditCardService';
 import { resolveStatementAttachmentHref } from '../services/creditCardService';
+import {
+  attachmentOpenInNewTabHref,
+  attachmentPreviewIframeSrc,
+  fetchAttachmentAsPdfBlob,
+  pickAttachmentPreviewFallback,
+  shouldEmbedAttachmentDirectly,
+  type AttachmentPreviewMode,
+} from '../lib/attachmentPreview';
 import { attachmentLooksLikeImage } from '../lib/resolveAttachmentUrl';
 
 export interface StatementAttachmentTableCellProps {
@@ -24,31 +32,12 @@ export interface StatementAttachmentTableCellProps {
   onEditClick?: () => void;
 }
 
-function isPublicHttpsUrl(href: string): boolean {
-  try {
-    const u = new URL(href, typeof window !== 'undefined' ? window.location.href : undefined);
-    return u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-function googleDocsViewerUrl(fileUrl: string): string {
-  return `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
-}
-
-type PreviewMode = 'loading' | 'blob' | 'google' | 'error';
-
-/**
- * Try fetch → blob URL first (works for API + fixes Content-Disposition).
- * If fetch fails (e.g. CORS on Cloudinary), fall back to Google embed viewer for public HTTPS URLs.
- */
 function useStatementPdfPreview(
   open: boolean,
   href: string | null,
   showImage: boolean
-): { mode: PreviewMode; blobUrl: string | null } {
-  const [mode, setMode] = useState<PreviewMode>('loading');
+): { mode: AttachmentPreviewMode; blobUrl: string | null } {
+  const [mode, setMode] = useState<AttachmentPreviewMode>('loading');
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const blobRef = useRef<string | null>(null);
 
@@ -73,6 +62,16 @@ function useStatementPdfPreview(
       return;
     }
 
+    if (shouldEmbedAttachmentDirectly(href)) {
+      setMode('iframe');
+      setBlobUrl(null);
+      if (blobRef.current) {
+        URL.revokeObjectURL(blobRef.current);
+        blobRef.current = null;
+      }
+      return;
+    }
+
     let cancelled = false;
     setMode('loading');
     setBlobUrl(null);
@@ -81,47 +80,21 @@ function useStatementPdfPreview(
       blobRef.current = null;
     }
 
-    const headers: HeadersInit = {};
-    let credentials: RequestCredentials = 'omit';
-    try {
-      const token = localStorage.getItem('authToken');
-      const u = new URL(href, window.location.href);
-      if (u.origin === window.location.origin) {
-        credentials = 'include';
-        if (token) headers.Authorization = `Bearer ${token}`;
-      }
-    } catch {
-      /* ignore */
-    }
-
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
 
-    void fetch(href, { credentials, headers, signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.blob();
-      })
+    void fetchAttachmentAsPdfBlob(href, controller.signal)
       .then((blob) => {
         if (cancelled) return;
-        const typed =
-          blob.type === 'application/pdf'
-            ? blob
-            : new Blob([blob], { type: 'application/pdf' });
-        const url = URL.createObjectURL(typed);
+        const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setBlobUrl(url);
         setMode('blob');
       })
       .catch(() => {
         if (cancelled) return;
-        if (isPublicHttpsUrl(href)) {
-          setMode('google');
-          setBlobUrl(null);
-        } else {
-          setMode('error');
-          setBlobUrl(null);
-        }
+        setMode(pickAttachmentPreviewFallback(href));
+        setBlobUrl(null);
       });
 
     return () => {
@@ -153,8 +126,9 @@ export function StatementAttachmentTableCell({
   const showImage = attachmentLooksLikeImage(
     card.attachmentName || card.attachmentUrl || ''
   );
-  const previewHref = !showImage && href ? googleDocsViewerUrl(href) : href;
   const { mode, blobUrl } = useStatementPdfPreview(open, href, showImage);
+  const iframeSrc = href ? attachmentPreviewIframeSrc(mode, href, blobUrl) : null;
+  const openTabHref = href ? attachmentOpenInNewTabHref(href, blobUrl) : null;
 
   if (isEditing) {
     const hasStored =
@@ -184,7 +158,7 @@ export function StatementAttachmentTableCell({
             Remove PDF
           </Button>
         ) : null}
-      
+
         <input
           type="file"
           accept=".pdf,application/pdf"
@@ -240,18 +214,13 @@ export function StatementAttachmentTableCell({
                 </div>
               ) : mode === 'error' ? (
                 <p className="text-sm text-gray-600 px-4 py-8 text-center">
-                  Preview could not be loaded. Use &quot;Open in new tab&quot; to view or download the file.
+                  Preview could not be loaded. Use &quot;Open in new tab&quot; to view or download
+                  the file.
                 </p>
-              ) : mode === 'google' ? (
+              ) : iframeSrc ? (
                 <iframe
                   title={label}
-                  src={previewHref ?? googleDocsViewerUrl(href)}
-                  className="w-full min-h-[75vh] border-0 bg-white"
-                />
-              ) : blobUrl ? (
-                <iframe
-                  title={label}
-                  src={blobUrl}
+                  src={iframeSrc}
                   className="w-full min-h-[75vh] border-0 bg-white"
                 />
               ) : null}
@@ -267,7 +236,7 @@ export function StatementAttachmentTableCell({
                 </Button>
               ) : null}
               <Button variant="outline" className="text-black" asChild>
-                <a href={previewHref || href} target="_blank" rel="noopener noreferrer">
+                <a href={openTabHref ?? href} target="_blank" rel="noopener noreferrer">
                   Open in new tab
                 </a>
               </Button>
@@ -279,9 +248,7 @@ export function StatementAttachmentTableCell({
   }
 
   if (card.attachmentName) {
-    return (
-      <span className="text-sm text-gray-700">{card.attachmentName}</span>
-    );
+    return <span className="text-sm text-gray-700">{card.attachmentName}</span>;
   }
 
   return <span className="text-sm text-gray-400">—</span>;
