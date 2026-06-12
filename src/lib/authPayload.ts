@@ -178,11 +178,20 @@ export function showMyChangeRequestsInNav(): boolean {
   return true;
 }
 
+/**
+ * Admin / accountant: save on ✓ via PATCH or upload.
+ * Standard `user`: modal on ✓, POST /user/change-requests on Submit.
+ */
+export function canSaveStatementsDirectly(): boolean {
+  if (isRoleAdmin() || isCurrentUserAdmin()) return true;
+  const role = syncUserRoleFromSession();
+  return isAccountantRole(role);
+}
+
 /** Standard `user` role — edits go through POST /user/change-requests, not direct PATCH/upload. */
 export function usesChangeRequestApprovalFlow(): boolean {
-  const role = syncUserRoleFromSession();
-  if (isAdminRole(role) || isAccountantRole(role) || isViewerRole(role)) return false;
-  return true;
+  if (isViewerRole(syncUserRoleFromSession())) return false;
+  return !canSaveStatementsDirectly();
 }
 
 /**

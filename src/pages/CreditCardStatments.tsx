@@ -31,7 +31,11 @@ import {
   xlsxSheetFontArial,
   XLSX_WRITE_WITH_STYLES,
 } from '../lib/excelExportFont';
-import { canMutateRecords, usesChangeRequestApprovalFlow } from '../lib/authPayload';
+import {
+    canMutateRecords,
+    canSaveStatementsDirectly,
+    usesChangeRequestApprovalFlow,
+} from '../lib/authPayload';
 import { formatDisplayYear } from '../lib/formatDisplayDate';
 import { moneyFromApi, parseMoneyInput, roundMoney, sumMoney } from '../lib/money';
 import {
@@ -655,7 +659,8 @@ export default function CreditCardStatements() {
         }
 
         // Standard users: ✓ opens confirmation overlay — API only on "Submit request".
-        if (usesChangeRequestApprovalFlow()) {
+        // Admin / accountant: ✓ calls PATCH/upload immediately (no modal).
+        if (!canSaveStatementsDirectly()) {
             setError(null);
             setSuccessMessage(null);
             openStatementApprovalOffer({
@@ -694,7 +699,7 @@ export default function CreditCardStatements() {
                     setStatementAttachmentFile(null);
                     return;
                 } catch (uploadErr: unknown) {
-                    if (isApprovalRequiredError(uploadErr)) {
+                    if (isApprovalRequiredError(uploadErr) && !canSaveStatementsDirectly()) {
                         openStatementApprovalOffer({
                             resourceId: validCardId,
                             statementMonth: monthParam,
@@ -750,7 +755,7 @@ export default function CreditCardStatements() {
             setStatementAttachmentFile(null);
         } catch (err: unknown) {
             console.error('Error updating statement:', err);
-            if (isApprovalRequiredError(err) && editValues) {
+            if (isApprovalRequiredError(err) && editValues && !canSaveStatementsDirectly()) {
                 openStatementApprovalOffer({
                     resourceId: validCardId,
                     statementMonth: monthParam,
