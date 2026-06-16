@@ -111,6 +111,7 @@ export interface CreditCardStatementApiResponse {
   due_date: string | null;
   due_month: string | null;
   total_payment_due: number;
+  min_payment_due?: number;
   paid: number;
   epp: number;
   amount_pending: number;
@@ -127,6 +128,7 @@ export interface CreditCardStatement {
   due_date: string | null;
   due_month: string | null;
   totalPaymentDue: number;
+  minPaymentDue: number;
   paid: number;
   epp: number;
   amountPending: number;
@@ -219,6 +221,8 @@ function assertPatchBodyIsStatementRow(statementData: unknown): void {
     o.total_payment_due != null ||
     o.total_due != null ||
     o.totalDue != null ||
+    o.min_payment_due != null ||
+    o.minPaymentDue != null ||
     o.paid != null ||
     o.paid_amount != null ||
     o.paidAmount != null ||
@@ -432,6 +436,7 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
   const att = mapStatementAttachmentFields(item);
   // PATCH/POST bodies often use total_due / paid_amount / epp_balance; GET uses total_payment_due / paid / epp.
   const totalPaymentDue = item.total_payment_due ?? item.total_due ?? item.totalDue;
+  const minPaymentDue = item.min_payment_due ?? item.minPaymentDue;
   const paid = item.paid ?? item.paid_amount ?? item.paidAmount;
   const epp = item.epp ?? item.epp_balance ?? item.eppBalance;
   const amountPending = item.amount_pending ?? item.amountPending;
@@ -445,6 +450,7 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
     due_date: item.due_date ?? null,
     due_month: item.due_month ?? null,
     totalPaymentDue: moneyFromApi(totalPaymentDue),
+    minPaymentDue: moneyFromApi(minPaymentDue),
     paid: moneyFromApi(paid),
     epp: moneyFromApi(epp),
     amountPending: moneyFromApi(amountPending),
@@ -604,6 +610,7 @@ export const creditCardService = {
     id: string | number,
     data: {
       totalPaymentDue?: number;
+      minPaymentDue?: number;
       paid?: number;
       epp?: number;
     },
@@ -616,6 +623,7 @@ export const creditCardService = {
 
     const payload: Record<string, number> = {};
     if (data.totalPaymentDue !== undefined) payload.total_due = data.totalPaymentDue;
+    if (data.minPaymentDue !== undefined) payload.min_payment_due = data.minPaymentDue;
     if (data.paid !== undefined) payload.paid_amount = data.paid;
     if (data.epp !== undefined) payload.epp_balance = data.epp;
 

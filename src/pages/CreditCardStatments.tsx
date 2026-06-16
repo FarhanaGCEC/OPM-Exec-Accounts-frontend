@@ -34,7 +34,7 @@ import {
 import {
     canMutateRecords,
     canSaveStatementsDirectly,
-    usesChangeRequestApprovalFlow,
+    usesStatementDeleteApprovalFlow,
 } from '../lib/authPayload';
 import { formatDisplayYear } from '../lib/formatDisplayDate';
 import { moneyFromApi, parseMoneyInput, roundMoney, sumMoney } from '../lib/money';
@@ -51,6 +51,7 @@ interface GroupedStatements {
 
 interface StatementTotals {
     totalPaymentDue: number;
+    minPaymentDue: number;
     paid: number;
     epp: number;
     amountPending: number;
@@ -83,6 +84,7 @@ export default function CreditCardStatements() {
     const [editingMonthKey, setEditingMonthKey] = useState<string | null>(null);
     const [editValues, setEditValues] = useState<{
         totalPaymentDue: string;
+        minPaymentDue: string;
         paid: string;
         epp: string;
     } | null>(null);
@@ -94,6 +96,8 @@ export default function CreditCardStatements() {
     const attachmentInputRef = useRef<HTMLInputElement | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const successBannerRef = useRef<HTMLDivElement>(null);
+    const monthSectionRefs = useRef<Partial<Record<string, HTMLDivElement>>>({});
+    const didScrollToSecondMonthOnLoad = useRef(false);
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const years = [currentDate.getFullYear() - 1, currentDate.getFullYear(), currentDate.getFullYear() + 1];
@@ -180,6 +184,10 @@ export default function CreditCardStatements() {
             responseData.totalPaymentDue !== undefined && responseData.totalPaymentDue !== null
                 ? Number(responseData.totalPaymentDue)
                 : card.totalPaymentDue,
+        minPaymentDue:
+            responseData.minPaymentDue !== undefined && responseData.minPaymentDue !== null
+                ? Number(responseData.minPaymentDue)
+                : card.minPaymentDue,
         paid:
             responseData.paid !== undefined && responseData.paid !== null
                 ? Number(responseData.paid)
@@ -276,6 +284,29 @@ export default function CreditCardStatements() {
       
     }, []);
 
+    // On first open with multiple months, scroll the 2nd month into view (current month by default).
+    useEffect(() => {
+        if (didScrollToSecondMonthOnLoad.current || loading || selectedMonths.length < 2) {
+            return;
+        }
+
+        const sortedMonths = [...selectedMonths].sort((a, b) => a - b);
+        const secondMonthKey = statementPeriodMonthKey(
+            selectedYear,
+            sortedMonths[1],
+            selectedMonths
+        );
+
+        const timer = window.setTimeout(() => {
+            const section = monthSectionRefs.current[secondMonthKey];
+            if (!section) return;
+            didScrollToSecondMonthOnLoad.current = true;
+            section.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }, 0);
+
+        return () => window.clearTimeout(timer);
+    }, [loading, selectedMonths, selectedYear, groupedStatements]);
+
     const formatCurrency = (value: number) => {
         const normalized = roundMoney(value);
         return `AED ${normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -331,6 +362,9 @@ export default function CreditCardStatements() {
         return {
             totalPaymentDue: sumMoney(
                 statements.map((card) => moneyFromApi(card.totalPaymentDue))
+            ),
+            minPaymentDue: sumMoney(
+                statements.map((card) => moneyFromApi(card.minPaymentDue))
             ),
             paid: sumMoney(statements.map((card) => moneyFromApi(card.paid))),
             epp: sumMoney(statements.map((card) => moneyFromApi(card.epp))),
@@ -410,6 +444,7 @@ export default function CreditCardStatements() {
         setStatementAttachmentFile(null);
         setEditValues({
             totalPaymentDue: toEditableMoneyFieldValue(card.totalPaymentDue),
+            minPaymentDue: toEditableMoneyFieldValue(card.minPaymentDue),
             paid: toEditableMoneyFieldValue(card.paid),
             epp: toEditableMoneyFieldValue(card.epp),
         });
@@ -455,9 +490,10 @@ export default function CreditCardStatements() {
 
     const statementAmountsUnchanged = (
         card: CreditCardStatement,
-        values: { totalPaymentDue: string; paid: string; epp: string }
+        values: { totalPaymentDue: string; minPaymentDue: string; paid: string; epp: string }
     ): boolean =>
         parseMoneyInput(values.totalPaymentDue) === moneyFromApi(card.totalPaymentDue) &&
+        parseMoneyInput(values.minPaymentDue) === moneyFromApi(card.minPaymentDue) &&
         parseMoneyInput(values.paid) === moneyFromApi(card.paid) &&
         parseMoneyInput(values.epp) === moneyFromApi(card.epp);
 
@@ -509,6 +545,7 @@ export default function CreditCardStatements() {
         resourceId: string;
         statementMonth: string;
         totalPaymentDue: number;
+        minPaymentDue: number;
         paid: number;
         epp: number;
         attachmentFile?: File | null;
@@ -536,6 +573,7 @@ export default function CreditCardStatements() {
         const payload: Record<string, unknown> = {
             statementMonth: opts.statementMonth,
             total_due: opts.totalPaymentDue,
+            min_payment_due: opts.minPaymentDue,
             paid_amount: opts.paid,
             epp_balance: opts.epp,
             ...(attachmentFile ? { replace_attachment_requested: true } : {}),
@@ -641,6 +679,7 @@ export default function CreditCardStatements() {
         const monthParam = resolveStatementMonthParam(bucketKey);
         const updateBucketKey = bucketKey ?? monthParam;
         const totalPaymentDue = parseMoneyInput(editValues.totalPaymentDue);
+        const minPaymentDue = parseMoneyInput(editValues.minPaymentDue);
         const paid = parseMoneyInput(editValues.paid);
         const epp = parseMoneyInput(editValues.epp);
         const card = findStatementCard(validCardId, bucketKey);
@@ -658,8 +697,7 @@ export default function CreditCardStatements() {
             return;
         }
 
-        // Standard users: ✓ opens confirmation overlay — API only on "Submit request".
-        // Admin / accountant: ✓ calls PATCH/upload immediately (no modal).
+        // Viewer cannot save. Everyone else: ✓ calls PATCH/upload immediately (no modal).
         if (!canSaveStatementsDirectly()) {
             setError(null);
             setSuccessMessage(null);
@@ -667,6 +705,7 @@ export default function CreditCardStatements() {
                 resourceId: validCardId,
                 statementMonth: monthParam,
                 totalPaymentDue,
+                minPaymentDue,
                 paid,
                 epp,
                 attachmentFile: newAttachment ?? null,
@@ -704,6 +743,7 @@ export default function CreditCardStatements() {
                             resourceId: validCardId,
                             statementMonth: monthParam,
                             totalPaymentDue,
+                            minPaymentDue,
                             paid,
                             epp,
                             attachmentFile: newAttachment,
@@ -717,7 +757,7 @@ export default function CreditCardStatements() {
 
             const patchRes = await creditCardService.updateCreditCardStatement(
                 validCardId,
-                { totalPaymentDue, paid, epp },
+                { totalPaymentDue, minPaymentDue, paid, epp },
                 monthParam
             );
 
@@ -760,6 +800,7 @@ export default function CreditCardStatements() {
                     resourceId: validCardId,
                     statementMonth: monthParam,
                     totalPaymentDue,
+                    minPaymentDue,
                     paid,
                     epp,
                     attachmentFile: newAttachment ?? null,
@@ -774,14 +815,14 @@ export default function CreditCardStatements() {
         }
     };
 
-    const handleEditFieldFocus = (field: 'totalPaymentDue' | 'paid' | 'epp') => {
+    const handleEditFieldFocus = (field: 'totalPaymentDue' | 'minPaymentDue' | 'paid' | 'epp') => {
         if (!editValues) return;
         if (isLoneZeroEditString(editValues[field])) {
             setEditValues({ ...editValues, [field]: '' });
         }
     };
 
-    const handleEditValueChange = (field: 'totalPaymentDue' | 'paid' | 'epp', value: string) => {
+    const handleEditValueChange = (field: 'totalPaymentDue' | 'minPaymentDue' | 'paid' | 'epp', value: string) => {
         if (!editValues) return;
         setEditValues({
             ...editValues,
@@ -795,7 +836,7 @@ export default function CreditCardStatements() {
             const monthParam = resolveStatementMonthParam(periodKey ?? editingMonthKey);
             const updateBucketKey = periodKey ?? editingMonthKey ?? monthParam;
 
-            if (usesChangeRequestApprovalFlow()) {
+            if (usesStatementDeleteApprovalFlow()) {
                 pendingApprovalAttachmentRef.current = null;
                 setError(null);
                 openApproval({
@@ -1311,7 +1352,14 @@ export default function CreditCardStatements() {
                         const monthlyTotals = getStatementTotals(statements);
                         
                         return (
-                            <Card key={monthKey} className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
+                            <Card
+                                key={monthKey}
+                                ref={(el) => {
+                                    if (el) monthSectionRefs.current[monthKey] = el;
+                                    else delete monthSectionRefs.current[monthKey];
+                                }}
+                                className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden scroll-mt-24"
+                            >
                                 <CardContent className="p-0">
                                     <div className="bg-[#f7c46d] px-6 py-3 border-b border-gray-200">
                                         <h3 className="text-lg font-bold text-black">
@@ -1344,6 +1392,9 @@ export default function CreditCardStatements() {
                                                         Total Payment Due
                                                     </TableHead>
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                                        Min Payment Due
+                                                    </TableHead>
+                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
                                                         Paid
                                                     </TableHead>
                                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -1365,7 +1416,7 @@ export default function CreditCardStatements() {
                                             <TableBody>
                                                 {statements.length === 0 ? (
                                                     <TableRow>
-                                                        <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-4">
+                                                        <TableCell colSpan={canMutate ? 13 : 12} className="text-center py-4">
                                                             <p className="text-sm text-gray-500">No statements found for {monthName} {year}.</p>
                                                         </TableCell>
                                                     </TableRow>
@@ -1419,6 +1470,21 @@ export default function CreditCardStatements() {
                                                                             />
                                                                         ) : (
                                                                             formatCurrency(card.totalPaymentDue)
+                                                                        )}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                                        {isEditingStatement(card, monthKey) ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                inputMode="decimal"
+                                                                                pattern="-?[0-9]*[.]?[0-9]*"
+                                                                                value={editValues!.minPaymentDue}
+                                                                                onFocus={() => handleEditFieldFocus('minPaymentDue')}
+                                                                                onChange={(e) => handleEditValueChange('minPaymentDue', e.target.value)}
+                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                            />
+                                                                        ) : (
+                                                                            formatCurrency(card.minPaymentDue)
                                                                         )}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
@@ -1558,6 +1624,9 @@ export default function CreditCardStatements() {
                                                                 {formatCurrency(monthlyTotals.totalPaymentDue)}
                                                             </TableCell>
                                                             <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                                {formatCurrency(monthlyTotals.minPaymentDue)}
+                                                            </TableCell>
+                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
                                                                 {formatCurrency(monthlyTotals.paid)}
                                                             </TableCell>
                                                             <TableCell className="font-bold text-gray-900 py-2 text-left">
@@ -1617,6 +1686,9 @@ export default function CreditCardStatements() {
                                             Total Payment Due
                                         </TableHead>
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                            Min Payment Due
+                                        </TableHead>
+                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
                                             Paid
                                         </TableHead>
                                         <TableHead className="font-semibold text-black text-sm text-left py-2">
@@ -1638,14 +1710,14 @@ export default function CreditCardStatements() {
                                 <TableBody>
                                     {loading ? (
                                         <TableRow>
-                                            <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-4">
+                                            <TableCell colSpan={canMutate ? 13 : 12} className="text-center py-4">
                                                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                                 <p className="text-sm text-gray-500">Loading credit card statements...</p>
                                             </TableCell>
                                         </TableRow>
                                     ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-4">
+                                            <TableCell colSpan={canMutate ? 13 : 12} className="text-center py-4">
                                                 <p className="text-sm text-gray-500 mb-1">No credit card statements found for selected period.</p>
                                                 <p className="text-sm text-gray-400">Select a different month/year to view statements.</p>
                                             </TableCell>
@@ -1699,6 +1771,21 @@ export default function CreditCardStatements() {
                                                             />
                                                         ) : (
                                                             formatCurrency(card.totalPaymentDue)
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                        {isEditingStatement(card) ? (
+                                                            <input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                pattern="-?[0-9]*[.]?[0-9]*"
+                                                                value={editValues!.minPaymentDue}
+                                                                onFocus={() => handleEditFieldFocus('minPaymentDue')}
+                                                                onChange={(e) => handleEditValueChange('minPaymentDue', e.target.value)}
+                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                            />
+                                                        ) : (
+                                                            formatCurrency(card.minPaymentDue)
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left">
@@ -1830,6 +1917,9 @@ export default function CreditCardStatements() {
                                                 </TableCell>
                                                 <TableCell className="font-bold text-gray-900 py-2 text-left">
                                                     {formatCurrency(monthlyTotals.totalPaymentDue)}
+                                                </TableCell>
+                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                    {formatCurrency(monthlyTotals.minPaymentDue)}
                                                 </TableCell>
                                                 <TableCell className="font-bold text-gray-900 py-2 text-left">
                                                     {formatCurrency(monthlyTotals.paid)}

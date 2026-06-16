@@ -179,19 +179,26 @@ export function showMyChangeRequestsInNav(): boolean {
 }
 
 /**
- * Admin / accountant: save on ✓ via PATCH or upload.
- * Standard `user`: modal on ✓, POST /user/change-requests on Submit.
+ * Admin, accountant, and standard `user`: save on ✓ via PATCH or upload.
+ * Viewer is read-only ({@link canMutateRecords}).
  */
 export function canSaveStatementsDirectly(): boolean {
-  if (isRoleAdmin() || isCurrentUserAdmin()) return true;
-  const role = syncUserRoleFromSession();
-  return isAccountantRole(role);
+  return canMutateRecords();
 }
 
-/** Standard `user` role — edits go through POST /user/change-requests, not direct PATCH/upload. */
+/**
+ * Standard `user` role — removing a statement PDF goes through POST /user/change-requests.
+ * Admin and accountant delete directly.
+ */
+export function usesStatementDeleteApprovalFlow(): boolean {
+  if (!canMutateRecords()) return false;
+  if (isRoleAdmin() || isCurrentUserAdmin()) return false;
+  return !isAccountantRole(syncUserRoleFromSession());
+}
+
+/** @deprecated Prefer {@link usesStatementDeleteApprovalFlow} for card-statement deletes. */
 export function usesChangeRequestApprovalFlow(): boolean {
-  if (isViewerRole(syncUserRoleFromSession())) return false;
-  return !canSaveStatementsDirectly();
+  return usesStatementDeleteApprovalFlow();
 }
 
 /**
