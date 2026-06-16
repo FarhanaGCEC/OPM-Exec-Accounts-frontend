@@ -1152,6 +1152,95 @@ function resolvePdcIdFromLedgerRow(t: Pick<BankTransaction, 'id' | 'pdcId'>): st
   return m ? m[1] : null;
 }
 
+function parseTransactionFormDate(dateString: string): Date | null {
+  if (!dateString || dateString.length !== 10) return null;
+  const parts = dateString.split('/');
+  if (parts.length !== 3) return null;
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = expandCenturyYear(parseInt(parts[2], 10));
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+  return new Date(year, month - 1, day);
+}
+
+function formatTransactionFormDate(date: Date | null): string {
+  if (!date || isNaN(date.getTime())) return '';
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear());
+  return `${day}/${month}/${year}`;
+}
+
+function TransactionDateField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
+    parseTransactionFormDate(value)
+  );
+  const [isPopoverOpen, setIsPopoverOpen] = useState(false);
+
+  useEffect(() => {
+    const parsed = parseTransactionFormDate(value);
+    if (parsed) {
+      const currentTime = selectedDate?.getTime();
+      const parsedTime = parsed.getTime();
+      if (!currentTime || currentTime !== parsedTime) {
+        setSelectedDate(parsed);
+      }
+    } else if (value === '' && selectedDate !== null) {
+      setSelectedDate(null);
+    }
+  }, [value, selectedDate]);
+
+  const handleDateSelect = (date: Date | null) => {
+    if (date && !isNaN(date.getTime())) {
+      setSelectedDate(date);
+      onChange(formatTransactionFormDate(date));
+      setIsPopoverOpen(false);
+    }
+  };
+
+  return (
+    <Popover modal={false} open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+      <div className="relative">
+        <Input
+          placeholder="dd/mm/yy"
+          value={value}
+          onChange={(e) => {
+            let next = e.target.value
+              .replace(/[^0-9.]/g, '')
+              .replace(/(\..*)\./g, '$1');
+            if (next.length >= 2) next = next.slice(0, 2) + '/' + next.slice(2);
+            if (next.length >= 5) next = next.slice(0, 5) + '/' + next.slice(5, 9);
+            onChange(next);
+            if (next.length === 10) {
+              const date = parseTransactionFormDate(next);
+              if (date) setSelectedDate(date);
+            }
+          }}
+          maxLength={10}
+          className="w-full pr-10"
+        />
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-black hover:text-gray-600 cursor-pointer z-10"
+          >
+            <CalendarIcon className="w-5 h-5" />
+          </button>
+        </PopoverTrigger>
+      </div>
+      <PopoverContent className="w-auto p-0" align="end">
+        <Calendar date={selectedDate} onSelect={handleDateSelect} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // Zod validation schema
 const transactionSchema = z.object({
   editMode: z.enum(['ledger', 'pdcDue']).default('ledger'),
@@ -3393,107 +3482,17 @@ export default function BankTransaction() {
               <FormField
                 control={form.control}
                 name="date"
-                render={({ field }) => {
-                  // Convert dd/mm/yyyy string to Date object
-                  const parseDate = (dateString: string): Date | null => {
-                    if (!dateString || dateString.length !== 10) return null;
-                    const parts = dateString.split('/');
-                    if (parts.length !== 3) return null;
-                    const day = parseInt(parts[0], 10);
-                    const month = parseInt(parts[1], 10);
-                    const year = expandCenturyYear(parseInt(parts[2], 10));
-                    if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
-                    return new Date(year, month - 1, day);
-                  };
-
-                  // Convert Date object to dd/mm/yyyy string
-                  const formatDate = (date: Date | null): string => {
-                    if (!date || isNaN(date.getTime())) return '';
-                    const day = String(date.getDate()).padStart(2, '0');
-                    const month = String(date.getMonth() + 1).padStart(2, '0');
-                    const year = String(date.getFullYear());
-                    return `${day}/${month}/${year}`;
-                  };
-
-                  const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
-                    parseDate(field.value)
-                  );
-                  const [isPopoverOpen, setIsPopoverOpen] = useState(false);
-
-                  // Sync selectedDate with field.value when field changes externally
-                  useEffect(() => {
-                    const parsed = parseDate(field.value);
-                    if (parsed) {
-                      const currentTime = selectedDate?.getTime();
-                      const parsedTime = parsed.getTime();
-                      if (!currentTime || currentTime !== parsedTime) {
-                        setSelectedDate(parsed);
-                      }
-                    } else if (field.value === '' && selectedDate !== null) {
-                      setSelectedDate(null);
-                    }
-                    // eslint-disable-next-line react-hooks/exhaustive-deps
-                  }, [field.value]);
-
-                  const handleDateSelect = (date: Date | null) => {
-                    if (date && !isNaN(date.getTime())) {
-                      setSelectedDate(date);
-                      const formatted = formatDate(date);
-                      field.onChange(formatted);
-                      setIsPopoverOpen(false);
-                    }
-                  };
-
-                  return (
-                    <FormItem>
-                      <FormLabel className="text-lg font-medium text-gray-700">
-                        Date
-                      </FormLabel>
-                      <FormControl>
-                        <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
-                          <div className="relative">
-                            <Input
-                              placeholder="dd/mm/yy"
-                              value={field.value}
-                              onChange={(e) => {
-                                let value = e.target.value
-                                  .replace(/[^0-9.]/g, '')
-                                  .replace(/(\..*)\./g, '$1');
-                                if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2);
-                                if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9);
-                                field.onChange(value);
-                                // Update selectedDate when user types a complete date
-                                if (value.length === 10) {
-                                  const date = parseDate(value);
-                                  if (date) {
-                                    setSelectedDate(date);
-                                  }
-                                }
-                              }}
-                              maxLength={10}
-                              className="w-full pr-10"
-                            />
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-black hover:text-gray-600 cursor-pointer z-10"
-                              >
-                                <CalendarIcon className="w-5 h-5" />
-                              </button>
-                            </PopoverTrigger>
-                          </div>
-                          <PopoverContent className="w-auto p-0" align="end">
-                            <Calendar
-                              date={selectedDate}
-                              onSelect={handleDateSelect}
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-lg font-medium text-gray-700">
+                      Date
+                    </FormLabel>
+                    <FormControl>
+                      <TransactionDateField value={field.value} onChange={field.onChange} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
 
               <FormField
@@ -3568,7 +3567,7 @@ export default function BankTransaction() {
                               </div>
                             ) : (
                               <SearchableSelect
-                                value={field.value || ''}
+                                value={field.value || undefined}
                                 onValueChange={(value) => {
                                   console.log('[Category Field] Value changed:', value);
                                   field.onChange(value);
