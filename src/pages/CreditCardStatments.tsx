@@ -358,8 +358,16 @@ export default function CreditCardStatements() {
         return 0;
     };
 
-    const isSettledAmountPending = (statement: CreditCardStatement): boolean =>
-        getDisplayAmountPending(statement) <= 0;
+    const isSettledAmountPending = (statement: CreditCardStatement): boolean => {
+        const pending = getDisplayAmountPending(statement);
+        if (pending < 0) return true;
+        if (pending > 0) return false;
+
+        const totalPaymentDue = moneyFromApi(statement.totalPaymentDue);
+        const paid = moneyFromApi(statement.paid);
+        const epp = moneyFromApi(statement.epp);
+        return totalPaymentDue !== 0 || paid !== 0 || epp !== 0;
+    };
 
     const getStatementRowClassName = (statement: CreditCardStatement): string =>
         isSettledAmountPending(statement)
