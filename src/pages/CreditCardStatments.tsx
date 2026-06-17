@@ -363,7 +363,7 @@ export default function CreditCardStatements() {
 
     const getStatementRowClassName = (statement: CreditCardStatement): string =>
         isSettledAmountPending(statement)
-            ? 'bg-[#e2f7ca] hover:bg-[#e2f7ca] transition-colors [&_td]:!text-black [&_span]:!text-black [&_td]:border-b-1 [&_td]:border-[#9bc86e]'
+            ? 'bg-[#ebf2e8] hover:bg-[#d9ead3] transition-colors [&_td]:!text-black [&_span]:!text-black [&_td]:border-b-1 [&_td]:border-[#9bc86e]'
             : 'hover:bg-gray-50 transition-colors [&_td]:border-b [&_td]:border-gray-300';
 
     const getStatementTotals = (statements: CreditCardStatement[]): StatementTotals => {
