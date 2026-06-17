@@ -358,6 +358,14 @@ export default function CreditCardStatements() {
         return 0;
     };
 
+    const isSettledAmountPending = (statement: CreditCardStatement): boolean =>
+        getDisplayAmountPending(statement) <= 0;
+
+    const getStatementRowClassName = (statement: CreditCardStatement): string =>
+        isSettledAmountPending(statement)
+            ? 'bg-[#e2f7ca] hover:bg-[#e2f7ca] transition-colors [&_td]:!text-black [&_span]:!text-black [&_td]:border-b-1 [&_td]:border-[#9bc86e]'
+            : 'hover:bg-gray-50 transition-colors [&_td]:border-b [&_td]:border-gray-300';
+
     const getStatementTotals = (statements: CreditCardStatement[]): StatementTotals => {
         return {
             totalPaymentDue: sumMoney(
@@ -1423,10 +1431,11 @@ export default function CreditCardStatements() {
                                                 ) : (
                                                     <>
                                                         {statements.map((card) => {
+                                                            const amountPending = getDisplayAmountPending(card);
                                                             return (
                                                                 <TableRow
                                                                     key={`${monthKey}-${card.id}`}
-                                                                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                                                                    className={getStatementRowClassName(card)}
                                                                 >
                                                                     <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
                                                                         <div className="w-full truncate" title={card.issuingBank || ''}>
@@ -1518,11 +1527,9 @@ export default function CreditCardStatements() {
                                                                         )}
                                                                     </TableCell>
                                                                     <TableCell className={`text-sm py-2 text-left font-semibold ${
-                                                                        getDisplayAmountPending(card) > 0
-                                                                            ? 'text-red-600'
-                                                                            : 'text-green-600'
+                                                                        amountPending > 0 ? 'text-red-600' : 'text-black'
                                                                     }`}>
-                                                                        {formatCurrency(getDisplayAmountPending(card))}
+                                                                        {formatCurrency(amountPending)}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
                                                                         <StatementAttachmentTableCell
@@ -1725,10 +1732,11 @@ export default function CreditCardStatements() {
                                     ) : (
                                         <>
                                             {creditCards.map((card) => {
+                                                const amountPending = getDisplayAmountPending(card);
                                                 return (
                                                 <TableRow
                                                     key={card.id}
-                                                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                                                    className={getStatementRowClassName(card)}
                                                 >
                                                     <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
                                                         <div className="w-full truncate font-bold" title={card.issuingBank || ''}>
@@ -1820,12 +1828,10 @@ export default function CreditCardStatements() {
                                                     </TableCell>
                                                 
                                                     <TableCell className={`text-sm py-2 text-left font-semibold ${
-                                                        getDisplayAmountPending(card) > 0
-                                                            ? 'text-red-600'
-                                                            : 'text-green-600'
+                                                        amountPending > 0 ? 'text-red-600' : 'text-black'
                                                     }`}>
                                                         {/* amountPending is auto-calculated, so it's read-only */}
-                                                        {formatCurrency(getDisplayAmountPending(card))}
+                                                        {formatCurrency(amountPending)}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
                                                         <StatementAttachmentTableCell
