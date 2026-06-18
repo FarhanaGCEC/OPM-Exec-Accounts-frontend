@@ -210,7 +210,7 @@ const parseLocalDateTimeForSort = (value: string): Date | null => {
 
 const getTransactionSortTimestamp = (item: AllTransaction): number | null => {
   const dateOnly = parseTransactionDate(item.date);
-  const timeRaw = String((item as any).transactionTime ?? '').trim();
+  const timeRaw = String((item as DailyTransaction).transactionTime ?? '').trim();
   const parsedTime = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeRaw);
   if (dateOnly && parsedTime) {
     const combined = new Date(dateOnly);
@@ -223,11 +223,11 @@ const getTransactionSortTimestamp = (item: AllTransaction): number | null => {
     if (!Number.isNaN(combined.getTime())) return combined.getTime();
   }
 
-  const localCreated = parseLocalDateTimeForSort((item as any).createdAtLocal ?? '');
+  const localCreated = parseLocalDateTimeForSort((item as DailyTransaction).createdAtLocal ?? '');
   if (localCreated) return localCreated.getTime();
-  const displayCreated = parseLocalDateTimeForSort((item as any).createdAtDisplay ?? '');
+  const displayCreated = parseLocalDateTimeForSort((item as DailyTransaction).createdAtDisplay ?? '');
   if (displayCreated) return displayCreated.getTime();
-  const created = parseLocalDateTimeForSort((item as any).createdAt ?? '');
+  const created = parseLocalDateTimeForSort(item.createdAt ?? '');
   if (created) return created.getTime();
   if (dateOnly) return dateOnly.getTime();
   return null;
@@ -572,7 +572,7 @@ const sortTransactionsByDateAsc = (items: AllTransaction[]): AllTransaction[] =>
     const aTs = getTransactionSortTimestamp(a);
     const bTs = getTransactionSortTimestamp(b);
 
-    // Primary sort: transaction date only (older date first).
+    // Primary sort: transaction date only (1 Jan → 31 Dec).
     if (aDateTs == null && bDateTs == null) {
       // continue to timestamp tie-breakers
     } else if (aDateTs == null) {
@@ -584,15 +584,15 @@ const sortTransactionsByDateAsc = (items: AllTransaction[]): AllTransaction[] =>
       if (byDateOnly !== 0) return byDateOnly;
     }
 
-    if (aTs == null && bTs == null) return getTransactionStableSortId(b) - getTransactionStableSortId(a);
+    if (aTs == null && bTs == null) return getTransactionStableSortId(a) - getTransactionStableSortId(b);
     if (aTs == null) return -1;
     if (bTs == null) return 1;
 
-    // Secondary sort: datetime (createdAtLocal/createdAt) within same date.
+    // Secondary sort: datetime within the same date.
     const byTs = aTs - bTs;
     if (byTs !== 0) return byTs;
 
-    return getTransactionStableSortId(b) - getTransactionStableSortId(a);
+    return getTransactionStableSortId(a) - getTransactionStableSortId(b);
   });
 };
 
@@ -643,6 +643,31 @@ const formatDateForExcel = (date: Date | string | null): string => {
   const month = EXCEL_MONTHS[parsed.getMonth()];
   const year = formatDisplayYear(parsed.getFullYear());
   return `${day}-${month}-${year}`;
+};
+
+/** Match on-screen ledger: AED prefix + thousands separators. */
+const EXCEL_AED_NUM_FMT = '"AED "#,##0.00';
+
+const LEDGER_TABLE_HEADERS = [
+  'Date',
+  'Description',
+  'Details',
+  'Debit',
+  'Credit',
+  'Balance',
+  'Remarks',
+] as const;
+
+const applyExcelAedAmount = (
+  cell: ExcelJS.Cell,
+  value: number,
+  font?: Partial<ExcelJS.Font>
+): void => {
+  cell.value = value;
+  cell.numFmt = EXCEL_AED_NUM_FMT;
+  if (font) {
+    cell.font = excelExportFont(font) as ExcelJS.Font;
+  }
 };
 
 function dailyTxnPdcType(txn: DailyTransaction): string | undefined {
@@ -765,16 +790,6 @@ export default function ViewAllTranstion() {
   });
 
 
-
-  // Group transactions by type (for export/summary blocks)
-  const groupedTransactions = filteredTransactions.reduce((acc, transaction) => {
-    const type = transaction.transactionType;
-    if (!acc[type]) {
-      acc[type] = [];
-    }
-    acc[type].push(transaction);
-    return acc;
-  }, {} as Record<string, AllTransaction[]>);
 
   // Table list: show each transaction only once.
   const tableTransactions: AllTransaction[] = filteredTransactions;
@@ -1073,7 +1088,9 @@ export default function ViewAllTranstion() {
     const transactionOrder = ['Daily Transaction', 'GCEC PDC', 'Customer PDC', 'Purchase Bill'];
     
     transactionOrder.forEach((type) => {
-      const typeTransactions = sortTransactionsByDateAsc(groupedTransactions[type] || []);
+      const typeTransactions = sortTransactionsByDateAsc(
+        filteredTransactions.filter((txn) => txn.transactionType === type)
+      );
       if (typeTransactions.length > 0) {
         const displayName = getTransactionTypeDisplayName(type);
         addRow([displayName], {
@@ -1085,18 +1102,8 @@ export default function ViewAllTranstion() {
           },
         });
         
-        // Headers
-        let headers: string[] = [];
-        if (type === 'Daily Transaction') {
-          headers = ['Date', 'Description', 'Details', 'Debit', 'Credit', 'Balance', 'Remarks'];
-        } else if (type === 'GCEC PDC') {
-          headers = ['Date', 'Creditor', 'Cheque Number', 'Amount', 'Cheque Type'];
-        } else if (type === 'Customer PDC') {
-          headers = ['Date', 'Debtor', 'Cheque Number', 'Amount', 'Cheque Type'];
-        } else if (type === 'Purchase Bill') {
-          headers = ['Date', 'Vendor Name', 'Payment Method', 'Amount'];
-        }
-        addRow(headers, { font: { bold: true } });
+        // Same 7-column layout as the on-screen ledger table.
+        addRow([...LEDGER_TABLE_HEADERS], { font: { bold: true } });
 
         // Transaction rows
         let sectionAmountTotal = 0;
@@ -1116,21 +1123,21 @@ export default function ViewAllTranstion() {
             const rawRemarks = txn.remarks || '';
             const remarksCell = remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn));
             const isBouncedOrReturned = isBouncedChequeRemarks(rawRemarks);
+            const gcecPdcHighlight = rowIsGcecPdcHighlight(rawRemarks, dailyTxnPdcType(txn));
 
             const row = addRow([
               formatDateForExcel(txn.date),
               txn.category,
               formetpaymentType,
-              debitValue,
-              creditValue,
+              Number.isFinite(debitValue) ? debitValue : 0,
+              Number.isFinite(creditValue) ? creditValue : 0,
               balanceValue,
               remarksCell,
             ]);
 
-            // Format number columns
-            row.getCell(4).numFmt = '#,##0.00'; // Debit
-            row.getCell(5).numFmt = '#,##0.00'; // Credit
-            row.getCell(6).numFmt = '#,##0.00'; // Balance
+            applyExcelAedAmount(row.getCell(4), Number.isFinite(debitValue) ? debitValue : 0);
+            applyExcelAedAmount(row.getCell(5), Number.isFinite(creditValue) ? creditValue : 0);
+            applyExcelAedAmount(row.getCell(6), balanceValue);
 
             // Debit column red; Date, Description, Details, Credit, Remarks black (match on-screen ledger).
             row.getCell(4).font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
@@ -1149,13 +1156,20 @@ export default function ViewAllTranstion() {
             const isAvailableBalanceRemark =
               remarksCell.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
 
-            // Apply background color if bounced/returned cheque
             if (isBouncedOrReturned) {
               row.eachCell((cell) => {
                 cell.fill = {
                   type: 'pattern',
                   pattern: 'solid',
                   fgColor: { argb: 'FF95DCF7' }
+                };
+              });
+            } else if (gcecPdcHighlight) {
+              row.eachCell((cell) => {
+                cell.fill = {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FFFEF9C3' },
                 };
               });
             } else if (isAvailableBalanceRemark) {
@@ -1169,19 +1183,27 @@ export default function ViewAllTranstion() {
             const txn = transaction as GCECPDC;
             const amountValue = parseFloat(String(txn.amount).replace(/,/g, '')) || 0;
             sectionAmountTotal += amountValue;
-            const chequeTypeDisplay = txn.chequeType === 'Payment Cheque' ? '' : 'Security Cheque';
             const row = addRow([
               formatDateForExcel(txn.date),
               txn.customerName,
-              txn.chequeNumber,
+              txn.chequeNumber || '-',
               amountValue,
-              chequeTypeDisplay,
+              0,
+              '-',
+              txn.description || '',
             ]);
-            row.getCell(4).numFmt = '#,##0.00';
-            
-            // Make all text red in GCEC PDC rows (background stays white)
+            applyExcelAedAmount(row.getCell(4), amountValue);
+            applyExcelAedAmount(row.getCell(5), 0);
+
+            const chequeCell = row.getCell(3);
+            if (txn.chequeNumber && /^\d+$/.test(txn.chequeNumber)) {
+              chequeCell.value = txn.chequeNumber;
+              chequeCell.numFmt = '@';
+            }
+
+            const redFont = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
             row.eachCell((cell) => {
-              cell.font = excelExportFont({ color: { argb: 'FFFF0000' } }) as ExcelJS.Font;
+              cell.font = redFont;
             });
           } else if (type === 'Customer PDC') {
             const txn = transaction as CustomerPDC;
@@ -1193,20 +1215,35 @@ export default function ViewAllTranstion() {
             const row = addRow([
               formatDateForExcel(txn.date),
               txn.customerName,
-              txn.chequeNumber,
+              txn.chequeNumber || '-',
+              0,
               amountValue,
-              chequeTypeDisplay,
+              '-',
+              txn.description || chequeTypeDisplay,
             ]);
-            row.getCell(4).numFmt = '#,##0.00';
-            
-            // Apply red background if Security Cheque
+            applyExcelAedAmount(row.getCell(4), 0, { color: { argb: 'FFFF0000' } });
+            applyExcelAedAmount(row.getCell(5), amountValue);
+
+            const chequeCell = row.getCell(3);
+            if (txn.chequeNumber && /^\d+$/.test(txn.chequeNumber)) {
+              chequeCell.value = txn.chequeNumber;
+              chequeCell.numFmt = '@';
+            }
+
+            const blackFont = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
+            row.getCell(1).font = blackFont;
+            row.getCell(2).font = blackFont;
+            row.getCell(3).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
+            row.getCell(7).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
+
             if (isSecurityCheque) {
               row.eachCell((cell) => {
                 cell.fill = {
                   type: 'pattern',
                   pattern: 'solid',
-                  fgColor: { argb: 'FFFF0000' } // Red color
+                  fgColor: { argb: 'FFFF0000' },
                 };
+                cell.font = excelExportFont({ color: { argb: 'FFFFFFFF' } }) as ExcelJS.Font;
               });
             }
           } else if (type === 'Purchase Bill') {
@@ -1217,10 +1254,19 @@ export default function ViewAllTranstion() {
               formatDateForExcel(txn.date),
               txn.vendorName,
               txn.paymentMethod,
+              0,
               amountValue,
+              '-',
+              txn.description || '',
             ]);
-            row.getCell(4).numFmt = '#,##0.00';
-     
+            applyExcelAedAmount(row.getCell(4), 0, { color: { argb: 'FFFF0000' } });
+            applyExcelAedAmount(row.getCell(5), amountValue);
+
+            const blackFont = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
+            row.getCell(1).font = blackFont;
+            row.getCell(2).font = blackFont;
+            row.getCell(3).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
+            row.getCell(7).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
           }
         });
 
@@ -1230,18 +1276,22 @@ export default function ViewAllTranstion() {
           type === 'Customer PDC' ||
           type === 'Purchase Bill'
         ) {
-          addRow([]); // Blank row before section total
+          addRow([]);
           const totalRowValues =
-            type === 'Purchase Bill'
-              ? ['', '', 'Total', sectionAmountTotal]
-              : type === 'Daily Transaction'
-                ? ['', '', 'Total', '', '', sectionAmountTotal, '']
-                : ['', '', 'Total', sectionAmountTotal, ''];
+            type === 'Daily Transaction'
+              ? ['', '', 'Total', '', '', sectionAmountTotal, '']
+              : type === 'GCEC PDC'
+                ? ['', '', 'Total', sectionAmountTotal, '', '', '']
+                : ['', '', 'Total', '', sectionAmountTotal, '', ''];
           const totalRow = addRow(totalRowValues, { font: { bold: true } });
           totalRow.getCell(3).alignment = { horizontal: 'right' };
           const totalAmountCell =
-            type === 'Daily Transaction' ? totalRow.getCell(6) : totalRow.getCell(4);
-          totalAmountCell.numFmt = '#,##0.00';
+            type === 'Daily Transaction'
+              ? totalRow.getCell(6)
+              : type === 'GCEC PDC'
+                ? totalRow.getCell(4)
+                : totalRow.getCell(5);
+          applyExcelAedAmount(totalAmountCell, sectionAmountTotal);
           totalAmountCell.font =
             type === 'Daily Transaction'
               ? (excelExportFont({
@@ -1282,7 +1332,7 @@ export default function ViewAllTranstion() {
     link.download = fileName;
     link.click();
     window.URL.revokeObjectURL(url);
-  }, [filteredTransactions, groupedTransactions, startDate, endDate]);
+  }, [filteredTransactions, startDate, endDate]);
 
   const handleViewPdf = useCallback(async () => {
     try {
