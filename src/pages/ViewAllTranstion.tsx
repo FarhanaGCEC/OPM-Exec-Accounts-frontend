@@ -658,6 +658,19 @@ const LEDGER_TABLE_HEADERS = [
   'Remarks',
 ] as const;
 
+const getExcelHeadersForType = (type: string): readonly string[] => {
+  if (type === 'GCEC PDC') {
+    return ['Date', 'Creditor', 'Cheque Number', 'Debit', 'Remarks'];
+  }
+  if (type === 'Customer PDC') {
+    return ['Date', 'Debtor', 'Cheque Number', 'Credit', 'Remarks'];
+  }
+  if (type === 'Purchase Bill') {
+    return ['Date', 'Vendor Name', 'Payment Method', 'Credit', 'Remarks'];
+  }
+  return LEDGER_TABLE_HEADERS;
+};
+
 const applyExcelAedAmount = (
   cell: ExcelJS.Cell,
   value: number,
@@ -1102,8 +1115,7 @@ export default function ViewAllTranstion() {
           },
         });
         
-        // Same 7-column layout as the on-screen ledger table.
-        addRow([...LEDGER_TABLE_HEADERS], { font: { bold: true } });
+        addRow([...getExcelHeadersForType(type)], { font: { bold: true } });
 
         // Transaction rows
         let sectionAmountTotal = 0;
@@ -1188,12 +1200,9 @@ export default function ViewAllTranstion() {
               txn.customerName,
               txn.chequeNumber || '-',
               amountValue,
-              0,
-              '-',
               txn.description || '',
             ]);
             applyExcelAedAmount(row.getCell(4), amountValue);
-            applyExcelAedAmount(row.getCell(5), 0);
 
             const chequeCell = row.getCell(3);
             if (txn.chequeNumber && /^\d+$/.test(txn.chequeNumber)) {
@@ -1216,13 +1225,10 @@ export default function ViewAllTranstion() {
               formatDateForExcel(txn.date),
               txn.customerName,
               txn.chequeNumber || '-',
-              0,
               amountValue,
-              '-',
               txn.description || chequeTypeDisplay,
             ]);
-            applyExcelAedAmount(row.getCell(4), 0, { color: { argb: 'FFFF0000' } });
-            applyExcelAedAmount(row.getCell(5), amountValue);
+            applyExcelAedAmount(row.getCell(4), amountValue, { color: { argb: 'FF000000' } });
 
             const chequeCell = row.getCell(3);
             if (txn.chequeNumber && /^\d+$/.test(txn.chequeNumber)) {
@@ -1234,7 +1240,7 @@ export default function ViewAllTranstion() {
             row.getCell(1).font = blackFont;
             row.getCell(2).font = blackFont;
             row.getCell(3).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
-            row.getCell(7).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
+            row.getCell(5).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
 
             if (isSecurityCheque) {
               row.eachCell((cell) => {
@@ -1254,19 +1260,16 @@ export default function ViewAllTranstion() {
               formatDateForExcel(txn.date),
               txn.vendorName,
               txn.paymentMethod,
-              0,
               amountValue,
-              '-',
               txn.description || '',
             ]);
-            applyExcelAedAmount(row.getCell(4), 0, { color: { argb: 'FFFF0000' } });
-            applyExcelAedAmount(row.getCell(5), amountValue);
+            applyExcelAedAmount(row.getCell(4), amountValue, { color: { argb: 'FF000000' } });
 
             const blackFont = excelExportFont({ color: { argb: 'FF000000' } }) as ExcelJS.Font;
             row.getCell(1).font = blackFont;
             row.getCell(2).font = blackFont;
             row.getCell(3).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
-            row.getCell(7).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
+            row.getCell(5).font = excelExportFont({ color: { argb: 'FF4B5563' } }) as ExcelJS.Font;
           }
         });
 
@@ -1280,17 +1283,11 @@ export default function ViewAllTranstion() {
           const totalRowValues =
             type === 'Daily Transaction'
               ? ['', '', 'Total', '', '', sectionAmountTotal, '']
-              : type === 'GCEC PDC'
-                ? ['', '', 'Total', sectionAmountTotal, '', '', '']
-                : ['', '', 'Total', '', sectionAmountTotal, '', ''];
+              : ['', '', 'Total', sectionAmountTotal, ''];
           const totalRow = addRow(totalRowValues, { font: { bold: true } });
           totalRow.getCell(3).alignment = { horizontal: 'right' };
           const totalAmountCell =
-            type === 'Daily Transaction'
-              ? totalRow.getCell(6)
-              : type === 'GCEC PDC'
-                ? totalRow.getCell(4)
-                : totalRow.getCell(5);
+            type === 'Daily Transaction' ? totalRow.getCell(6) : totalRow.getCell(4);
           applyExcelAedAmount(totalAmountCell, sectionAmountTotal);
           totalAmountCell.font =
             type === 'Daily Transaction'

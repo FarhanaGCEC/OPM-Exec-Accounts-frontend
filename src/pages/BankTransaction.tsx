@@ -1333,7 +1333,9 @@ export default function BankTransaction() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'online' | 'cheque' | 'cash'>('all');
+  const [activeTab, setActiveTab] = useState<
+    'all' | 'online' | 'cheque' | 'cash' | 'debit' | 'credit'
+  >('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [searchDetails, setSearchDetails] = useState<string>('');
@@ -2348,6 +2350,8 @@ export default function BankTransaction() {
     if (activeTab === 'online' && transaction.paymentType !== 'creditcard' && transaction.paymentType !== 'banktransfer') return false;
     if (activeTab === 'cheque' && transaction.paymentType !== 'cheque') return false;
     if (activeTab === 'cash' && transaction.paymentType !== 'cash') return false;
+    if (activeTab === 'debit' && parseLedgerAmount(transaction.debit) <= 0) return false;
+    if (activeTab === 'credit' && parseLedgerAmount(transaction.credit) <= 0) return false;
     
     // Filter by date range (calendar day, local timezone)
     if (startDate || endDate) {
@@ -3050,6 +3054,24 @@ export default function BankTransaction() {
              }`}
          >
            Cash
+         </button>
+         <button
+           onClick={() => setActiveTab('debit')}
+           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'debit'
+             ? 'bg-[#f7c46d] text-black'
+             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
+             }`}
+         >
+           Debit
+         </button>
+         <button
+           onClick={() => setActiveTab('credit')}
+           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'credit'
+             ? 'bg-[#f7c46d] text-black'
+             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
+             }`}
+         >
+           Credit
          </button>
        </div>
 
