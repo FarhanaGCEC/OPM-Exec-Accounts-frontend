@@ -22,7 +22,7 @@ export default function Layout({ children }: LayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="h-screen bg-gray-50 flex overflow-hidden">
       {/* Sidebar - Fixed position */}
       <div
         className={`${
@@ -33,7 +33,7 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Main Content */}
-      <div className={`flex-1 flex flex-col relative transition-all duration-300 ${
+      <div className={`flex-1 flex flex-col min-h-0 relative transition-all duration-300 ${
         isSidebarOpen ? 'ml-60' : 'ml-0'
       }`}>
         {/* Toggle Button - Always visible on the left */}
@@ -57,7 +57,7 @@ export default function Layout({ children }: LayoutProps) {
           )}
         </button>
 
-        <main className="flex-1 pt-4 overflow-auto bg-gray-50">
+        <main className="flex-1 min-h-0 overflow-y-auto bg-gray-50 pt-4">
           {children}
         </main>
       </div>

@@ -102,7 +102,38 @@
   }
 }
 
-/* Daily Transaction ledger — row tones (cells often need !important to show through). */
+/* Credit card statements — pinned table navbar on main scroll (no inner table scroll). */
+.cc-statement-sticky-header {
+  background-color: #f7c46d;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+}
+
+.cc-statement-sticky-header--pinned {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.cc-statement-month-bar {
+  background-color: #f7c46d;
+}
+
+.cc-statement-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.cc-statement-table--body {
+  margin-top: -1px;
+}
+
+.cc-statement-table-body-wrap {
+  position: relative;
+  z-index: 0;
+}
+
+.cc-statement-table thead th {
+  background-color: #87CEEB !important;
+}
 .bank-tx-ledger tbody tr[data-row-bg='bounce'] > td {
   background-color: #95dcf7 !important;
 }

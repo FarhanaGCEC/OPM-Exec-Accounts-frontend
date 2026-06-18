@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode, type RefObject } from 'react';
 import Layout from '../components/Layout';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import {
-    Table,
     TableBody,
     TableCell,
     TableHead,
@@ -11,7 +10,7 @@ import {
     TableRow,
 } from '../components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { Calendar as CalendarIcon, Loader2, Pencil, ChevronUp, Check, X, Download } from 'lucide-react';
+import { Calendar as CalendarIcon, Loader2, Pencil, ChevronUp, Check, X, Download, Eye, EyeOff } from 'lucide-react';
 import { StatementAttachmentTableCell } from '../components/StatementAttachmentTableCell';
 import {
     appendStatementAttachmentToChangePayload,
@@ -57,6 +56,120 @@ interface StatementTotals {
     amountPending: number;
 }
 
+const STATEMENT_TABLE_CLASS =
+    'cc-statement-table w-full text-[14px] sm:text-[15px] border-x border-b border-gray-200 [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-2 [&_td]:px-2 [&_th]:py-1 [&_td]:py-1 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight';
+
+const STATEMENT_MONTH_BAR_CLASS =
+    'cc-statement-month-bar px-4 py-2 border-b border-gray-200 flex items-center justify-between';
+
+const STATEMENT_COLUMN_HEAD_CELL_CLASS =
+    'bg-[#87CEEB] font-semibold text-black text-sm text-left py-1';
+
+type PinnedHeaderMetrics = {
+    pinned: boolean;
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+};
+
+function usePinnedStatementHeader(
+    sectionRef: RefObject<HTMLDivElement | null>,
+    headerRef: RefObject<HTMLDivElement | null>
+): PinnedHeaderMetrics {
+    const [metrics, setMetrics] = useState<PinnedHeaderMetrics>({
+        pinned: false,
+        top: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+    });
+
+    useEffect(() => {
+        const section = sectionRef.current;
+        const header = headerRef.current;
+        if (!section || !header) return;
+
+        const getMain = () => section.closest('main');
+
+        const update = () => {
+            const main = getMain();
+            if (!main) return;
+
+            const mainRect = main.getBoundingClientRect();
+            const sectionRect = section.getBoundingClientRect();
+            const headerHeight = header.offsetHeight;
+            const mainTop = mainRect.top;
+            const pinned =
+                sectionRect.top < mainTop &&
+                sectionRect.bottom > mainTop + headerHeight;
+
+            setMetrics({
+                pinned,
+                top: mainTop,
+                left: sectionRect.left,
+                width: sectionRect.width,
+                height: headerHeight,
+            });
+        };
+
+        const main = getMain();
+        if (!main) return;
+
+        main.addEventListener('scroll', update, { passive: true });
+        window.addEventListener('resize', update);
+        const resizeObserver = new ResizeObserver(update);
+        resizeObserver.observe(section);
+        resizeObserver.observe(header);
+        update();
+
+        return () => {
+            main.removeEventListener('scroll', update);
+            window.removeEventListener('resize', update);
+            resizeObserver.disconnect();
+        };
+    }, [sectionRef, headerRef]);
+
+    return metrics;
+}
+
+function PinnedStatementTableSection({
+    children,
+    body,
+}: {
+    children: ReactNode;
+    body: ReactNode;
+}) {
+    const sectionRef = useRef<HTMLDivElement>(null);
+    const headerRef = useRef<HTMLDivElement>(null);
+    const { pinned, top, left, width, height } = usePinnedStatementHeader(sectionRef, headerRef);
+
+    return (
+        <div ref={sectionRef} className="cc-statement-table-section">
+            {pinned ? <div style={{ height }} aria-hidden className="cc-statement-header-spacer" /> : null}
+            <div
+                ref={headerRef}
+                className={`cc-statement-sticky-header${pinned ? ' cc-statement-sticky-header--pinned' : ''}`}
+                style={
+                    pinned
+                        ? {
+                              position: 'fixed',
+                              top,
+                              left,
+                              width,
+                              zIndex: 50,
+                              backgroundColor: '#f7c46d',
+                          }
+                        : undefined
+                }
+            >
+                {children}
+            </div>
+            {body}
+        </div>
+    );
+}
+
 export default function CreditCardStatements() {
     const canMutate = canMutateRecords();
     const {
@@ -94,6 +207,9 @@ export default function CreditCardStatements() {
     const [deletingAttachment, setDeletingAttachment] = useState(false);
     const pendingApprovalAttachmentRef = useRef<File | null>(null);
     const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+    const [minPaymentDueVisibleByMonth, setMinPaymentDueVisibleByMonth] = useState<
+        Record<string, boolean>
+    >({});
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const successBannerRef = useRef<HTMLDivElement>(null);
     const monthSectionRefs = useRef<Partial<Record<string, HTMLDivElement>>>({});
@@ -221,6 +337,53 @@ export default function CreditCardStatements() {
             return Boolean(periodKey && editingMonthKey === periodKey);
         }
         return true;
+    };
+
+    const getMinPaymentDueMonthKey = (monthKey?: string): string => {
+        if (monthKey) return monthKey;
+        if (selectedMonths.length === 1) {
+            return statementPeriodMonthKey(selectedYear, selectedMonths[0], selectedMonths);
+        }
+        return 'default';
+    };
+
+    const isMinPaymentDueColumnVisible = (monthKey?: string): boolean => {
+        const key = getMinPaymentDueMonthKey(monthKey);
+        if (minPaymentDueVisibleByMonth[key]) return true;
+        if (editingId && editValues) {
+            if (selectedMonths.length > 1) {
+                return Boolean(monthKey && editingMonthKey === monthKey);
+            }
+            return true;
+        }
+        return false;
+    };
+
+    const toggleMinPaymentDueVisibility = (monthKey?: string) => {
+        const key = getMinPaymentDueMonthKey(monthKey);
+        setMinPaymentDueVisibleByMonth((prev) => ({
+            ...prev,
+            [key]: !prev[key],
+        }));
+    };
+
+    const getStatementTableColSpan = (showMinPaymentDue: boolean): number => {
+        const baseColumns = showMinPaymentDue ? 12 : 11;
+        return canMutate ? baseColumns + 1 : baseColumns;
+    };
+
+    const renderStatementColGroup = (showMinPaymentDue: boolean) => {
+        const widths = ['9%', '5%', '10%', '7%', '7%', '5%', '8%'];
+        if (showMinPaymentDue) widths.push('7%');
+        widths.push('8%', '8%', '8%', '3%');
+        if (canMutate) widths.push('4%');
+        return (
+            <colgroup>
+                {widths.map((width, index) => (
+                    <col key={index} style={{ width }} />
+                ))}
+            </colgroup>
+        );
     };
 
     const fetchCreditCards = useCallback(async (year: number, months: number[]) => {
@@ -1366,6 +1529,7 @@ export default function CreditCardStatements() {
                         const monthName = fullMonthNames[parseInt(monthNum, 10) - 1];
                         const statements = groupedStatements[monthKey] ?? [];
                         const monthlyTotals = getStatementTotals(statements);
+                        const showMinPaymentDue = isMinPaymentDueColumnVisible(monthKey);
                         
                         return (
                             <Card
@@ -1374,65 +1538,18 @@ export default function CreditCardStatements() {
                                     if (el) monthSectionRefs.current[monthKey] = el;
                                     else delete monthSectionRefs.current[monthKey];
                                 }}
-                                className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden scroll-mt-24"
+                                className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg scroll-mt-24"
                             >
                                 <CardContent className="p-0">
-                                    <div className="bg-[#f7c46d] px-6 py-3 border-b border-gray-200">
-                                        <h3 className="text-lg font-bold text-black">
-                                            {monthName} {year}
-                                        </h3>
-                                    </div>
-                                    <div className="overflow-x-auto rounded-lg">
-                                        <Table className="w-full table-auto text-[14px] sm:text-[15px] [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight [&_td]:overflow-hidden [&_td]:text-clip">
-                                            <TableHeader>
-                                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Issuing Bank
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Card Holder
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Card No
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Statement Date
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Due Date
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Due Month
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Total Payment Due
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Min Payment Due
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Paid
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        EPP
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                                        Amount Pending
-                                                    </TableHead>
-                                                    <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[44px]">
-                                                        File
-                                                    </TableHead>
-                                                    {canMutate && (
-                                                        <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
-                                                            Actions
-                                                        </TableHead>
-                                                    )}
-                                                </TableRow>
-                                            </TableHeader>
+                                    <PinnedStatementTableSection
+                                        body={
+                                    <div className="cc-statement-table-body-wrap">
+                                        <table className={`${STATEMENT_TABLE_CLASS} cc-statement-table--body`}>
+                                            {renderStatementColGroup(showMinPaymentDue)}
                                             <TableBody>
                                                 {statements.length === 0 ? (
                                                     <TableRow>
-                                                        <TableCell colSpan={canMutate ? 13 : 12} className="text-center py-4">
+                                                        <TableCell colSpan={getStatementTableColSpan(showMinPaymentDue)} className="text-center py-4">
                                                             <p className="text-sm text-gray-500">No statements found for {monthName} {year}.</p>
                                                         </TableCell>
                                                     </TableRow>
@@ -1445,36 +1562,36 @@ export default function CreditCardStatements() {
                                                                     key={`${monthKey}-${card.id}`}
                                                                     className={getStatementRowClassName(card)}
                                                                 >
-                                                                    <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                                        <div className="w-full truncate" title={card.issuingBank || ''}>
+                                                                    <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
+                                                                        <div className="w-full" title={card.issuingBank || ''}>
                                                                             <span className="text-black font-bold" style={{ fontWeight: 900 }}>
                                                                                 {card.issuingBank}
                                                                             </span>
                                                                         </div>
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         <div
-                                                                            className="w-full truncate"
+                                                                            className="w-full"
                                                                             title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
                                                                         >
                                                                             {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
                                                                         </div>
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                                        <div className="w-full truncate" title={card.card_number || ''}>
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                                        <div className="w-full" title={card.card_number || ''}>
                                                                             {card.card_number || ''}
                                                                         </div>
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         {formatDate(card.statement_date || '')}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         {formatDate(card.due_date || '')}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         {formatMonth(card.due_month || '')}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
@@ -1489,7 +1606,8 @@ export default function CreditCardStatements() {
                                                                             formatCurrency(card.totalPaymentDue)
                                                                         )}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                                    {showMinPaymentDue && (
+                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
@@ -1504,7 +1622,8 @@ export default function CreditCardStatements() {
                                                                             formatCurrency(card.minPaymentDue)
                                                                         )}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                    )}
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
@@ -1519,7 +1638,7 @@ export default function CreditCardStatements() {
                                                                             formatCurrency(card.paid)
                                                                         )}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
@@ -1534,12 +1653,12 @@ export default function CreditCardStatements() {
                                                                             formatCurrency(card.epp)
                                                                         )}
                                                                     </TableCell>
-                                                                    <TableCell className={`text-sm py-2 text-left font-semibold ${
+                                                                    <TableCell className={`text-sm py-1 text-left font-semibold ${
                                                                         amountPending > 0 ? 'text-red-600' : 'text-black'
                                                                     }`}>
                                                                         {formatCurrency(amountPending)}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left align-top px-2">
                                                                         <StatementAttachmentTableCell
                                                                             card={card}
                                                                             isEditing={isEditingStatement(card, monthKey)}
@@ -1572,7 +1691,7 @@ export default function CreditCardStatements() {
                                                                         />
                                                                     </TableCell>
                                                                     {canMutate && (
-                                                                    <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left px-2">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <div className="flex gap-2">
                                                                                 <Button
@@ -1632,23 +1751,25 @@ export default function CreditCardStatements() {
                                                             );
                                                         })}
                                                         <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                            <TableCell colSpan={6} className="font-bold text-gray-900 py-2 text-right">
+                                                            <TableCell colSpan={6} className="font-bold text-gray-900 py-1 text-right">
                                                                 Total
                                                             </TableCell>
-                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.totalPaymentDue)}
                                                             </TableCell>
-                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                            {showMinPaymentDue && (
+                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.minPaymentDue)}
                                                             </TableCell>
-                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                            )}
+                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.paid)}
                                                             </TableCell>
-                                                            <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.epp)}
                                                             </TableCell>
                                                             <TableCell
-                                                                className={`font-bold py-2 text-left ${
+                                                                className={`font-bold py-1 text-left ${
                                                                     roundMoney(monthlyTotals.amountPending) > 0
                                                                         ? 'text-red-600'
                                                                         : 'text-green-600'
@@ -1661,8 +1782,89 @@ export default function CreditCardStatements() {
                                                     </>
                                                 )}
                                             </TableBody>
-                                        </Table>
+                                        </table>
                                     </div>
+                                        }
+                                    >
+                                        <div className={STATEMENT_MONTH_BAR_CLASS}>
+                                            <h3 className="text-lg font-bold text-black">
+                                                {monthName} {year}
+                                            </h3>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => toggleMinPaymentDueVisibility(monthKey)}
+                                                className="h-8 w-8 p-0 text-black hover:bg-black/10"
+                                                aria-label={
+                                                    showMinPaymentDue
+                                                        ? 'Hide Min Payment Due column'
+                                                        : 'Show Min Payment Due column'
+                                                }
+                                                title={
+                                                    showMinPaymentDue
+                                                        ? 'Hide Min Payment Due'
+                                                        : 'Show Min Payment Due'
+                                                }
+                                            >
+                                                {showMinPaymentDue ? (
+                                                    <Eye className="w-5 h-5" />
+                                                ) : (
+                                                    <EyeOff className="w-5 h-5" />
+                                                )}
+                                            </Button>
+                                        </div>
+                                        <table className={`${STATEMENT_TABLE_CLASS} border-t-0`}>
+                                            {renderStatementColGroup(showMinPaymentDue)}
+                                            <TableHeader>
+                                                <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Issuing Bank
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Card Holder
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Card No
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Statement Date
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Due Date
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Due Month
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Total Payment Due
+                                                    </TableHead>
+                                                    {showMinPaymentDue && (
+                                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                            Min Payment Due
+                                                        </TableHead>
+                                                    )}
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Paid
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        EPP
+                                                    </TableHead>
+                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                        Amount Pending
+                                                    </TableHead>
+                                                    <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
+                                                        File
+                                                    </TableHead>
+                                                    {canMutate && (
+                                                        <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
+                                                            Actions
+                                                        </TableHead>
+                                                    )}
+                                                </TableRow>
+                                            </TableHeader>
+                                        </table>
+                                    </PinnedStatementTableSection>
                                 </CardContent>
                             </Card>
                         );
@@ -1672,67 +1874,34 @@ export default function CreditCardStatements() {
                 // Single month: show single table
                 (() => {
                     const monthlyTotals = getStatementTotals(creditCards);
+                    const singleMonthKey =
+                        selectedMonths.length === 1
+                            ? statementPeriodMonthKey(selectedYear, selectedMonths[0], selectedMonths)
+                            : undefined;
+                    const showMinPaymentDue = isMinPaymentDueColumnVisible(singleMonthKey);
+                    const singleMonthLabel =
+                        selectedMonths.length === 1
+                            ? `${fullMonthNames[selectedMonths[0]]} ${formatDisplayYear(selectedYear)}`
+                            : null;
                     return (
-                <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
+                <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg">
                     <CardContent className="p-0">
-                        <div className="overflow-x-auto rounded-lg">
-                            <Table className="w-full table-auto text-[14px] sm:text-[15px] [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-3 [&_td]:px-3 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight [&_td]:overflow-hidden [&_td]:text-clip">
-                                <TableHeader>
-                                    <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Issuing Bank
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Card Holder
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Card No
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Statement Date
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Due Date
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Due Month
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Total Payment Due
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Min Payment Due
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Paid
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            EPP
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                            Amount Pending
-                                        </TableHead>
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[44px]">
-                                            File
-                                        </TableHead>
-                                        {canMutate && (
-                                            <TableHead className="font-semibold text-black text-sm text-left py-2 px-2 w-[56px]">
-                                                Actions
-                                            </TableHead>
-                                        )}
-                                    </TableRow>
-                                </TableHeader>
+                        <PinnedStatementTableSection
+                            body={
+                        <div className="cc-statement-table-body-wrap">
+                            <table className={`${STATEMENT_TABLE_CLASS} cc-statement-table--body`}>
+                                {renderStatementColGroup(showMinPaymentDue)}
                                 <TableBody>
                                     {loading ? (
                                         <TableRow>
-                                            <TableCell colSpan={canMutate ? 13 : 12} className="text-center py-4">
+                                            <TableCell colSpan={getStatementTableColSpan(showMinPaymentDue)} className="text-center py-4">
                                                 <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                                                 <p className="text-sm text-gray-500">Loading credit card statements...</p>
                                             </TableCell>
                                         </TableRow>
                                     ) : !Array.isArray(creditCards) || creditCards.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={canMutate ? 13 : 12} className="text-center py-4">
+                                            <TableCell colSpan={getStatementTableColSpan(showMinPaymentDue)} className="text-center py-4">
                                                 <p className="text-sm text-gray-500 mb-1">No credit card statements found for selected period.</p>
                                                 <p className="text-sm text-gray-400">Select a different month/year to view statements.</p>
                                             </TableCell>
@@ -1746,35 +1915,35 @@ export default function CreditCardStatements() {
                                                     key={card.id}
                                                     className={getStatementRowClassName(card)}
                                                 >
-                                                    <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                        <div className="w-full truncate font-bold" title={card.issuingBank || ''}>
+                                                    <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
+                                                        <div className="w-full font-bold" title={card.issuingBank || ''}>
                                                             {card.issuingBank}
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         <div
-                                                            className="w-full truncate"
+                                                            className="w-full"
                                                             title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
                                                         >
                                                             {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                        <div className="w-full truncate" title={card.card_number || ''}>
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                        <div className="w-full" title={card.card_number || ''}>
                                                             {card.card_number || ''}
                                                         </div>
                                                     </TableCell>
                                                 
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         {formatDate(card.statement_date || '')}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         {formatDate(card.due_date || '')}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         {formatMonth(card.due_month || '')}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
                                                         {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
@@ -1789,7 +1958,8 @@ export default function CreditCardStatements() {
                                                             formatCurrency(card.totalPaymentDue)
                                                         )}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
+                                                    {showMinPaymentDue && (
+                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
                                                         {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
@@ -1804,7 +1974,8 @@ export default function CreditCardStatements() {
                                                             formatCurrency(card.minPaymentDue)
                                                         )}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    )}
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
@@ -1819,7 +1990,7 @@ export default function CreditCardStatements() {
                                                             formatCurrency(card.paid)
                                                         )}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
@@ -1835,13 +2006,13 @@ export default function CreditCardStatements() {
                                                         )}
                                                     </TableCell>
                                                 
-                                                    <TableCell className={`text-sm py-2 text-left font-semibold ${
+                                                    <TableCell className={`text-sm py-1 text-left font-semibold ${
                                                         amountPending > 0 ? 'text-red-600' : 'text-black'
                                                     }`}>
                                                         {/* amountPending is auto-calculated, so it's read-only */}
                                                         {formatCurrency(amountPending)}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left align-top px-2 w-[44px]">
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left align-top px-2">
                                                         <StatementAttachmentTableCell
                                                             card={card}
                                                             isEditing={isEditingStatement(card)}
@@ -1867,7 +2038,7 @@ export default function CreditCardStatements() {
                                                         />
                                                     </TableCell>
                                                     {canMutate && (
-                                                    <TableCell className="text-gray-700 text-sm py-2 text-left px-2 w-[56px]">
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left px-2">
                                                         {isEditingStatement(card) ? (
                                                             <div className="flex gap-2">
                                                                 <Button
@@ -1926,23 +2097,25 @@ export default function CreditCardStatements() {
                                                 );
                                             })}
                                             <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                <TableCell colSpan={6} className="font-bold text-gray-900 py-2 text-right">
+                                                <TableCell colSpan={6} className="font-bold text-gray-900 py-1 text-right">
                                                     Total
                                                 </TableCell>
-                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.totalPaymentDue)}
                                                 </TableCell>
-                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                {showMinPaymentDue && (
+                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.minPaymentDue)}
                                                 </TableCell>
-                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                )}
+                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.paid)}
                                                 </TableCell>
-                                                <TableCell className="font-bold text-gray-900 py-2 text-left">
+                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.epp)}
                                                 </TableCell>
                                                 <TableCell
-                                                    className={`font-bold py-2 text-left ${
+                                                    className={`font-bold py-1 text-left ${
                                                         roundMoney(monthlyTotals.amountPending) > 0
                                                             ? 'text-red-600'
                                                             : 'text-green-600'
@@ -1955,8 +2128,89 @@ export default function CreditCardStatements() {
                                         </>
                                     )}
                                 </TableBody>
-                            </Table>
+                            </table>
                         </div>
+                            }
+                        >
+                            {singleMonthLabel && (
+                                <div className={STATEMENT_MONTH_BAR_CLASS}>
+                                    <h3 className="text-lg font-bold text-black">{singleMonthLabel}</h3>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => toggleMinPaymentDueVisibility(singleMonthKey)}
+                                        className="h-8 w-8 p-0 text-black hover:bg-black/10"
+                                        aria-label={
+                                            showMinPaymentDue
+                                                ? 'Hide Min Payment Due column'
+                                                : 'Show Min Payment Due column'
+                                        }
+                                        title={
+                                            showMinPaymentDue
+                                                ? 'Hide Min Payment Due'
+                                                : 'Show Min Payment Due'
+                                        }
+                                    >
+                                        {showMinPaymentDue ? (
+                                            <Eye className="w-5 h-5" />
+                                        ) : (
+                                            <EyeOff className="w-5 h-5" />
+                                        )}
+                                    </Button>
+                                </div>
+                            )}
+                            <table className={`${STATEMENT_TABLE_CLASS}${singleMonthLabel ? ' border-t-0' : ''}`}>
+                                {renderStatementColGroup(showMinPaymentDue)}
+                                <TableHeader>
+                                    <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Issuing Bank
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Card Holder
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Card No
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Statement Date
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Due Date
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Due Month
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Total Payment Due
+                                        </TableHead>
+                                        {showMinPaymentDue && (
+                                            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                                Min Payment Due
+                                            </TableHead>
+                                        )}
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Paid
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            EPP
+                                        </TableHead>
+                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
+                                            Amount Pending
+                                        </TableHead>
+                                        <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
+                                            File
+                                        </TableHead>
+                                        {canMutate && (
+                                            <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
+                                                Actions
+                                            </TableHead>
+                                        )}
+                                    </TableRow>
+                                </TableHeader>
+                            </table>
+                        </PinnedStatementTableSection>
                     </CardContent>
                 </Card>
                     );
