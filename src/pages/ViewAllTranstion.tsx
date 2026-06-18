@@ -660,13 +660,13 @@ const LEDGER_TABLE_HEADERS = [
 
 const getExcelHeadersForType = (type: string): readonly string[] => {
   if (type === 'GCEC PDC') {
-    return ['Date', 'Creditor', 'Cheque Number', 'Debit', 'Remarks'];
+    return ['Date', 'Description', 'Cheque Number', 'Debit', 'Remarks'];
   }
   if (type === 'Customer PDC') {
-    return ['Date', 'Debtor', 'Cheque Number', 'Credit', 'Remarks'];
+    return ['Date', 'Description', 'Cheque Number', 'Credit', 'Remarks'];
   }
   if (type === 'Purchase Bill') {
-    return ['Date', 'Vendor Name', 'Payment Method', 'Credit', 'Remarks'];
+    return ['Date', 'Vendor Name', 'Description', 'Credit', 'Remarks'];
   }
   return LEDGER_TABLE_HEADERS;
 };
@@ -1127,11 +1127,7 @@ export default function ViewAllTranstion() {
             const debitValue = txn.debit ? parseFloat(String(txn.debit).replace(/,/g, '')) : 0;
             const creditValue = txn.credit ? parseFloat(String(txn.credit).replace(/,/g, '')) : 0;
             const balanceValue = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
-            const rowAmount =
-              (Number.isFinite(debitValue) ? debitValue : 0) +
-              (Number.isFinite(creditValue) ? creditValue : 0);
-            sectionAmountTotal += rowAmount;
-            
+
             const rawRemarks = txn.remarks || '';
             const remarksCell = remarksForDailyLedgerDisplay(txn.remarks, dailyTxnPdcType(txn));
             const isBouncedOrReturned = isBouncedChequeRemarks(rawRemarks);
@@ -1274,28 +1270,16 @@ export default function ViewAllTranstion() {
         });
 
         if (
-          type === 'Daily Transaction' ||
           type === 'GCEC PDC' ||
           type === 'Customer PDC' ||
           type === 'Purchase Bill'
         ) {
           addRow([]);
-          const totalRowValues =
-            type === 'Daily Transaction'
-              ? ['', '', 'Total', '', '', sectionAmountTotal, '']
-              : ['', '', 'Total', sectionAmountTotal, ''];
-          const totalRow = addRow(totalRowValues, { font: { bold: true } });
+          const totalRow = addRow(['', '', 'Total', sectionAmountTotal, ''], { font: { bold: true } });
           totalRow.getCell(3).alignment = { horizontal: 'right' };
-          const totalAmountCell =
-            type === 'Daily Transaction' ? totalRow.getCell(6) : totalRow.getCell(4);
+          const totalAmountCell = totalRow.getCell(4);
           applyExcelAedAmount(totalAmountCell, sectionAmountTotal);
-          totalAmountCell.font =
-            type === 'Daily Transaction'
-              ? (excelExportFont({
-                  bold: true,
-                  color: { argb: 'FF0003EB' },
-                }) as ExcelJS.Font)
-              : (excelExportFont({ bold: true }) as ExcelJS.Font);
+          totalAmountCell.font = excelExportFont({ bold: true }) as ExcelJS.Font;
         }
 
         addRow([]); // Empty row between sections
