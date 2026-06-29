@@ -638,7 +638,7 @@ export default function CreditCardPaymentsPage() {
         excelData.push([]);
 
         // Add table headers
-        excelData.push(['Payment Date', 'Card Holder', 'Card Number', 'Amount (AED)', 'Remarks']);
+        excelData.push(['Payment Date', 'Card Holder', 'Issuing Bank', 'Card Number', 'Amount (AED)', 'Remarks']);
 
         // Sort payments by date (oldest first) for better readability in Excel
         const sortedPayments = [...creditCards].sort((a, b) => {
@@ -682,6 +682,7 @@ export default function CreditCardPaymentsPage() {
             excelData.push([
                 displayDate,
                 cardHolder,
+                payment.issuingBank || '',
                 payment.cardNo || '',
                 payment.amount || 0, // Store as number
                 payment.remarks || '',
@@ -690,7 +691,7 @@ export default function CreditCardPaymentsPage() {
 
         // Add total row
         excelData.push([]);
-        excelData.push(['Total Amount (AED):', '', '', totalAmount, '']);
+        excelData.push(['Total Amount (AED):', '', '', '', totalAmount, '']);
 
         // Create worksheet from data
         const worksheet = XLSX.utils.aoa_to_sheet(excelData);
@@ -699,6 +700,7 @@ export default function CreditCardPaymentsPage() {
         worksheet['!cols'] = [
             { wch: 18 }, // Payment Date
             { wch: 20 }, // Card Holder
+            { wch: 20 }, // Issuing Bank
             { wch: 20 }, // Card Number
             { wch: 18 }, // Amount
             { wch: 30 }, // Remarks
@@ -720,9 +722,9 @@ export default function CreditCardPaymentsPage() {
             }
         }
 
-        // Format Amount column (column D, index 3) - apply number formatting
+        // Format Amount column (column E, index 4) - apply number formatting
         for (let row = headerRow + 1; row <= range.e.r; row++) {
-            const amountCellRef = XLSX.utils.encode_cell({ r: row, c: 3 });
+            const amountCellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
             if (worksheet[amountCellRef]) {
                 if (typeof worksheet[amountCellRef].v === 'number') {
                     worksheet[amountCellRef].t = 'n'; // Number type
@@ -733,7 +735,7 @@ export default function CreditCardPaymentsPage() {
 
         // Format Total Amount cell
         const totalRow = range.e.r;
-        const totalAmountCellRef = XLSX.utils.encode_cell({ r: totalRow, c: 3 });
+        const totalAmountCellRef = XLSX.utils.encode_cell({ r: totalRow, c: 4 });
         if (worksheet[totalAmountCellRef]) {
             if (typeof worksheet[totalAmountCellRef].v === 'number') {
                 worksheet[totalAmountCellRef].t = 'n';
