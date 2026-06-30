@@ -2444,6 +2444,30 @@ export default function BankTransaction() {
     ...bodyTransactionsDatedOnly.map((t) => ({ transaction: t })),
   ];
 
+  const descriptionFilterTotals = useMemo(() => {
+    if (!searchDescription.trim()) return null;
+    const rows: PaginatedLedgerRow[] = [
+      ...pdcPendingTopRows.map((t) => ({ transaction: t, clientPendingTopDup: true as const })),
+      ...bodyTransactionsDatedOnly.map((t) => ({ transaction: t })),
+    ];
+    return rows.reduce(
+      (acc, { transaction, clientPendingBottomDup, clientPendingTopDup }) => {
+        const { debit, credit } = getLedgerDebitCreditNumeric(
+          transaction,
+          !!clientPendingBottomDup,
+          !!clientPendingTopDup
+        );
+        acc.debit += debit;
+        acc.credit += credit;
+        return acc;
+      },
+      { debit: 0, credit: 0 }
+    );
+  }, [searchDescription, pdcPendingTopRows, bodyTransactionsDatedOnly]);
+
+  const formatLedgerTotal = (value: number) =>
+    value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   // Clear all filters
   const handleClearFilters = () => {
     setStartDate('');
@@ -3452,6 +3476,22 @@ export default function BankTransaction() {
                     );
                   })
                 )}
+                {!loading &&
+                  descriptionFilterTotals &&
+                  filteredTransactions.length > 0 && (
+                    <tr className="sticky bottom-0 z-10 border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                      <td colSpan={3} className="text-sm py-2 px-4 text-right text-gray-800 align-middle">
+                        Total (filtered by description)
+                      </td>
+                      <td className="text-sm py-2 px-4 text-left text-red-600 align-middle">
+                        AED {formatLedgerTotal(descriptionFilterTotals.debit)}
+                      </td>
+                      <td className="text-sm py-2 px-4 text-left text-black align-middle">
+                        AED {formatLedgerTotal(descriptionFilterTotals.credit)}
+                      </td>
+                      <td colSpan={canMutate ? 3 : 2} className="align-middle" />
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
