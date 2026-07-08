@@ -308,21 +308,11 @@ export default function GbpTranstion() {
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const totals = useMemo(
-    () =>
-      filteredTransactions.reduce(
-        (acc, transaction) => {
-          acc.debit += parseAmount(transaction.debit);
-          acc.bankCharges += parseAmount(transaction.bankCharges);
-          acc.credit += parseAmount(transaction.credit);
-          acc.balance += parseAmount(transaction.balance);
-          return acc;
-        },
-        { debit: 0, bankCharges: 0, credit: 0, balance: 0 }
-      ),
-    [filteredTransactions]
-  );
-  const totalAmount = totals.balance;
+  // Balance is a running balance, so the current total is the most recent
+  // transaction's balance (list is sorted newest-first), not the sum of all rows.
+  const totalAmount = filteredTransactions.length > 0
+    ? parseAmount(filteredTransactions[0].balance)
+    : 0;
 
   useEffect(() => {
     if (!isModalOpen) return;
