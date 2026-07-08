@@ -314,13 +314,14 @@ export default function UsdTranstion() {
           acc.debit += parseAmount(transaction.debit);
           acc.bankCharges += parseAmount(transaction.bankCharges);
           acc.credit += parseAmount(transaction.credit);
+          acc.balance += parseAmount(transaction.balance);
           return acc;
         },
-        { debit: 0, bankCharges: 0, credit: 0 }
+        { debit: 0, bankCharges: 0, credit: 0, balance: 0 }
       ),
     [filteredTransactions]
   );
-  const totalAmount = totals.credit - totals.debit - totals.bankCharges;
+  const totalAmount = totals.balance;
 
   useEffect(() => {
     if (!isModalOpen) return;
