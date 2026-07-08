@@ -320,7 +320,7 @@ export default function UsdTranstion() {
       ),
     [filteredTransactions]
   );
-  const totalAmount = totals.debit + totals.bankCharges + totals.credit;
+  const totalAmount = totals.credit - totals.debit - totals.bankCharges;
 
   useEffect(() => {
     if (!isModalOpen) return;
