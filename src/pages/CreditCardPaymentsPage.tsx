@@ -110,8 +110,10 @@ export default function CreditCardPaymentsPage() {
     const currentDate = new Date();
     const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
     const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
+    const [selectedIssuingBank, setSelectedIssuingBank] = useState<string>('all');
     const [appliedMonth, setAppliedMonth] = useState<number | 'all'>('all');
     const [appliedYear, setAppliedYear] = useState<number>(currentDate.getFullYear());
+    const [appliedIssuingBank, setAppliedIssuingBank] = useState<string>('all');
     const monthOptions = useMemo(
         () => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
         []
@@ -120,6 +122,18 @@ export default function CreditCardPaymentsPage() {
         const currentYear = currentDate.getFullYear();
         return Array.from({ length: 7 }, (_, index) => currentYear - 3 + index);
     }, [currentDate]);
+    const issuingBankOptions = useMemo(() => {
+        const banks = new Set<string>();
+        creditCards.forEach((card) => {
+            const bank = (card.issuingBank || '').trim();
+            if (bank) banks.add(bank);
+        });
+        availableCreditCards.forEach((card) => {
+            const bank = (card.issuingBank || '').trim();
+            if (bank) banks.add(bank);
+        });
+        return Array.from(banks).sort((a, b) => a.localeCompare(b));
+    }, [creditCards, availableCreditCards]);
 
     useEffect(() => {
         if (!successMessage) return;
@@ -540,44 +554,40 @@ export default function CreditCardPaymentsPage() {
         return !isNaN(date.getTime()) ? date : null;
     }, []);
 
-    // Sort payments by creation time (newest first), then payment date as fallback.
+    // Filter by issuing bank, then sort by payment date (newest first).
     const sortedCreditCards = useMemo(() => {
         if (!creditCards || creditCards.length === 0) return [];
 
         const filteredCards = creditCards.filter((card) => {
-            const bank = (card.issuingBank || '').trim().toLowerCase();
-            return bank !== 'scb infinite';
+            if (appliedIssuingBank === 'all') return true;
+            return (card.issuingBank || '').trim() === appliedIssuingBank;
         });
 
         return [...filteredCards].sort((a, b) => {
-            const createdAtA = parseDateForSort(a.createdAt || '');
-            const createdAtB = parseDateForSort(b.createdAt || '');
             const dateA = parseDateForSort(a.paymentDate);
             const dateB = parseDateForSort(b.paymentDate);
 
-            // Primary sort: createdAt descending (newly added first)
-            if (createdAtA && createdAtB) {
-                const createdAtDiff = createdAtB.getTime() - createdAtA.getTime();
-                if (createdAtDiff !== 0) return createdAtDiff;
-            } else if (createdAtA && !createdAtB) {
+            if (dateA && dateB) {
+                const dateDiff = dateB.getTime() - dateA.getTime();
+                if (dateDiff !== 0) return dateDiff;
+            } else if (dateA && !dateB) {
                 return -1;
-            } else if (!createdAtA && createdAtB) {
+            } else if (!dateA && dateB) {
                 return 1;
             }
-            
-            // Fallback: paymentDate descending
-            if (dateA && dateB) {
-                return dateB.getTime() - dateA.getTime();
+
+            // Same payment date: newer createdAt first
+            const createdAtA = parseDateForSort(a.createdAt || '');
+            const createdAtB = parseDateForSort(b.createdAt || '');
+            if (createdAtA && createdAtB) {
+                return createdAtB.getTime() - createdAtA.getTime();
             }
-            
-            // If only one has a valid payment date, prioritize it
-            if (dateA && !dateB) return -1;
-            if (!dateA && dateB) return 1;
-            
-            // If neither has a valid date, maintain original order
+            if (createdAtA && !createdAtB) return -1;
+            if (!createdAtA && createdAtB) return 1;
+
             return 0;
         });
-    }, [creditCards, parseDateForSort]);
+    }, [creditCards, appliedIssuingBank, parseDateForSort]);
 
     const totalPaymentAmount = useMemo(() => {
         return sortedCreditCards.reduce((sum, card) => sum + (card.amount || 0), 0);
@@ -585,7 +595,7 @@ export default function CreditCardPaymentsPage() {
 
     // Excel Download function
     const handleDownloadExcel = useCallback(() => {
-        if (!creditCards || creditCards.length === 0) {
+        if (!sortedCreditCards || sortedCreditCards.length === 0) {
             setError('No data to export');
             return;
         }
@@ -610,7 +620,7 @@ export default function CreditCardPaymentsPage() {
             return null;
         };
 
-        const dates = creditCards.map(parseDateForRange).filter(Boolean) as Date[];
+        const dates = sortedCreditCards.map(parseDateForRange).filter(Boolean) as Date[];
         const startDate = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
         const endDate = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
 
@@ -634,14 +644,17 @@ export default function CreditCardPaymentsPage() {
         // Add date range information
         excelData.push(['Start Date:', formatDateForFileName(startDate)]);
         excelData.push(['End Date:', formatDateForFileName(endDate)]);
-        excelData.push(['Total Records:', creditCards.length]);
+        excelData.push(['Total Records:', sortedCreditCards.length]);
+        if (appliedIssuingBank !== 'all') {
+            excelData.push(['Issuing Bank:', appliedIssuingBank]);
+        }
         excelData.push([]);
 
         // Add table headers
         excelData.push(['Payment Date', 'Card Holder', 'Issuing Bank', 'Card Number', 'Amount (AED)', 'Remarks']);
 
         // Sort payments by date (oldest first) for better readability in Excel
-        const sortedPayments = [...creditCards].sort((a, b) => {
+        const sortedPayments = [...sortedCreditCards].sort((a, b) => {
             const dateA = parseDateForRange(a);
             const dateB = parseDateForRange(b);
             if (!dateA && !dateB) return 0;
@@ -709,8 +722,8 @@ export default function CreditCardPaymentsPage() {
         // Find the range of data
         const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
 
-        // Format header row (row 8, after company header and info)
-        const headerRow = 8;
+        // Format header row (row after company header and info)
+        const headerRow = appliedIssuingBank !== 'all' ? 9 : 8;
         for (let col = 0; col <= 5; col++) {
             const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
             if (worksheet[headerCellRef]) {
@@ -755,12 +768,13 @@ export default function CreditCardPaymentsPage() {
         applyXlsxArialToWorkbook(workbook);
         XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
 
-    }, [creditCards]);
+    }, [sortedCreditCards, appliedIssuingBank]);
 
     const handleApplyFilters = useCallback(() => {
         setAppliedMonth(selectedMonth);
         setAppliedYear(selectedYear);
-    }, [selectedMonth, selectedYear]);
+        setAppliedIssuingBank(selectedIssuingBank);
+    }, [selectedMonth, selectedYear, selectedIssuingBank]);
 
     return (
         <Layout>
@@ -774,7 +788,7 @@ export default function CreditCardPaymentsPage() {
             onClick={handleDownloadExcel}
             variant="outline"
             className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 flex items-center space-x-2 transition-colors rounded-lg font-semibold"
-            disabled={loading || !creditCards || creditCards.length === 0}
+            disabled={loading || !sortedCreditCards || sortedCreditCards.length === 0}
             >
             <Download className="w-4 h-4" />
             <span>Download Excel</span>
@@ -825,6 +839,21 @@ export default function CreditCardPaymentsPage() {
                         ))}
                     </select>
                 </div>
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-gray-600">Issuing Bank</label>
+                    <select
+                        value={selectedIssuingBank}
+                        onChange={(e) => setSelectedIssuingBank(e.target.value)}
+                        className="h-10 min-w-40 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                    >
+                        <option value="all">All Banks</option>
+                        {issuingBankOptions.map((bank) => (
+                            <option key={bank} value={bank}>
+                                {bank}
+                            </option>
+                        ))}
+                    </select>
+                </div>
                 <Button
                     type="button"
                     variant="outline"
@@ -837,7 +866,8 @@ export default function CreditCardPaymentsPage() {
             </div>
             <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
                 <p className="text-xs font-medium text-gray-600">
-                    Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {formatDisplayYear(appliedYear)})
+                    Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {formatDisplayYear(appliedYear)}
+                    {appliedIssuingBank !== 'all' ? ` · ${appliedIssuingBank}` : ''})
                 </p>
                 <p className="text-lg font-semibold text-gray-900">
                     {formatPaymentAmount(totalPaymentAmount)}
