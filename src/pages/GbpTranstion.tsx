@@ -466,19 +466,32 @@ export default function GbpTranstion() {
       setLoading(true);
       setError(null);
       
-      // Validation
-      if (!formData.type) {
+      // Parse amounts — backend requires at least one of debit, credit, or bank_charges > 0
+      const amountValue =
+        formData.amount && formData.amount.trim() !== ''
+          ? parseFloat(formData.amount.replace(/,/g, ''))
+          : 0;
+      const bankChargesValue =
+        formData.bankCharges && formData.bankCharges.trim() !== ''
+          ? parseFloat(formData.bankCharges.replace(/,/g, ''))
+          : 0;
+      const hasAmount = !isNaN(amountValue) && amountValue > 0;
+      const hasBankCharges = !isNaN(bankChargesValue) && bankChargesValue > 0;
+
+      if (!hasAmount && !hasBankCharges) {
+        setError('Please enter an amount or bank charges greater than 0');
+        setLoading(false);
+        return;
+      }
+
+      // Type / payment type only required when there is a debit/credit amount
+      if (hasAmount && !formData.type) {
         setError('Please select a type (Debit or Credit)');
         setLoading(false);
         return;
       }
-      if (!formData.paymentType) {
+      if (hasAmount && !formData.paymentType) {
         setError('Please select a payment type');
-        setLoading(false);
-        return;
-      }
-      if (!formData.amount || formData.amount.trim() === '') {
-        setError('Please enter an amount');
         setLoading(false);
         return;
       }
@@ -494,39 +507,30 @@ export default function GbpTranstion() {
         details = formData.chequeNumber; // Use cheque number as details
       } else if (formData.paymentType === 'creditcard') {
         details = 'Credit Card';
-      } else {
+      } else if (formData.paymentType) {
         details = formData.paymentType.charAt(0).toUpperCase() + formData.paymentType.slice(1);
-      }
-      
-      // Parse and validate amount
-      const amountValue = parseFloat(formData.amount.replace(/,/g, ''));
-      if (isNaN(amountValue) || amountValue <= 0) {
-        setError('Please enter a valid amount greater than 0');
-        setLoading(false);
-        return;
       }
       
       const payload: any = {
         date: formData.date,
         description: formData.description,
         details: details,
+        debit: 0,
+        credit: 0,
       };
       
-      // Set debit or credit based on type - always set both fields
-      if (formData.type === 'Debit') {
-        payload.debit = amountValue; // Send as number, service will handle conversion
-        payload.credit = 0; // Always set credit to 0 for debit transactions
-      } else if (formData.type === 'Credit') {
-        payload.credit = amountValue; // Send as number, service will handle conversion
-        payload.debit = 0; // Always set debit to 0 for credit transactions
+      // Set debit or credit based on type when amount is provided
+      if (hasAmount && formData.type === 'Debit') {
+        payload.debit = amountValue;
+        payload.credit = 0;
+      } else if (hasAmount && formData.type === 'Credit') {
+        payload.credit = amountValue;
+        payload.debit = 0;
       }
       
-      // Bank charges - only include if provided and valid
-      if (formData.bankCharges && formData.bankCharges.trim() !== '') {
-        const bankChargesValue = parseFloat(formData.bankCharges.replace(/,/g, ''));
-        if (!isNaN(bankChargesValue) && bankChargesValue >= 0) {
-          payload.bankCharges = bankChargesValue;
-        }
+      // Bank charges — include when > 0 (bank-charges-only is allowed)
+      if (hasBankCharges) {
+        payload.bankCharges = bankChargesValue;
       }
       
       let response: ApiResponse<BankTransactionType>;
