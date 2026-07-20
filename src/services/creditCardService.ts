@@ -5,7 +5,7 @@ import {
   resolveAttachmentHref,
 } from '../lib/resolveAttachmentUrl';
 import { expandCenturyYear } from '../lib/formatDisplayDate';
-import { moneyFromApi } from '../lib/money';
+import { moneyFromApi, parseMoneyInput } from '../lib/money';
 import { readFileAsDataUrl } from './transactionService';
 
 /** Max size for POST /statements/:id/attachment and change-request payloads. */
@@ -118,6 +118,14 @@ export interface CreditCardStatementApiResponse {
   credit_balance?: number;
 }
 
+export interface CardStatementPayment {
+  id: string | null;
+  amount: number;
+  paidAt: string | null;
+  note: string | null;
+  sortOrder: number;
+}
+
 // Internal interface for Credit Card Statements (camelCase for frontend)
 export interface CreditCardStatement {
   id: string;
@@ -130,13 +138,37 @@ export interface CreditCardStatement {
   totalPaymentDue: number;
   minPaymentDue: number;
   paid: number;
+  /** Partial payment breakdown; GET synthesizes one row when paid > 0 and no rows exist */
+  payments?: CardStatementPayment[];
   epp: number;
+  /** Partial EPP breakdown; GET synthesizes one row when epp > 0 and no rows exist */
+  eppPayments?: CardStatementPayment[];
   amountPending: number;
   creditBalance: number;
   /** Stored attachment filename from API */
   attachmentName?: string | null;
   /** URL or path to open/download the PDF */
   attachmentUrl?: string | null;
+}
+
+export function mapCardStatementPaymentFromApi(item: unknown): CardStatementPayment {
+  const p = item as Record<string, unknown>;
+  return {
+    id: p.id != null ? String(p.id) : null,
+    amount: moneyFromApi(p.amount),
+    paidAt: (p.paid_at ?? p.paidAt ?? null) as string | null,
+    note: (p.note ?? null) as string | null,
+    sortOrder: Number(p.sort_order ?? p.sortOrder ?? 0),
+  };
+}
+
+/** Build PATCH payments array from edit-form amount strings. */
+export function statementPaymentsPayloadFromAmounts(
+  amounts: string[]
+): { amount: number }[] {
+  return amounts
+    .filter((a) => a !== '' && a != null)
+    .map((a) => ({ amount: parseMoneyInput(a) }));
 }
 
 export interface PaidAgainstOptionApiResponse {
@@ -441,6 +473,16 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
   const epp = item.epp ?? item.epp_balance ?? item.eppBalance;
   const amountPending = item.amount_pending ?? item.amountPending;
   const creditBalance = item.credit_balance ?? item.creditBalance;
+  const paymentsRaw = item.payments;
+  const payments = Array.isArray(paymentsRaw)
+    ? paymentsRaw.map(mapCardStatementPaymentFromApi)
+    : undefined;
+  const eppPaymentsRaw = item.epp_payments ?? item.eppPayments;
+  const eppPayments = Array.isArray(eppPaymentsRaw)
+    ? eppPaymentsRaw.map(mapCardStatementPaymentFromApi)
+    : undefined;
+  const paidAmount = moneyFromApi(paid);
+  const eppAmount = moneyFromApi(epp);
   return {
     id: item.card_id ? String(item.card_id) : (item.credit_card_id ? String(item.credit_card_id) : String(item.id || '')),
     issuingBank: item.issuing_bank || '',
@@ -451,8 +493,18 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
     due_month: item.due_month ?? null,
     totalPaymentDue: moneyFromApi(totalPaymentDue),
     minPaymentDue: moneyFromApi(minPaymentDue),
-    paid: moneyFromApi(paid),
-    epp: moneyFromApi(epp),
+    paid: paidAmount,
+    payments:
+      payments ??
+      (paidAmount > 0
+        ? [{ id: null, amount: paidAmount, paidAt: null, note: null, sortOrder: 0 }]
+        : []),
+    epp: eppAmount,
+    eppPayments:
+      eppPayments ??
+      (eppAmount > 0
+        ? [{ id: null, amount: eppAmount, paidAt: null, note: null, sortOrder: 0 }]
+        : []),
     amountPending: moneyFromApi(amountPending),
     creditBalance: moneyFromApi(creditBalance),
     attachmentName: att.attachmentName,
@@ -605,7 +657,7 @@ export const creditCardService = {
     return { success, data: allData, message, groupedByMonth };
   },
 
-  /** PATCH numeric fields only (total_due, paid_amount, epp_balance). Does not upload PDFs. */
+  /** PATCH statement fields (amounts and/or payments breakdown). Does not upload PDFs. */
   updateCreditCardStatement: async (
     id: string | number,
     data: {
@@ -613,6 +665,8 @@ export const creditCardService = {
       minPaymentDue?: number;
       paid?: number;
       epp?: number;
+      payments?: { amount: number }[];
+      eppPayments?: { amount: number }[];
     },
     month?: string
   ): Promise<ApiResponse<CreditCardStatement>> => {
@@ -621,11 +675,19 @@ export const creditCardService = {
       url += `?month=${encodeURIComponent(month)}`;
     }
 
-    const payload: Record<string, number> = {};
+    const payload: Record<string, unknown> = {};
     if (data.totalPaymentDue !== undefined) payload.total_due = data.totalPaymentDue;
     if (data.minPaymentDue !== undefined) payload.min_payment_due = data.minPaymentDue;
-    if (data.paid !== undefined) payload.paid_amount = data.paid;
-    if (data.epp !== undefined) payload.epp_balance = data.epp;
+    if (data.payments !== undefined) {
+      payload.payments = data.payments;
+    } else if (data.paid !== undefined) {
+      payload.paid_amount = data.paid;
+    }
+    if (data.eppPayments !== undefined) {
+      payload.epp_payments = data.eppPayments;
+    } else if (data.epp !== undefined) {
+      payload.epp_balance = data.epp;
+    }
 
     const response = await api.patch<CreditCardStatementApiResponse>(url, payload);
 
@@ -650,7 +712,14 @@ export const creditCardService = {
   uploadCreditCardStatementPdf: async (
     id: string | number,
     file: File,
-    month?: string
+    month?: string,
+    extra?: {
+      totalPaymentDue?: number;
+      minPaymentDue?: number;
+      epp?: number;
+      payments?: { amount: number }[];
+      eppPayments?: { amount: number }[];
+    }
   ): Promise<ApiResponse<CreditCardStatement>> => {
     let url = `/statements/${id}/attachment`;
     if (month) {
@@ -658,6 +727,21 @@ export const creditCardService = {
     }
     const form = new FormData();
     form.append('attachment', file, file.name);
+    if (extra?.totalPaymentDue !== undefined) {
+      form.append('total_due', String(extra.totalPaymentDue));
+    }
+    if (extra?.minPaymentDue !== undefined) {
+      form.append('min_payment_due', String(extra.minPaymentDue));
+    }
+    if (extra?.epp !== undefined) {
+      form.append('epp_balance', String(extra.epp));
+    }
+    if (extra?.payments !== undefined) {
+      form.append('payments', JSON.stringify(extra.payments));
+    }
+    if (extra?.eppPayments !== undefined) {
+      form.append('epp_payments', JSON.stringify(extra.eppPayments));
+    }
     const response = await api.post<CreditCardStatementApiResponse>(url, form);
 
     if (response.success && response.data) {

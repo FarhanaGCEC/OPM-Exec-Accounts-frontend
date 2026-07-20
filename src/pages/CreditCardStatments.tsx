@@ -10,12 +10,13 @@ import {
     TableRow,
 } from '../components/ui/table';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
-import { Calendar as CalendarIcon, Loader2, Pencil, ChevronUp, Check, X, Download, Eye, EyeOff } from 'lucide-react';
+import { Calendar as CalendarIcon, Loader2, Pencil, ChevronUp, Check, X, Download, Eye, EyeOff, Plus } from 'lucide-react';
 import { StatementAttachmentTableCell } from '../components/StatementAttachmentTableCell';
 import {
     appendStatementAttachmentToChangePayload,
     creditCardService,
     getDefaultStatementPeriod,
+    statementPaymentsPayloadFromAmounts,
     statementPeriodMonthKey,
     validateStatementPdfFile,
     type CreditCardStatement,
@@ -57,7 +58,7 @@ interface StatementTotals {
 }
 
 const STATEMENT_TABLE_CLASS =
-    'cc-statement-table w-full text-[14px] sm:text-[15px] border-x border-b border-gray-200 [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-2 [&_td]:px-2 [&_th]:py-1 [&_td]:py-1 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight';
+    'cc-statement-table w-full text-[14px] sm:text-[15px] border-x border-b border-gray-200 [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-2 [&_td]:px-2 [&_th]:py-1 [&_td]:py-1 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight [&_tbody_td]:align-middle';
 
 const STATEMENT_MONTH_BAR_CLASS =
     'cc-statement-month-bar px-4 py-2 border-b border-gray-200 flex items-center justify-between';
@@ -133,16 +134,72 @@ function usePinnedStatementHeader(
     return metrics;
 }
 
+function useStatementTableColumnSync(
+    sectionRef: RefObject<HTMLDivElement | null>,
+    syncKey: string
+) {
+    useEffect(() => {
+        const section = sectionRef.current;
+        if (!section) return;
+
+        const sync = () => {
+            const headerTable = section.querySelector<HTMLTableElement>(
+                '.cc-statement-sticky-header table'
+            );
+            const bodyTable = section.querySelector<HTMLTableElement>('.cc-statement-table--body');
+            if (!headerTable || !bodyTable) return;
+
+            const headerCols = headerTable.querySelectorAll('colgroup col');
+            const bodyCols = bodyTable.querySelectorAll('colgroup col');
+            if (headerCols.length === 0 || headerCols.length !== bodyCols.length) return;
+
+            const headerRow = headerTable.querySelector('thead tr');
+            const bodyRow = bodyTable.querySelector('tbody tr');
+            if (!headerRow || !bodyRow) return;
+
+            const headerCells = headerRow.querySelectorAll('th');
+            const bodyCells = bodyRow.querySelectorAll('td');
+            if (headerCells.length !== headerCols.length || bodyCells.length !== headerCols.length) {
+                return;
+            }
+
+            headerCells.forEach((cell, index) => {
+                const width = Math.max(
+                    cell.getBoundingClientRect().width,
+                    bodyCells[index]?.getBoundingClientRect().width ?? 0
+                );
+                const px = `${Math.ceil(width)}px`;
+                (headerCols[index] as HTMLElement).style.width = px;
+                (bodyCols[index] as HTMLElement).style.width = px;
+            });
+        };
+
+        const frame = window.requestAnimationFrame(sync);
+        const resizeObserver = new ResizeObserver(() => sync());
+        resizeObserver.observe(section);
+        window.addEventListener('resize', sync);
+
+        return () => {
+            window.cancelAnimationFrame(frame);
+            resizeObserver.disconnect();
+            window.removeEventListener('resize', sync);
+        };
+    }, [sectionRef, syncKey]);
+}
+
 function PinnedStatementTableSection({
     children,
     body,
+    layoutSyncKey,
 }: {
     children: ReactNode;
     body: ReactNode;
+    layoutSyncKey: string;
 }) {
     const sectionRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
     const { pinned, top, left, width, height } = usePinnedStatementHeader(sectionRef, headerRef);
+    useStatementTableColumnSync(sectionRef, layoutSyncKey);
 
     return (
         <div ref={sectionRef} className="cc-statement-table-section">
@@ -198,8 +255,8 @@ export default function CreditCardStatements() {
     const [editValues, setEditValues] = useState<{
         totalPaymentDue: string;
         minPaymentDue: string;
-        paid: string;
-        epp: string;
+        payments: string[];
+        eppPayments: string[];
     } | null>(null);
     /** New PDF → POST /statements/:id/attachment */
     const [statementAttachmentFile, setStatementAttachmentFile] = useState<File | null>(null);
@@ -214,6 +271,25 @@ export default function CreditCardStatements() {
     const successBannerRef = useRef<HTMLDivElement>(null);
     const monthSectionRefs = useRef<Partial<Record<string, HTMLDivElement>>>({});
     const didScrollToSecondMonthOnLoad = useRef(false);
+
+    const statementTableLayoutSyncKey = [
+        editingId ?? '',
+        editingMonthKey ?? '',
+        selectedYear,
+        selectedMonths.join(','),
+        JSON.stringify(minPaymentDueVisibleByMonth),
+        creditCards.length,
+        loading ? '1' : '0',
+    ].join('|');
+
+    const resetStatementTableScroll = () => {
+        document.querySelectorAll('.cc-statement-table-section').forEach((section) => {
+            section.scrollLeft = 0;
+            section.querySelectorAll('.cc-statement-table-body-wrap').forEach((wrap) => {
+                wrap.scrollLeft = 0;
+            });
+        });
+    };
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const years = [currentDate.getFullYear() - 1, currentDate.getFullYear(), currentDate.getFullYear() + 1];
@@ -308,10 +384,14 @@ export default function CreditCardStatements() {
             responseData.paid !== undefined && responseData.paid !== null
                 ? Number(responseData.paid)
                 : card.paid,
+        payments:
+            responseData.payments !== undefined ? responseData.payments : card.payments,
         epp:
             responseData.epp !== undefined && responseData.epp !== null
                 ? Number(responseData.epp)
                 : card.epp,
+        eppPayments:
+            responseData.eppPayments !== undefined ? responseData.eppPayments : card.eppPayments,
         amountPending:
             responseData.amountPending !== undefined && responseData.amountPending !== null
                 ? Number(responseData.amountPending)
@@ -373,10 +453,12 @@ export default function CreditCardStatements() {
     };
 
     const renderStatementColGroup = (showMinPaymentDue: boolean) => {
-        const widths = ['9%', '5%', '10%', '7%', '7%', '5%', '8%'];
-        if (showMinPaymentDue) widths.push('7%');
-        widths.push('8%', '8%', '8%', '3%');
-        if (canMutate) widths.push('4%');
+        const weights = [10, 6, 11, 7, 7, 5, 9];
+        if (showMinPaymentDue) weights.push(7);
+        weights.push(8, 8, 9, 4);
+        if (canMutate) weights.push(5);
+        const total = weights.reduce((sum, w) => sum + w, 0);
+        const widths = weights.map((w) => `${((w / total) * 100).toFixed(3)}%`);
         return (
             <colgroup>
                 {widths.map((width, index) => (
@@ -503,6 +585,58 @@ export default function CreditCardStatements() {
         return next;
     };
 
+    type PartialAmountField = 'payments' | 'eppPayments';
+
+    const partialAmountsToEditableStrings = (
+        rows: CreditCardStatement['payments'],
+        total: number
+    ): string[] => {
+        if (rows && rows.length > 0) {
+            return rows.map((p) => toEditableMoneyFieldValue(p.amount));
+        }
+        if (moneyFromApi(total) > 0) return [toEditableMoneyFieldValue(total)];
+        return [''];
+    };
+
+    const paymentsToEditableStrings = (card: CreditCardStatement): string[] =>
+        partialAmountsToEditableStrings(card.payments, card.paid);
+
+    const eppPaymentsToEditableStrings = (card: CreditCardStatement): string[] =>
+        partialAmountsToEditableStrings(card.eppPayments, card.epp);
+
+    const partialAmountsEditTotal = (amounts: string[]): number =>
+        sumMoney(
+            amounts
+                .filter((a) => a !== '' && a != null)
+                .map((a) => parseMoneyInput(a))
+        );
+
+    const partialAmountsEditMatchesCard = (
+        rows: CreditCardStatement['payments'],
+        total: number,
+        amounts: string[]
+    ): boolean => {
+        const existing =
+            rows && rows.length > 0
+                ? rows.map((p) => moneyFromApi(p.amount))
+                : moneyFromApi(total) > 0
+                  ? [moneyFromApi(total)]
+                  : [];
+        const edited = statementPaymentsPayloadFromAmounts(amounts).map((p) => p.amount);
+        if (existing.length !== edited.length) return false;
+        return existing.every((v, i) => v === edited[i]);
+    };
+
+    const paymentsEditMatchesCard = (
+        card: CreditCardStatement,
+        amounts: string[]
+    ): boolean => partialAmountsEditMatchesCard(card.payments, card.paid, amounts);
+
+    const eppPaymentsEditMatchesCard = (
+        card: CreditCardStatement,
+        amounts: string[]
+    ): boolean => partialAmountsEditMatchesCard(card.eppPayments, card.epp, amounts);
+
     const getDisplayAmountPending = (statement: CreditCardStatement): number => {
         const totalPaymentDue = moneyFromApi(statement.totalPaymentDue);
         const paid = moneyFromApi(statement.paid);
@@ -619,22 +753,31 @@ export default function CreditCardStatements() {
         const cardId = String(card.id);
         setEditingId(cardId);
         setEditingMonthKey(periodKey ?? null);
+        setMinPaymentDueVisibleByMonth((prev) => ({
+            ...prev,
+            [getMinPaymentDueMonthKey(periodKey)]: true,
+        }));
         pendingApprovalAttachmentRef.current = null;
         setStatementAttachmentFile(null);
         setEditValues({
             totalPaymentDue: toEditableMoneyFieldValue(card.totalPaymentDue),
             minPaymentDue: toEditableMoneyFieldValue(card.minPaymentDue),
-            paid: toEditableMoneyFieldValue(card.paid),
-            epp: toEditableMoneyFieldValue(card.epp),
+            payments: paymentsToEditableStrings(card),
+            eppPayments: eppPaymentsToEditableStrings(card),
         });
     }, []);
 
-    const handleCancelEdit = () => {
+    const exitStatementEditMode = () => {
         setEditingId(null);
         setEditingMonthKey(null);
         setEditValues(null);
-        pendingApprovalAttachmentRef.current = null;
         setStatementAttachmentFile(null);
+        resetStatementTableScroll();
+    };
+
+    const handleCancelEdit = () => {
+        pendingApprovalAttachmentRef.current = null;
+        exitStatementEditMode();
     };
 
     const handleStatementAttachmentFileChange = useCallback((file: File | null) => {
@@ -669,12 +812,12 @@ export default function CreditCardStatements() {
 
     const statementAmountsUnchanged = (
         card: CreditCardStatement,
-        values: { totalPaymentDue: string; minPaymentDue: string; paid: string; epp: string }
+        values: { totalPaymentDue: string; minPaymentDue: string; payments: string[]; eppPayments: string[] }
     ): boolean =>
         parseMoneyInput(values.totalPaymentDue) === moneyFromApi(card.totalPaymentDue) &&
         parseMoneyInput(values.minPaymentDue) === moneyFromApi(card.minPaymentDue) &&
-        parseMoneyInput(values.paid) === moneyFromApi(card.paid) &&
-        parseMoneyInput(values.epp) === moneyFromApi(card.epp);
+        paymentsEditMatchesCard(card, values.payments) &&
+        eppPaymentsEditMatchesCard(card, values.eppPayments);
 
     const applySavedStatementToState = (
         responseData: CreditCardStatement,
@@ -726,7 +869,9 @@ export default function CreditCardStatements() {
         totalPaymentDue: number;
         minPaymentDue: number;
         paid: number;
+        payments: { amount: number }[];
         epp: number;
+        eppPayments: { amount: number }[];
         attachmentFile?: File | null;
         amountsUnchanged?: boolean;
     }): boolean => {
@@ -753,7 +898,9 @@ export default function CreditCardStatements() {
             statementMonth: opts.statementMonth,
             total_due: opts.totalPaymentDue,
             min_payment_due: opts.minPaymentDue,
+            payments: opts.payments,
             paid_amount: opts.paid,
+            epp_payments: opts.eppPayments,
             epp_balance: opts.epp,
             ...(attachmentFile ? { replace_attachment_requested: true } : {}),
         };
@@ -821,10 +968,7 @@ export default function CreditCardStatements() {
             setSuccessMessage(apiMessage);
             pendingApprovalAttachmentRef.current = null;
             showApprovalSuccess(apiMessage);
-            setEditingId(null);
-            setEditingMonthKey(null);
-            setEditValues(null);
-            setStatementAttachmentFile(null);
+            exitStatementEditMode();
         } catch (e: unknown) {
             const message =
                 e instanceof Error ? e.message : 'Could not submit change request';
@@ -859,8 +1003,10 @@ export default function CreditCardStatements() {
         const updateBucketKey = bucketKey ?? monthParam;
         const totalPaymentDue = parseMoneyInput(editValues.totalPaymentDue);
         const minPaymentDue = parseMoneyInput(editValues.minPaymentDue);
-        const paid = parseMoneyInput(editValues.paid);
-        const epp = parseMoneyInput(editValues.epp);
+        const paymentPayload = statementPaymentsPayloadFromAmounts(editValues.payments);
+        const paid = partialAmountsEditTotal(editValues.payments);
+        const eppPaymentPayload = statementPaymentsPayloadFromAmounts(editValues.eppPayments);
+        const epp = partialAmountsEditTotal(editValues.eppPayments);
         const card = findStatementCard(validCardId, bucketKey);
         const amountsUnchanged = card ? statementAmountsUnchanged(card, editValues) : false;
         const newAttachment = getPendingStatementAttachment();
@@ -886,7 +1032,9 @@ export default function CreditCardStatements() {
                 totalPaymentDue,
                 minPaymentDue,
                 paid,
+                payments: paymentPayload,
                 epp,
+                eppPayments: eppPaymentPayload,
                 attachmentFile: newAttachment ?? null,
                 amountsUnchanged,
             });
@@ -911,10 +1059,7 @@ export default function CreditCardStatements() {
                         return;
                     }
                     applySavedStatementToState(uploadRes.data, validCardId, updateBucketKey);
-                    setEditingId(null);
-                    setEditingMonthKey(null);
-                    setEditValues(null);
-                    setStatementAttachmentFile(null);
+                    exitStatementEditMode();
                     return;
                 } catch (uploadErr: unknown) {
                     if (isApprovalRequiredError(uploadErr) && !canSaveStatementsDirectly()) {
@@ -924,7 +1069,9 @@ export default function CreditCardStatements() {
                             totalPaymentDue,
                             minPaymentDue,
                             paid,
+                            payments: paymentPayload,
                             epp,
+                            eppPayments: eppPaymentPayload,
                             attachmentFile: newAttachment,
                             amountsUnchanged: true,
                         });
@@ -936,7 +1083,12 @@ export default function CreditCardStatements() {
 
             const patchRes = await creditCardService.updateCreditCardStatement(
                 validCardId,
-                { totalPaymentDue, minPaymentDue, paid, epp },
+                {
+                    totalPaymentDue,
+                    minPaymentDue,
+                    payments: paymentPayload,
+                    eppPayments: eppPaymentPayload,
+                },
                 monthParam
             );
 
@@ -968,10 +1120,7 @@ export default function CreditCardStatements() {
             }
 
             applySavedStatementToState(merged, validCardId, updateBucketKey);
-            setEditingId(null);
-            setEditingMonthKey(null);
-            setEditValues(null);
-            setStatementAttachmentFile(null);
+            exitStatementEditMode();
         } catch (err: unknown) {
             console.error('Error updating statement:', err);
             if (isApprovalRequiredError(err) && editValues && !canSaveStatementsDirectly()) {
@@ -981,7 +1130,9 @@ export default function CreditCardStatements() {
                     totalPaymentDue,
                     minPaymentDue,
                     paid,
+                    payments: paymentPayload,
                     epp,
+                    eppPayments: eppPaymentPayload,
                     attachmentFile: newAttachment ?? null,
                     amountsUnchanged,
                 });
@@ -994,19 +1145,100 @@ export default function CreditCardStatements() {
         }
     };
 
-    const handleEditFieldFocus = (field: 'totalPaymentDue' | 'minPaymentDue' | 'paid' | 'epp') => {
+    const handleEditFieldFocus = (field: 'totalPaymentDue' | 'minPaymentDue') => {
         if (!editValues) return;
         if (isLoneZeroEditString(editValues[field])) {
             setEditValues({ ...editValues, [field]: '' });
         }
     };
 
-    const handleEditValueChange = (field: 'totalPaymentDue' | 'minPaymentDue' | 'paid' | 'epp', value: string) => {
+    const handleEditValueChange = (field: 'totalPaymentDue' | 'minPaymentDue', value: string) => {
         if (!editValues) return;
         setEditValues({
             ...editValues,
             [field]: normalizeEditFieldWhileTyping(editValues[field], value),
         });
+    };
+
+    const handlePartialAmountFocus = (field: PartialAmountField, index: number) => {
+        if (!editValues) return;
+        if (isLoneZeroEditString(editValues[field][index])) {
+            const amounts = [...editValues[field]];
+            amounts[index] = '';
+            setEditValues({ ...editValues, [field]: amounts });
+        }
+    };
+
+    const handlePartialAmountChange = (
+        field: PartialAmountField,
+        index: number,
+        value: string
+    ) => {
+        if (!editValues) return;
+        const amounts = [...editValues[field]];
+        amounts[index] = normalizeEditFieldWhileTyping(amounts[index], value);
+        setEditValues({ ...editValues, [field]: amounts });
+    };
+
+    const addPartialAmountLine = (field: PartialAmountField) => {
+        if (!editValues) return;
+        setEditValues({ ...editValues, [field]: [...editValues[field], ''] });
+    };
+
+    const removePartialAmountLine = (field: PartialAmountField, index: number) => {
+        if (!editValues) return;
+        const amounts = editValues[field].filter((_, i) => i !== index);
+        setEditValues({ ...editValues, [field]: amounts.length > 0 ? amounts : [''] });
+    };
+
+    const renderPartialAmountsEdit = (
+        field: PartialAmountField,
+        addLabel: string,
+        removeAriaLabel: string
+    ) => {
+        if (!editValues) return null;
+        const amounts = editValues[field];
+        const total = partialAmountsEditTotal(amounts);
+        return (
+            <div className="space-y-1 w-full max-w-full">
+                {amounts.map((amount, index) => (
+                    <div key={index} className="flex items-center gap-1">
+                        <input
+                            type="text"
+                            inputMode="decimal"
+                            pattern="-?[0-9]*[.]?[0-9]*"
+                            value={amount}
+                            onFocus={() => handlePartialAmountFocus(field, index)}
+                            onChange={(e) =>
+                                handlePartialAmountChange(field, index, e.target.value)
+                            }
+                            className="w-full min-w-0 px-2 py-1 border border-gray-300 rounded text-sm"
+                        />
+                        {amounts.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={() => removePartialAmountLine(field, index)}
+                                className="shrink-0 p-0.5 text-gray-400 hover:text-red-600"
+                                aria-label={removeAriaLabel}
+                            >
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                    </div>
+                ))}
+                <button
+                    type="button"
+                    onClick={() => addPartialAmountLine(field)}
+                    className="flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-800"
+                >
+                    <Plus className="w-3 h-3" />
+                    {addLabel}
+                </button>
+                <div className="text-xs text-gray-500 font-medium">
+                    Total: {formatCurrency(total)}
+                </div>
+            </div>
+        );
     };
 
     const handleDeleteStatementAttachment = useCallback(
@@ -1542,6 +1774,7 @@ export default function CreditCardStatements() {
                             >
                                 <CardContent className="p-0">
                                     <PinnedStatementTableSection
+                                        layoutSyncKey={`${monthKey}|${statementTableLayoutSyncKey}|${showMinPaymentDue ? 1 : 0}`}
                                         body={
                                     <div className="cc-statement-table-body-wrap">
                                         <table className={`${STATEMENT_TABLE_CLASS} cc-statement-table--body`}>
@@ -1623,32 +1856,36 @@ export default function CreditCardStatements() {
                                                                         )}
                                                                     </TableCell>
                                                                     )}
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                                    <TableCell
+                                                                        className={`text-gray-700 text-sm py-1 text-left${
+                                                                            isEditingStatement(card, monthKey)
+                                                                                ? ' align-top'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
                                                                         {isEditingStatement(card, monthKey) ? (
-                                                                            <input
-                                                                                type="text"
-                                                                                inputMode="decimal"
-                                                                                pattern="-?[0-9]*[.]?[0-9]*"
-                                                                                value={editValues!.paid}
-                                                                                onFocus={() => handleEditFieldFocus('paid')}
-                                                                                onChange={(e) => handleEditValueChange('paid', e.target.value)}
-                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                                            />
+                                                                            renderPartialAmountsEdit(
+                                                                                'payments',
+                                                                                'Add payment',
+                                                                                'Remove payment'
+                                                                            )
                                                                         ) : (
                                                                             formatCurrency(card.paid)
                                                                         )}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                                    <TableCell
+                                                                        className={`text-gray-700 text-sm py-1 text-left${
+                                                                            isEditingStatement(card, monthKey)
+                                                                                ? ' align-top'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
                                                                         {isEditingStatement(card, monthKey) ? (
-                                                                            <input
-                                                                                type="text"
-                                                                                inputMode="decimal"
-                                                                                pattern="-?[0-9]*[.]?[0-9]*"
-                                                                                value={editValues!.epp}
-                                                                                onFocus={() => handleEditFieldFocus('epp')}
-                                                                                onChange={(e) => handleEditValueChange('epp', e.target.value)}
-                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                                            />
+                                                                            renderPartialAmountsEdit(
+                                                                                'eppPayments',
+                                                                                'Add EPP',
+                                                                                'Remove EPP payment'
+                                                                            )
                                                                         ) : (
                                                                             formatCurrency(card.epp)
                                                                         )}
@@ -1658,7 +1895,13 @@ export default function CreditCardStatements() {
                                                                     }`}>
                                                                         {formatCurrency(amountPending)}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left align-top px-2">
+                                                                    <TableCell
+                                                                        className={`text-gray-700 text-sm py-1 text-left px-2${
+                                                                            isEditingStatement(card, monthKey)
+                                                                                ? ' align-top'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
                                                                         <StatementAttachmentTableCell
                                                                             card={card}
                                                                             isEditing={isEditingStatement(card, monthKey)}
@@ -1887,6 +2130,7 @@ export default function CreditCardStatements() {
                 <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg">
                     <CardContent className="p-0">
                         <PinnedStatementTableSection
+                            layoutSyncKey={`single|${statementTableLayoutSyncKey}|${showMinPaymentDue ? 1 : 0}`}
                             body={
                         <div className="cc-statement-table-body-wrap">
                             <table className={`${STATEMENT_TABLE_CLASS} cc-statement-table--body`}>
@@ -1975,32 +2219,32 @@ export default function CreditCardStatements() {
                                                         )}
                                                     </TableCell>
                                                     )}
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                    <TableCell
+                                                        className={`text-gray-700 text-sm py-1 text-left${
+                                                            isEditingStatement(card) ? ' align-top' : ''
+                                                        }`}
+                                                    >
                                                         {isEditingStatement(card) ? (
-                                                            <input
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                pattern="-?[0-9]*[.]?[0-9]*"
-                                                                value={editValues!.paid}
-                                                                onFocus={() => handleEditFieldFocus('paid')}
-                                                                onChange={(e) => handleEditValueChange('paid', e.target.value)}
-                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                            />
+                                                            renderPartialAmountsEdit(
+                                                                'payments',
+                                                                'Add payment',
+                                                                'Remove payment'
+                                                            )
                                                         ) : (
                                                             formatCurrency(card.paid)
                                                         )}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                    <TableCell
+                                                        className={`text-gray-700 text-sm py-1 text-left${
+                                                            isEditingStatement(card) ? ' align-top' : ''
+                                                        }`}
+                                                    >
                                                         {isEditingStatement(card) ? (
-                                                            <input
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                pattern="-?[0-9]*[.]?[0-9]*"
-                                                                value={editValues!.epp}
-                                                                onFocus={() => handleEditFieldFocus('epp')}
-                                                                onChange={(e) => handleEditValueChange('epp', e.target.value)}
-                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
-                                                            />
+                                                            renderPartialAmountsEdit(
+                                                                'eppPayments',
+                                                                'Add EPP',
+                                                                'Remove EPP payment'
+                                                            )
                                                         ) : (
                                                             formatCurrency(card.epp)
                                                         )}
@@ -2012,7 +2256,11 @@ export default function CreditCardStatements() {
                                                         {/* amountPending is auto-calculated, so it's read-only */}
                                                         {formatCurrency(amountPending)}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left align-top px-2">
+                                                    <TableCell
+                                                        className={`text-gray-700 text-sm py-1 text-left px-2${
+                                                            isEditingStatement(card) ? ' align-top' : ''
+                                                        }`}
+                                                    >
                                                         <StatementAttachmentTableCell
                                                             card={card}
                                                             isEditing={isEditingStatement(card)}

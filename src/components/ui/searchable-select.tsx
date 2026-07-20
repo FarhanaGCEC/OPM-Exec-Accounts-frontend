@@ -36,9 +36,10 @@ export function SearchableSelect({
 
   // Filter children based on search query
   const filteredChildren = React.useMemo(() => {
-    if (!searchQuery.trim()) return children;
+    const items = React.Children.toArray(children).filter(Boolean);
+    if (!searchQuery.trim()) return items;
 
-    return React.Children.toArray(children).filter((child) => {
+    return items.filter((child) => {
       if (React.isValidElement(child) && child.props) {
         const props = child.props as { children?: React.ReactNode; textValue?: string };
         const childChildren = props.children;

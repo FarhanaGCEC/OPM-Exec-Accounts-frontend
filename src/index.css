@@ -116,6 +116,10 @@
   background-color: #f7c46d;
 }
 
+.cc-statement-table-section {
+  overflow-x: hidden;
+}
+
 .cc-statement-table {
   width: 100%;
   table-layout: fixed;

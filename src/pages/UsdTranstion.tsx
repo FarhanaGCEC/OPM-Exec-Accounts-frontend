@@ -7,6 +7,10 @@ import { transactionService, type BankTransaction as BankTransactionType } from 
 import ExcelJS from 'exceljs';
 import { applyArialToExcelJsWorkbook, excelExportFont } from '../lib/excelExportFont';
 import { formatDateForApi, formatIsoDateDisplay } from '../lib/formatDisplayDate';
+import {
+  buildFxDebitCreditBankChargesPayload,
+  fxEditFormAmountAndBankCharges,
+} from '../lib/fxTransactionAmounts';
 import { Card, CardContent } from '../components/ui/card';
 import {
   Dialog,
@@ -313,16 +317,32 @@ export default function UsdTranstion() {
     ? parseAmount(filteredTransactions[0].balance)
     : 0;
 
+  const descriptionOptions = useMemo(() => {
+    const debtorNames = debtorsList
+      .map((d) => String(d.name ?? '').trim())
+      .filter(Boolean);
+    const creditorNames = creditorsList
+      .map((c) => String(c.name ?? '').trim())
+      .filter(Boolean);
+    const fromTransactions = transactions
+      .map((t) => String(t.description ?? '').trim())
+      .filter(Boolean);
+    return [...new Set([...debtorNames, ...creditorNames, ...fromTransactions])].sort(
+      (a, b) => a.localeCompare(b)
+    );
+  }, [debtorsList, creditorsList, transactions]);
+
   useEffect(() => {
-    if (!isModalOpen) return;
     let cancelled = false;
 
     const toArray = (value: unknown): Array<Record<string, unknown>> => {
       if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
       if (value && typeof value === 'object') {
         const nested = value as Record<string, unknown>;
-        if (Array.isArray(nested.data)) return nested.data as Array<Record<string, unknown>>;
-        if (Array.isArray(nested.items)) return nested.items as Array<Record<string, unknown>>;
+        for (const key of ['data', 'items', 'categories', 'receivables', 'payables', 'results', 'rows']) {
+          const v = nested[key];
+          if (Array.isArray(v)) return v as Array<Record<string, unknown>>;
+        }
       }
       return [];
     };
@@ -359,7 +379,7 @@ export default function UsdTranstion() {
     return () => {
       cancelled = true;
     };
-  }, [isModalOpen]);
+  }, []);
 
   // Handle Add New
   const handleAddNew = () => {
@@ -380,19 +400,11 @@ export default function UsdTranstion() {
   const handleEdit = (transaction: UsdTransaction) => {
     setEditingTransaction(transaction);
     
-    // Determine type based on debit/credit
-    const type = transaction.debit && parseFloat(String(transaction.debit)) > 0 
-      ? 'Debit' 
-      : transaction.credit && parseFloat(String(transaction.credit)) > 0 
-      ? 'Credit' 
-      : '';
-    
-    // Get amount value
-    const amount = transaction.debit && parseFloat(String(transaction.debit)) > 0
-      ? String(transaction.debit)
-      : transaction.credit && parseFloat(String(transaction.credit)) > 0
-      ? String(transaction.credit)
-      : '';
+    const { type, amount, bankCharges } = fxEditFormAmountAndBankCharges(
+      transaction.debit,
+      transaction.credit,
+      transaction.bankCharges
+    );
     
     // Map details to paymentType (normalize to match dropdown values)
     let paymentType: 'cheque' | 'online' | 'cash' | 'creditcard' | '' = '';
@@ -414,7 +426,7 @@ export default function UsdTranstion() {
       paymentType: paymentType,
       chequeNumber: (transaction as any).chequeNumber || '',
       amount: amount,
-      bankCharges: transaction.bankCharges ? String(transaction.bankCharges) : '',
+      bankCharges: bankCharges,
     });
     setIsModalOpen(true);
   };
@@ -514,23 +526,14 @@ export default function UsdTranstion() {
         date: formData.date,
         description: formData.description,
         details: details,
-        debit: 0,
-        credit: 0,
+        ...buildFxDebitCreditBankChargesPayload(
+          formData.type,
+          amountValue,
+          bankChargesValue,
+          hasAmount,
+          hasBankCharges
+        ),
       };
-      
-      // Set debit or credit based on type when amount is provided
-      if (hasAmount && formData.type === 'Debit') {
-        payload.debit = amountValue;
-        payload.credit = 0;
-      } else if (hasAmount && formData.type === 'Credit') {
-        payload.credit = amountValue;
-        payload.debit = 0;
-      }
-      
-      // Bank charges — include when > 0 (bank-charges-only is allowed)
-      if (hasBankCharges) {
-        payload.bankCharges = bankChargesValue;
-      }
       
       let response: ApiResponse<BankTransactionType>;
       
@@ -1027,38 +1030,22 @@ export default function UsdTranstion() {
                 searchPlaceholder="Search Description..."
               >
                 {(() => {
-                  const debtorNames = debtorsList
-                    .map((d) =>
-                      String(
-                        (d as unknown as Record<string, unknown>).name ??
-                          (d as unknown as Record<string, unknown>).customerName ??
-                          (d as unknown as Record<string, unknown>).customer_name ??
-                          ''
-                      ).trim()
-                    )
-                    .filter(Boolean);
-                  const creditorNames = creditorsList
-                    .map((c) =>
-                      String(
-                        (c as unknown as Record<string, unknown>).name ??
-                          (c as unknown as Record<string, unknown>).vendorName ??
-                          (c as unknown as Record<string, unknown>).vendor_name ??
-                          ''
-                      ).trim()
-                    )
-                    .filter(Boolean);
-                  const descriptionOptions = [...new Set([...debtorNames, ...creditorNames])]
-                    .sort((a, b) => a.localeCompare(b));
                   const current = formData.description.trim();
                   const legacyOption =
                     current && !descriptionOptions.includes(current) ? current : null;
 
                   return [
-                    legacyOption ? (
-                      <SelectItem key={`legacy-${legacyOption}`} value={legacyOption} textValue={legacyOption}>
-                        {legacyOption} (not in list)
-                      </SelectItem>
-                    ) : null,
+                    ...(legacyOption
+                      ? [
+                          <SelectItem
+                            key={`legacy-${legacyOption}`}
+                            value={legacyOption}
+                            textValue={legacyOption}
+                          >
+                            {legacyOption} (not in list)
+                          </SelectItem>,
+                        ]
+                      : []),
                     ...descriptionOptions.map((name) => (
                       <SelectItem key={name} value={name} textValue={name}>
                         {name}
