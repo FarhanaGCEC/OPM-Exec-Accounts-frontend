@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode, type RefObject } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import Layout from '../components/Layout';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -66,163 +66,57 @@ const STATEMENT_MONTH_BAR_CLASS =
 const STATEMENT_COLUMN_HEAD_CELL_CLASS =
     'bg-[#87CEEB] font-semibold text-black text-sm text-left py-1';
 
-type PinnedHeaderMetrics = {
-    pinned: boolean;
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-};
-
-function usePinnedStatementHeader(
-    sectionRef: RefObject<HTMLDivElement | null>,
-    headerRef: RefObject<HTMLDivElement | null>
-): PinnedHeaderMetrics {
-    const [metrics, setMetrics] = useState<PinnedHeaderMetrics>({
-        pinned: false,
-        top: 0,
-        left: 0,
-        width: 0,
-        height: 0,
-    });
-
-    useEffect(() => {
-        const section = sectionRef.current;
-        const header = headerRef.current;
-        if (!section || !header) return;
-
-        const getMain = () => section.closest('main');
-
-        const update = () => {
-            const main = getMain();
-            if (!main) return;
-
-            const mainRect = main.getBoundingClientRect();
-            const sectionRect = section.getBoundingClientRect();
-            const headerHeight = header.offsetHeight;
-            const mainTop = mainRect.top;
-            const pinned =
-                sectionRect.top < mainTop &&
-                sectionRect.bottom > mainTop + headerHeight;
-
-            setMetrics({
-                pinned,
-                top: mainTop,
-                left: sectionRect.left,
-                width: sectionRect.width,
-                height: headerHeight,
-            });
-        };
-
-        const main = getMain();
-        if (!main) return;
-
-        main.addEventListener('scroll', update, { passive: true });
-        window.addEventListener('resize', update);
-        const resizeObserver = new ResizeObserver(update);
-        resizeObserver.observe(section);
-        resizeObserver.observe(header);
-        update();
-
-        return () => {
-            main.removeEventListener('scroll', update);
-            window.removeEventListener('resize', update);
-            resizeObserver.disconnect();
-        };
-    }, [sectionRef, headerRef]);
-
-    return metrics;
-}
-
-function useStatementTableColumnSync(
-    sectionRef: RefObject<HTMLDivElement | null>,
-    syncKey: string
-) {
-    useEffect(() => {
-        const section = sectionRef.current;
-        if (!section) return;
-
-        const sync = () => {
-            const headerTable = section.querySelector<HTMLTableElement>(
-                '.cc-statement-sticky-header table'
-            );
-            const bodyTable = section.querySelector<HTMLTableElement>('.cc-statement-table--body');
-            if (!headerTable || !bodyTable) return;
-
-            const headerCols = headerTable.querySelectorAll('colgroup col');
-            const bodyCols = bodyTable.querySelectorAll('colgroup col');
-            if (headerCols.length === 0 || headerCols.length !== bodyCols.length) return;
-
-            const headerRow = headerTable.querySelector('thead tr');
-            const bodyRow = bodyTable.querySelector('tbody tr');
-            if (!headerRow || !bodyRow) return;
-
-            const headerCells = headerRow.querySelectorAll('th');
-            const bodyCells = bodyRow.querySelectorAll('td');
-            if (headerCells.length !== headerCols.length || bodyCells.length !== headerCols.length) {
-                return;
-            }
-
-            headerCells.forEach((cell, index) => {
-                const width = Math.max(
-                    cell.getBoundingClientRect().width,
-                    bodyCells[index]?.getBoundingClientRect().width ?? 0
-                );
-                const px = `${Math.ceil(width)}px`;
-                (headerCols[index] as HTMLElement).style.width = px;
-                (bodyCols[index] as HTMLElement).style.width = px;
-            });
-        };
-
-        const frame = window.requestAnimationFrame(sync);
-        const resizeObserver = new ResizeObserver(() => sync());
-        resizeObserver.observe(section);
-        window.addEventListener('resize', sync);
-
-        return () => {
-            window.cancelAnimationFrame(frame);
-            resizeObserver.disconnect();
-            window.removeEventListener('resize', sync);
-        };
-    }, [sectionRef, syncKey]);
-}
-
-function PinnedStatementTableSection({
-    children,
-    body,
-    layoutSyncKey,
-}: {
-    children: ReactNode;
-    body: ReactNode;
-    layoutSyncKey: string;
-}) {
-    const sectionRef = useRef<HTMLDivElement>(null);
-    const headerRef = useRef<HTMLDivElement>(null);
-    const { pinned, top, left, width, height } = usePinnedStatementHeader(sectionRef, headerRef);
-    useStatementTableColumnSync(sectionRef, layoutSyncKey);
-
+function renderStatementTableHeadRow(showMinPaymentDue: boolean, canMutate: boolean) {
     return (
-        <div ref={sectionRef} className="cc-statement-table-section">
-            {pinned ? <div style={{ height }} aria-hidden className="cc-statement-header-spacer" /> : null}
-            <div
-                ref={headerRef}
-                className={`cc-statement-sticky-header${pinned ? ' cc-statement-sticky-header--pinned' : ''}`}
-                style={
-                    pinned
-                        ? {
-                              position: 'fixed',
-                              top,
-                              left,
-                              width,
-                              zIndex: 50,
-                              backgroundColor: '#f7c46d',
-                          }
-                        : undefined
-                }
-            >
-                {children}
-            </div>
-            {body}
+        <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Issuing Bank</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Card Holder</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Card No</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Statement Date</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Due Date</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Due Month</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Total Payment Due</TableHead>
+            {showMinPaymentDue && (
+                <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Min Payment Due</TableHead>
+            )}
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Paid</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>EPP</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Amount Pending</TableHead>
+            <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>File</TableHead>
+            {canMutate && (
+                <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>Actions</TableHead>
+            )}
+        </TableRow>
+    );
+}
+
+function StatementTableSection({
+    monthBar,
+    showMinPaymentDue,
+    canMutate,
+    renderColGroup,
+    children,
+}: {
+    monthBar?: ReactNode;
+    showMinPaymentDue: boolean;
+    canMutate: boolean;
+    renderColGroup: (showMinPaymentDue: boolean) => ReactNode;
+    children: ReactNode;
+}) {
+    return (
+        <div className="cc-statement-table-section">
+            {monthBar ? (
+                <div className={`${STATEMENT_MONTH_BAR_CLASS} cc-statement-month-bar--sticky`}>
+                    {monthBar}
+                </div>
+            ) : null}
+            <table className={STATEMENT_TABLE_CLASS}>
+                {renderColGroup(showMinPaymentDue)}
+                <TableHeader className="cc-statement-thead--sticky">
+                    {renderStatementTableHeadRow(showMinPaymentDue, canMutate)}
+                </TableHeader>
+                <TableBody>{children}</TableBody>
+            </table>
         </div>
     );
 }
@@ -272,22 +166,9 @@ export default function CreditCardStatements() {
     const monthSectionRefs = useRef<Partial<Record<string, HTMLDivElement>>>({});
     const didScrollToSecondMonthOnLoad = useRef(false);
 
-    const statementTableLayoutSyncKey = [
-        editingId ?? '',
-        editingMonthKey ?? '',
-        selectedYear,
-        selectedMonths.join(','),
-        JSON.stringify(minPaymentDueVisibleByMonth),
-        creditCards.length,
-        loading ? '1' : '0',
-    ].join('|');
-
     const resetStatementTableScroll = () => {
         document.querySelectorAll('.cc-statement-table-section').forEach((section) => {
             section.scrollLeft = 0;
-            section.querySelectorAll('.cc-statement-table-body-wrap').forEach((wrap) => {
-                wrap.scrollLeft = 0;
-            });
         });
     };
 
@@ -453,7 +334,7 @@ export default function CreditCardStatements() {
     };
 
     const renderStatementColGroup = (showMinPaymentDue: boolean) => {
-        const weights = [10, 6, 11, 7, 7, 5, 9];
+        const weights = [12, 7, 11, 7, 7, 5, 9];
         if (showMinPaymentDue) weights.push(7);
         weights.push(8, 8, 9, 4);
         if (canMutate) weights.push(5);
@@ -1773,13 +1654,41 @@ export default function CreditCardStatements() {
                                 className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg scroll-mt-24"
                             >
                                 <CardContent className="p-0">
-                                    <PinnedStatementTableSection
-                                        layoutSyncKey={`${monthKey}|${statementTableLayoutSyncKey}|${showMinPaymentDue ? 1 : 0}`}
-                                        body={
-                                    <div className="cc-statement-table-body-wrap">
-                                        <table className={`${STATEMENT_TABLE_CLASS} cc-statement-table--body`}>
-                                            {renderStatementColGroup(showMinPaymentDue)}
-                                            <TableBody>
+                                    <StatementTableSection
+                                        showMinPaymentDue={showMinPaymentDue}
+                                        canMutate={canMutate}
+                                        renderColGroup={renderStatementColGroup}
+                                        monthBar={
+                                            <>
+                                                <h3 className="text-lg font-bold text-black">
+                                                    {monthName} {year}
+                                                </h3>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => toggleMinPaymentDueVisibility(monthKey)}
+                                                    className="h-8 w-8 p-0 text-black hover:bg-black/10"
+                                                    aria-label={
+                                                        showMinPaymentDue
+                                                            ? 'Hide Min Payment Due column'
+                                                            : 'Show Min Payment Due column'
+                                                    }
+                                                    title={
+                                                        showMinPaymentDue
+                                                            ? 'Hide Min Payment Due'
+                                                            : 'Show Min Payment Due'
+                                                    }
+                                                >
+                                                    {showMinPaymentDue ? (
+                                                        <Eye className="w-5 h-5" />
+                                                    ) : (
+                                                        <EyeOff className="w-5 h-5" />
+                                                    )}
+                                                </Button>
+                                            </>
+                                        }
+                                    >
                                                 {statements.length === 0 ? (
                                                     <TableRow>
                                                         <TableCell colSpan={getStatementTableColSpan(showMinPaymentDue)} className="text-center py-4">
@@ -1796,7 +1705,7 @@ export default function CreditCardStatements() {
                                                                     className={getStatementRowClassName(card)}
                                                                 >
                                                                     <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
-                                                                        <div className="w-full" title={card.issuingBank || ''}>
+                                                                        <div className="truncate max-w-[11rem]" title={card.issuingBank || ''}>
                                                                             <span className="text-black font-bold" style={{ fontWeight: 900 }}>
                                                                                 {card.issuingBank}
                                                                             </span>
@@ -1804,7 +1713,7 @@ export default function CreditCardStatements() {
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         <div
-                                                                            className="w-full"
+                                                                            className="truncate max-w-[6rem]"
                                                                             title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
                                                                         >
                                                                             {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
@@ -2024,90 +1933,7 @@ export default function CreditCardStatements() {
                                                         </TableRow>
                                                     </>
                                                 )}
-                                            </TableBody>
-                                        </table>
-                                    </div>
-                                        }
-                                    >
-                                        <div className={STATEMENT_MONTH_BAR_CLASS}>
-                                            <h3 className="text-lg font-bold text-black">
-                                                {monthName} {year}
-                                            </h3>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => toggleMinPaymentDueVisibility(monthKey)}
-                                                className="h-8 w-8 p-0 text-black hover:bg-black/10"
-                                                aria-label={
-                                                    showMinPaymentDue
-                                                        ? 'Hide Min Payment Due column'
-                                                        : 'Show Min Payment Due column'
-                                                }
-                                                title={
-                                                    showMinPaymentDue
-                                                        ? 'Hide Min Payment Due'
-                                                        : 'Show Min Payment Due'
-                                                }
-                                            >
-                                                {showMinPaymentDue ? (
-                                                    <Eye className="w-5 h-5" />
-                                                ) : (
-                                                    <EyeOff className="w-5 h-5" />
-                                                )}
-                                            </Button>
-                                        </div>
-                                        <table className={`${STATEMENT_TABLE_CLASS} border-t-0`}>
-                                            {renderStatementColGroup(showMinPaymentDue)}
-                                            <TableHeader>
-                                                <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Issuing Bank
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Card Holder
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Card No
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Statement Date
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Due Date
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Due Month
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Total Payment Due
-                                                    </TableHead>
-                                                    {showMinPaymentDue && (
-                                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                            Min Payment Due
-                                                        </TableHead>
-                                                    )}
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Paid
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        EPP
-                                                    </TableHead>
-                                                    <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                        Amount Pending
-                                                    </TableHead>
-                                                    <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
-                                                        File
-                                                    </TableHead>
-                                                    {canMutate && (
-                                                        <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
-                                                            Actions
-                                                        </TableHead>
-                                                    )}
-                                                </TableRow>
-                                            </TableHeader>
-                                        </table>
-                                    </PinnedStatementTableSection>
+                                    </StatementTableSection>
                                 </CardContent>
                             </Card>
                         );
@@ -2129,13 +1955,41 @@ export default function CreditCardStatements() {
                     return (
                 <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg">
                     <CardContent className="p-0">
-                        <PinnedStatementTableSection
-                            layoutSyncKey={`single|${statementTableLayoutSyncKey}|${showMinPaymentDue ? 1 : 0}`}
-                            body={
-                        <div className="cc-statement-table-body-wrap">
-                            <table className={`${STATEMENT_TABLE_CLASS} cc-statement-table--body`}>
-                                {renderStatementColGroup(showMinPaymentDue)}
-                                <TableBody>
+                        <StatementTableSection
+                            showMinPaymentDue={showMinPaymentDue}
+                            canMutate={canMutate}
+                            renderColGroup={renderStatementColGroup}
+                            monthBar={
+                                singleMonthLabel ? (
+                                    <>
+                                        <h3 className="text-lg font-bold text-black">{singleMonthLabel}</h3>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => toggleMinPaymentDueVisibility(singleMonthKey)}
+                                            className="h-8 w-8 p-0 text-black hover:bg-black/10"
+                                            aria-label={
+                                                showMinPaymentDue
+                                                    ? 'Hide Min Payment Due column'
+                                                    : 'Show Min Payment Due column'
+                                            }
+                                            title={
+                                                showMinPaymentDue
+                                                    ? 'Hide Min Payment Due'
+                                                    : 'Show Min Payment Due'
+                                            }
+                                        >
+                                            {showMinPaymentDue ? (
+                                                <Eye className="w-5 h-5" />
+                                            ) : (
+                                                <EyeOff className="w-5 h-5" />
+                                            )}
+                                        </Button>
+                                    </>
+                                ) : undefined
+                            }
+                        >
                                     {loading ? (
                                         <TableRow>
                                             <TableCell colSpan={getStatementTableColSpan(showMinPaymentDue)} className="text-center py-4">
@@ -2160,13 +2014,13 @@ export default function CreditCardStatements() {
                                                     className={getStatementRowClassName(card)}
                                                 >
                                                     <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
-                                                        <div className="w-full font-bold" title={card.issuingBank || ''}>
+                                                        <div className="truncate max-w-[11rem] font-bold" title={card.issuingBank || ''}>
                                                             {card.issuingBank}
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         <div
-                                                            className="w-full"
+                                                            className="truncate max-w-[6rem]"
                                                             title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
                                                         >
                                                             {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
@@ -2375,90 +2229,7 @@ export default function CreditCardStatements() {
                                             </TableRow>
                                         </>
                                     )}
-                                </TableBody>
-                            </table>
-                        </div>
-                            }
-                        >
-                            {singleMonthLabel && (
-                                <div className={STATEMENT_MONTH_BAR_CLASS}>
-                                    <h3 className="text-lg font-bold text-black">{singleMonthLabel}</h3>
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => toggleMinPaymentDueVisibility(singleMonthKey)}
-                                        className="h-8 w-8 p-0 text-black hover:bg-black/10"
-                                        aria-label={
-                                            showMinPaymentDue
-                                                ? 'Hide Min Payment Due column'
-                                                : 'Show Min Payment Due column'
-                                        }
-                                        title={
-                                            showMinPaymentDue
-                                                ? 'Hide Min Payment Due'
-                                                : 'Show Min Payment Due'
-                                        }
-                                    >
-                                        {showMinPaymentDue ? (
-                                            <Eye className="w-5 h-5" />
-                                        ) : (
-                                            <EyeOff className="w-5 h-5" />
-                                        )}
-                                    </Button>
-                                </div>
-                            )}
-                            <table className={`${STATEMENT_TABLE_CLASS}${singleMonthLabel ? ' border-t-0' : ''}`}>
-                                {renderStatementColGroup(showMinPaymentDue)}
-                                <TableHeader>
-                                    <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Issuing Bank
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Card Holder
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Card No
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Statement Date
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Due Date
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Due Month
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Total Payment Due
-                                        </TableHead>
-                                        {showMinPaymentDue && (
-                                            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                                Min Payment Due
-                                            </TableHead>
-                                        )}
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Paid
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            EPP
-                                        </TableHead>
-                                        <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>
-                                            Amount Pending
-                                        </TableHead>
-                                        <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
-                                            File
-                                        </TableHead>
-                                        {canMutate && (
-                                            <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>
-                                                Actions
-                                            </TableHead>
-                                        )}
-                                    </TableRow>
-                                </TableHeader>
-                            </table>
-                        </PinnedStatementTableSection>
+                        </StatementTableSection>
                     </CardContent>
                 </Card>
                     );

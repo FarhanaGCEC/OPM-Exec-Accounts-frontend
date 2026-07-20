@@ -102,37 +102,37 @@
   }
 }
 
-/* Credit card statements — pinned table navbar on main scroll (no inner table scroll). */
-.cc-statement-sticky-header {
-  background-color: #f7c46d;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
-}
-
-.cc-statement-sticky-header--pinned {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-}
-
+/* Credit card statements — sticky month bar + column headers on main scroll. */
 .cc-statement-month-bar {
   background-color: #f7c46d;
 }
 
+.cc-statement-month-bar--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 52;
+}
+
+.cc-statement-thead--sticky th {
+  position: sticky;
+  top: 0;
+  z-index: 51;
+  background-color: #87CEEB !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.cc-statement-month-bar--sticky + .cc-statement-table .cc-statement-thead--sticky th {
+  top: 2.75rem;
+}
+
 .cc-statement-table-section {
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .cc-statement-table {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-}
-
-.cc-statement-table--body {
-  margin-top: -1px;
-}
-
-.cc-statement-table-body-wrap {
-  position: relative;
-  z-index: 0;
 }
 
 .cc-statement-table thead th {
