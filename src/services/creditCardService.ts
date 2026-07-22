@@ -116,6 +116,8 @@ export interface CreditCardStatementApiResponse {
   epp: number;
   amount_pending: number;
   credit_balance?: number;
+  /** From statements API; string amount or null when not available */
+  available_limit?: string | null;
 }
 
 export interface CardStatementPayment {
@@ -145,6 +147,11 @@ export interface CreditCardStatement {
   eppPayments?: CardStatementPayment[];
   amountPending: number;
   creditBalance: number;
+  /**
+   * Available credit limit from statements API (`available_limit`).
+   * String amount (e.g. "24522.50") or null when not available — do not parse from PDF.
+   */
+  availableLimit: string | null;
   /** Stored attachment filename from API */
   attachmentName?: string | null;
   /** URL or path to open/download the PDF */
@@ -473,6 +480,13 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
   const epp = item.epp ?? item.epp_balance ?? item.eppBalance;
   const amountPending = item.amount_pending ?? item.amountPending;
   const creditBalance = item.credit_balance ?? item.creditBalance;
+  const availableLimitRaw = item.available_limit ?? item.availableLimit;
+  const availableLimit =
+    availableLimitRaw === null || availableLimitRaw === undefined
+      ? null
+      : String(availableLimitRaw).trim() === ''
+        ? null
+        : String(availableLimitRaw).trim();
   const paymentsRaw = item.payments;
   const payments = Array.isArray(paymentsRaw)
     ? paymentsRaw.map(mapCardStatementPaymentFromApi)
@@ -507,6 +521,7 @@ export function mapCreditCardStatementFromApi(item: any): CreditCardStatement {
         : []),
     amountPending: moneyFromApi(amountPending),
     creditBalance: moneyFromApi(creditBalance),
+    availableLimit,
     attachmentName: att.attachmentName,
     attachmentUrl: att.attachmentUrl,
   };

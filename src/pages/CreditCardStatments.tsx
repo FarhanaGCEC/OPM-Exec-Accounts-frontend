@@ -15,6 +15,7 @@ import { StatementAttachmentTableCell } from '../components/StatementAttachmentT
 import {
     appendStatementAttachmentToChangePayload,
     creditCardService,
+    displayCreditCardHolderName,
     getDefaultStatementPeriod,
     statementPaymentsPayloadFromAmounts,
     statementPeriodMonthKey,
@@ -66,15 +67,27 @@ const STATEMENT_MONTH_BAR_CLASS =
 const STATEMENT_COLUMN_HEAD_CELL_CLASS =
     'bg-[#87CEEB] font-semibold text-black text-sm text-left py-1';
 
+/** Card holder display name with last 4 digits, e.g. "MST (7036)". */
+function formatStatementCardHolderLabel(
+    cardHolder: string | undefined | null,
+    cardNumber: string | undefined | null
+): string {
+    const name = displayCreditCardHolderName(cardHolder);
+    const digits = String(cardNumber ?? '').replace(/\D/g, '');
+    const last4 = digits.slice(-4);
+    if (name && last4) return `${name} (${last4})`;
+    if (name) return name;
+    if (last4) return `(${last4})`;
+    return '';
+}
+
 function renderStatementTableHeadRow(showMinPaymentDue: boolean, canMutate: boolean) {
     return (
         <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Issuing Bank</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Card Holder</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Card No</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Issuing Bank</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Statement Date</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Due Date</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Due Month</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Total Payment Due</TableHead>
             {showMinPaymentDue && (
                 <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Min Payment Due</TableHead>
@@ -281,6 +294,10 @@ export default function CreditCardStatements() {
             responseData.creditBalance !== undefined && responseData.creditBalance !== null
                 ? Number(responseData.creditBalance)
                 : card.creditBalance,
+        availableLimit:
+            responseData.availableLimit !== undefined
+                ? responseData.availableLimit
+                : card.availableLimit,
         statement_date: responseData.statement_date || card.statement_date,
         due_date: responseData.due_date || card.due_date,
         due_month: responseData.due_month || card.due_month,
@@ -329,15 +346,17 @@ export default function CreditCardStatements() {
     };
 
     const getStatementTableColSpan = (showMinPaymentDue: boolean): number => {
-        const baseColumns = showMinPaymentDue ? 12 : 11;
+        const baseColumns = showMinPaymentDue ? 10 : 9;
         return canMutate ? baseColumns + 1 : baseColumns;
     };
 
     const renderStatementColGroup = (showMinPaymentDue: boolean) => {
-        const weights = [12, 7, 11, 7, 7, 5, 9];
-        if (showMinPaymentDue) weights.push(7);
+        // Card Holder, Issuing Bank, Statement Date, Due Date, Total Payment Due
+        const weights = [12, 14, 8, 8, 10];
+        if (showMinPaymentDue) weights.push(8);
+        // Paid, EPP, Amount Pending, File, Actions — keep File/Actions tight (icons only)
         weights.push(8, 8, 9, 4);
-        if (canMutate) weights.push(5);
+        if (canMutate) weights.push(4);
         const total = weights.reduce((sum, w) => sum + w, 0);
         const widths = weights.map((w) => `${((w / total) * 100).toFixed(3)}%`);
         return (
@@ -593,17 +612,6 @@ export default function CreditCardStatements() {
             return toDisplay(a, parseInt(b, 10), c);
         }
         return dateString;
-    };
-
-    const formatMonth = (monthValue: string | number) => {
-        if (!monthValue) return '-';
-        // Convert month number to month name
-        // Example: 12 -> Dec, "12" -> Dec
-        const monthNum = typeof monthValue === 'string' ? parseInt(monthValue, 10) : monthValue;
-        if (isNaN(monthNum) || monthNum < 1 || monthNum > 12) return String(monthValue);
-        
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return monthNames[monthNum - 1];
     };
 
     const getPendingStatementAttachment = useCallback((): File | undefined => {
@@ -1260,12 +1268,10 @@ export default function CreditCardStatements() {
 
                     // Add table headers
                     excelData.push([
-                        'Issuing Bank',
                         'Card Holder',
-                        'Card No',
+                        'Issuing Bank',
                         'Statement Date',
                         'Due Date',
-                        'Due Month',
                         'Total Payment Due',
                         'Paid',
                         'EPP',
@@ -1276,12 +1282,10 @@ export default function CreditCardStatements() {
                     // Add statement rows
                     statements.forEach((card) => {
                         excelData.push([
+                            formatStatementCardHolderLabel(card.cardHolder, card.card_number),
                             card.issuingBank || '',
-                            card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || ''),
-                            card.card_number || '',
                             formatDate(card.statement_date || ''),
                             formatDate(card.due_date || ''),
-                            formatMonth(card.due_month || ''),
                             moneyFromApi(card.totalPaymentDue),
                             moneyFromApi(card.paid),
                             moneyFromApi(card.epp),
@@ -1293,8 +1297,6 @@ export default function CreditCardStatements() {
                     const monthTotals = getStatementTotals(statements);
                     excelData.push([
                         'Total',
-                        '',
-                        '',
                         '',
                         '',
                         '',
@@ -1310,12 +1312,10 @@ export default function CreditCardStatements() {
 
                     // Set column widths
                     worksheet['!cols'] = [
+                        { wch: 18 }, // Card Holder
                         { wch: 20 }, // Issuing Bank
-                        { wch: 15 }, // Card Holder
-                        { wch: 20 }, // Card No
                         { wch: 15 }, // Statement Date
                         { wch: 15 }, // Due Date
-                        { wch: 12 }, // Due Month
                         { wch: 18 }, // Total Payment Due
                         { wch: 15 }, // Paid
                         { wch: 15 }, // EPP
@@ -1325,7 +1325,7 @@ export default function CreditCardStatements() {
 
                     // Format header row (row 2, 0-indexed)
                     const headerRow = 2;
-                    for (let col = 0; col <= 10; col++) {
+                    for (let col = 0; col <= 8; col++) {
                         const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
                         if (worksheet[headerCellRef]) {
                             if (!worksheet[headerCellRef].s) {
@@ -1339,26 +1339,26 @@ export default function CreditCardStatements() {
                     // Format number columns (Total Payment Due, Paid, EPP, Amount Pending)
                     const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
                     for (let row = 3; row <= range.e.r; row++) {
-                        // Column G (Total Payment Due) - index 6
-                        const totalDueCellRef = XLSX.utils.encode_cell({ r: row, c: 6 });
+                        // Column E (Total Payment Due) - index 4
+                        const totalDueCellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
                         if (worksheet[totalDueCellRef] && typeof worksheet[totalDueCellRef].v === 'number') {
                             worksheet[totalDueCellRef].t = 'n';
                             worksheet[totalDueCellRef].z = '#,##0.00';
                         }
-                        // Column H (Paid) - index 7
-                        const paidCellRef = XLSX.utils.encode_cell({ r: row, c: 7 });
+                        // Column F (Paid) - index 5
+                        const paidCellRef = XLSX.utils.encode_cell({ r: row, c: 5 });
                         if (worksheet[paidCellRef] && typeof worksheet[paidCellRef].v === 'number') {
                             worksheet[paidCellRef].t = 'n';
                             worksheet[paidCellRef].z = '#,##0.00';
                         }
-                        // Column I (EPP) - index 8
-                        const eppCellRef = XLSX.utils.encode_cell({ r: row, c: 8 });
+                        // Column G (EPP) - index 6
+                        const eppCellRef = XLSX.utils.encode_cell({ r: row, c: 6 });
                         if (worksheet[eppCellRef] && typeof worksheet[eppCellRef].v === 'number') {
                             worksheet[eppCellRef].t = 'n';
                             worksheet[eppCellRef].z = '#,##0.00';
                         }
-                        // Column J (Amount Pending) - index 9
-                        const pendingCellRef = XLSX.utils.encode_cell({ r: row, c: 9 });
+                        // Column H (Amount Pending) - index 7
+                        const pendingCellRef = XLSX.utils.encode_cell({ r: row, c: 7 });
                         if (worksheet[pendingCellRef] && typeof worksheet[pendingCellRef].v === 'number') {
                             worksheet[pendingCellRef].t = 'n';
                             worksheet[pendingCellRef].z = '#,##0.00';
@@ -1381,12 +1381,10 @@ export default function CreditCardStatements() {
 
             // Add table headers
             excelData.push([
-                'Issuing Bank',
                 'Card Holder',
-                'Card No',
+                'Issuing Bank',
                 'Statement Date',
                 'Due Date',
-                'Due Month',
                 'Total Payment Due',
                 'Paid',
                 'EPP',
@@ -1397,12 +1395,10 @@ export default function CreditCardStatements() {
             // Add statement rows
             creditCards.forEach((card) => {
                 excelData.push([
+                    formatStatementCardHolderLabel(card.cardHolder, card.card_number),
                     card.issuingBank || '',
-                    card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || ''),
-                    card.card_number || '',
                     formatDate(card.statement_date || ''),
                     formatDate(card.due_date || ''),
-                    formatMonth(card.due_month || ''),
                     moneyFromApi(card.totalPaymentDue),
                     moneyFromApi(card.paid),
                     moneyFromApi(card.epp),
@@ -1414,8 +1410,6 @@ export default function CreditCardStatements() {
             const sheetTotals = getStatementTotals(creditCards);
             excelData.push([
                 'Total',
-                '',
-                '',
                 '',
                 '',
                 '',
@@ -1431,12 +1425,10 @@ export default function CreditCardStatements() {
 
             // Set column widths
             worksheet['!cols'] = [
+                { wch: 18 }, // Card Holder
                 { wch: 20 }, // Issuing Bank
-                { wch: 15 }, // Card Holder
-                { wch: 20 }, // Card No
                 { wch: 15 }, // Statement Date
                 { wch: 15 }, // Due Date
-                { wch: 12 }, // Due Month
                 { wch: 18 }, // Total Payment Due
                 { wch: 15 }, // Paid
                 { wch: 15 }, // EPP
@@ -1446,7 +1438,7 @@ export default function CreditCardStatements() {
 
             // Format header row (row 2, 0-indexed)
             const headerRow = 2;
-            for (let col = 0; col <= 10; col++) {
+            for (let col = 0; col <= 8; col++) {
                 const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
                 if (worksheet[headerCellRef]) {
                     if (!worksheet[headerCellRef].s) {
@@ -1460,26 +1452,26 @@ export default function CreditCardStatements() {
             // Format number columns
             const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
             for (let row = 3; row <= range.e.r; row++) {
-                // Column G (Total Payment Due) - index 6
-                const totalDueCellRef = XLSX.utils.encode_cell({ r: row, c: 6 });
+                // Column E (Total Payment Due) - index 4
+                const totalDueCellRef = XLSX.utils.encode_cell({ r: row, c: 4 });
                 if (worksheet[totalDueCellRef] && typeof worksheet[totalDueCellRef].v === 'number') {
                     worksheet[totalDueCellRef].t = 'n';
                     worksheet[totalDueCellRef].z = '#,##0.00';
                 }
-                // Column H (Paid) - index 7
-                const paidCellRef = XLSX.utils.encode_cell({ r: row, c: 7 });
+                // Column F (Paid) - index 5
+                const paidCellRef = XLSX.utils.encode_cell({ r: row, c: 5 });
                 if (worksheet[paidCellRef] && typeof worksheet[paidCellRef].v === 'number') {
                     worksheet[paidCellRef].t = 'n';
                     worksheet[paidCellRef].z = '#,##0.00';
                 }
-                // Column I (EPP) - index 8
-                const eppCellRef = XLSX.utils.encode_cell({ r: row, c: 8 });
+                // Column G (EPP) - index 6
+                const eppCellRef = XLSX.utils.encode_cell({ r: row, c: 6 });
                 if (worksheet[eppCellRef] && typeof worksheet[eppCellRef].v === 'number') {
                     worksheet[eppCellRef].t = 'n';
                     worksheet[eppCellRef].z = '#,##0.00';
                 }
-                // Column J (Amount Pending) - index 9
-                const pendingCellRef = XLSX.utils.encode_cell({ r: row, c: 9 });
+                // Column H (Amount Pending) - index 7
+                const pendingCellRef = XLSX.utils.encode_cell({ r: row, c: 7 });
                 if (worksheet[pendingCellRef] && typeof worksheet[pendingCellRef].v === 'number') {
                     worksheet[pendingCellRef].t = 'n';
                     worksheet[pendingCellRef].z = '#,##0.00';
@@ -1704,6 +1696,20 @@ export default function CreditCardStatements() {
                                                                     key={`${monthKey}-${card.id}`}
                                                                     className={getStatementRowClassName(card)}
                                                                 >
+                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                                        <div
+                                                                            className="truncate max-w-[9rem] font-medium"
+                                                                            title={formatStatementCardHolderLabel(
+                                                                                card.cardHolder,
+                                                                                card.card_number
+                                                                            )}
+                                                                        >
+                                                                            {formatStatementCardHolderLabel(
+                                                                                card.cardHolder,
+                                                                                card.card_number
+                                                                            )}
+                                                                        </div>
+                                                                    </TableCell>
                                                                     <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
                                                                         <div className="truncate max-w-[11rem]" title={card.issuingBank || ''}>
                                                                             <span className="text-black font-bold" style={{ fontWeight: 900 }}>
@@ -1712,26 +1718,10 @@ export default function CreditCardStatements() {
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                                        <div
-                                                                            className="truncate max-w-[6rem]"
-                                                                            title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
-                                                                        >
-                                                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                                        <div className="w-full" title={card.card_number || ''}>
-                                                                            {card.card_number || ''}
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         {formatDate(card.statement_date || '')}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         {formatDate(card.due_date || '')}
-                                                                    </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                                        {formatMonth(card.due_month || '')}
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
                                                                         {isEditingStatement(card, monthKey) ? (
@@ -1807,7 +1797,7 @@ export default function CreditCardStatements() {
                                                                     <TableCell
                                                                         className={`text-gray-700 text-sm py-1 text-left px-2${
                                                                             isEditingStatement(card, monthKey)
-                                                                                ? ' align-top'
+                                                                                ? ' align-top !whitespace-normal overflow-hidden'
                                                                                 : ''
                                                                         }`}
                                                                     >
@@ -1843,9 +1833,15 @@ export default function CreditCardStatements() {
                                                                         />
                                                                     </TableCell>
                                                                     {canMutate && (
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left px-2">
+                                                                    <TableCell
+                                                                        className={`text-gray-700 text-sm py-1 text-left px-2${
+                                                                            isEditingStatement(card, monthKey)
+                                                                                ? ' align-top'
+                                                                                : ''
+                                                                        }`}
+                                                                    >
                                                                         {isEditingStatement(card, monthKey) ? (
-                                                                            <div className="flex gap-2">
+                                                                            <div className="flex flex-col gap-1.5 shrink-0">
                                                                                 <Button
                                                                                     type="button"
                                                                                     variant="outline"
@@ -1862,7 +1858,7 @@ export default function CreditCardStatements() {
                                                                                         deletingAttachment ||
                                                                                         !card.id
                                                                                     }
-                                                                                    className="bg-green-500 hover:bg-green-600 text-white border-0"
+                                                                                    className="h-8 w-8 p-0 shrink-0 bg-green-500 hover:bg-green-600 text-white border-0"
                                                                                 >
                                                                                     {saving ? (
                                                                                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -1876,7 +1872,7 @@ export default function CreditCardStatements() {
                                                                                     size="sm"
                                                                                     onClick={handleCancelEdit}
                                                                                     disabled={saving || deletingAttachment}
-                                                                                    className="bg-red-500 hover:bg-red-600 text-white border-0"
+                                                                                    className="h-8 w-8 p-0 shrink-0 bg-red-500 hover:bg-red-600 text-white border-0"
                                                                                 >
                                                                                     <X className="w-4 h-4" />
                                                                                 </Button>
@@ -1903,7 +1899,7 @@ export default function CreditCardStatements() {
                                                             );
                                                         })}
                                                         <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                            <TableCell colSpan={6} className="font-bold text-gray-900 py-1 text-right">
+                                                            <TableCell colSpan={4} className="font-bold text-gray-900 py-1 text-right">
                                                                 Total
                                                             </TableCell>
                                                             <TableCell className="font-bold text-gray-900 py-1 text-left">
@@ -2013,33 +2009,30 @@ export default function CreditCardStatements() {
                                                     key={card.id}
                                                     className={getStatementRowClassName(card)}
                                                 >
+                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                        <div
+                                                            className="truncate max-w-[9rem] font-medium"
+                                                            title={formatStatementCardHolderLabel(
+                                                                card.cardHolder,
+                                                                card.card_number
+                                                            )}
+                                                        >
+                                                            {formatStatementCardHolderLabel(
+                                                                card.cardHolder,
+                                                                card.card_number
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
                                                     <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
                                                         <div className="truncate max-w-[11rem] font-bold" title={card.issuingBank || ''}>
                                                             {card.issuingBank}
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                        <div
-                                                            className="truncate max-w-[6rem]"
-                                                            title={card.cardHolder === 'Suleman' ? 'MST' : (card.cardHolder || '')}
-                                                        >
-                                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                        <div className="w-full" title={card.card_number || ''}>
-                                                            {card.card_number || ''}
-                                                        </div>
-                                                    </TableCell>
-                                                
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         {formatDate(card.statement_date || '')}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         {formatDate(card.due_date || '')}
-                                                    </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                        {formatMonth(card.due_month || '')}
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
                                                         {isEditingStatement(card) ? (
@@ -2112,7 +2105,9 @@ export default function CreditCardStatements() {
                                                     </TableCell>
                                                     <TableCell
                                                         className={`text-gray-700 text-sm py-1 text-left px-2${
-                                                            isEditingStatement(card) ? ' align-top' : ''
+                                                            isEditingStatement(card)
+                                                                ? ' align-top !whitespace-normal overflow-hidden'
+                                                                : ''
                                                         }`}
                                                     >
                                                         <StatementAttachmentTableCell
@@ -2140,9 +2135,13 @@ export default function CreditCardStatements() {
                                                         />
                                                     </TableCell>
                                                     {canMutate && (
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left px-2">
+                                                    <TableCell
+                                                        className={`text-gray-700 text-sm py-1 text-left px-2${
+                                                            isEditingStatement(card) ? ' align-top' : ''
+                                                        }`}
+                                                    >
                                                         {isEditingStatement(card) ? (
-                                                            <div className="flex gap-2">
+                                                            <div className="flex flex-col gap-1.5 shrink-0">
                                                                 <Button
                                                                     type="button"
                                                                     variant="outline"
@@ -2157,7 +2156,7 @@ export default function CreditCardStatements() {
                                                                     disabled={
                                                                         saving || deletingAttachment || !card.id
                                                                     }
-                                                                    className="bg-green-500 hover:bg-green-600 text-white border-0"
+                                                                    className="h-8 w-8 p-0 shrink-0 bg-green-500 hover:bg-green-600 text-white border-0"
                                                                 >
                                                                     {saving ? (
                                                                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -2171,7 +2170,7 @@ export default function CreditCardStatements() {
                                                                     size="sm"
                                                                     onClick={handleCancelEdit}
                                                                     disabled={saving || deletingAttachment}
-                                                                    className="bg-red-500 hover:bg-red-600 text-white border-0"
+                                                                    className="h-8 w-8 p-0 shrink-0 bg-red-500 hover:bg-red-600 text-white border-0"
                                                                 >
                                                                     <X className="w-4 h-4" />
                                                                 </Button>
@@ -2181,7 +2180,6 @@ export default function CreditCardStatements() {
                                                                 variant="ghost"
                                                                 size="icon"
                                                                 onClick={(e) => {
-                                                                
                                                                     e.stopPropagation();
                                                                     if (card.id) {
                                                                         handleEdit(card);
@@ -2199,7 +2197,7 @@ export default function CreditCardStatements() {
                                                 );
                                             })}
                                             <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                <TableCell colSpan={6} className="font-bold text-gray-900 py-1 text-right">
+                                                <TableCell colSpan={4} className="font-bold text-gray-900 py-1 text-right">
                                                     Total
                                                 </TableCell>
                                                 <TableCell className="font-bold text-gray-900 py-1 text-left">

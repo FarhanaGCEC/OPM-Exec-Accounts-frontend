@@ -21,6 +21,24 @@ import {
 } from '../lib/attachmentPreview';
 import { attachmentLooksLikeImage } from '../lib/resolveAttachmentUrl';
 
+/** Hover tooltip from statements API `available_limit` (not from PDF). */
+export function formatAvailableLimitTooltip(
+  availableLimit: string | null | undefined
+): string {
+  if (availableLimit == null || String(availableLimit).trim() === '') {
+    return 'Available Limit: N/A';
+  }
+  const n = parseFloat(String(availableLimit).replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) {
+    return 'Available Limit: N/A';
+  }
+  const formatted = n.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `Available Limit: ${formatted}`;
+}
+
 export interface StatementAttachmentTableCellProps {
   card: CreditCardStatement;
   isEditing: boolean;
@@ -137,7 +155,7 @@ export function StatementAttachmentTableCell({
     const hasStored =
       Boolean(card.attachmentName?.trim()) || Boolean(card.attachmentUrl?.trim());
     return (
-      <div className="flex flex-col gap-2 min-w-[160px] max-w-[260px]">
+      <div className="flex flex-col gap-1.5 w-full min-w-0 max-w-full overflow-hidden">
         <Label className="text-xs text-gray-600">Attachment (PDF or image)</Label>
         {hasStored && !statementAttachmentFile ? (
           <span
@@ -152,7 +170,7 @@ export function StatementAttachmentTableCell({
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 text-xs justify-start text-red-700 border-red-200 hover:bg-red-50"
+            className="h-8 w-full text-xs justify-start text-red-700 border-red-200 hover:bg-red-50"
             disabled={deleteAttachmentBusy || Boolean(statementAttachmentFile)}
             onClick={() => onDeleteAttachment()}
             title={statementAttachmentFile ? 'Save or clear the new file first' : undefined}
@@ -167,7 +185,7 @@ export function StatementAttachmentTableCell({
           type="file"
           data-statement-attachment-input
           accept=".pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif"
-          className="block w-full text-xs text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs"
+          className="block w-full min-w-0 max-w-full text-xs text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs"
           onChange={(e) => onAttachmentFileChange(e.target.files?.[0] ?? null)}
         />
         {statementAttachmentFile ? (
@@ -187,14 +205,15 @@ export function StatementAttachmentTableCell({
       setOpen(false);
       onEditClick?.();
     };
+    const availableLimitTitle = formatAvailableLimitTooltip(card.availableLimit);
 
     return (
       <>
         <button
           type="button"
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-[#fef9e8] hover:border-[#f7c46d] transition-colors"
-          title={label}
-          aria-label={`View attachment: ${label}`}
+          title={availableLimitTitle}
+          aria-label={`View attachment: ${label}. ${availableLimitTitle}`}
           onClick={() => setOpen(true)}
         >
           <FileText className="h-4 w-4 shrink-0" />
