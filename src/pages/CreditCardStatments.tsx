@@ -1698,16 +1698,18 @@ export default function CreditCardStatements() {
                                                                 >
                                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                                         <div
-                                                                            className="truncate max-w-[9rem] font-medium"
+                                                                            className="truncate max-w-[9rem]"
                                                                             title={formatStatementCardHolderLabel(
                                                                                 card.cardHolder,
                                                                                 card.card_number
                                                                             )}
                                                                         >
-                                                                            {formatStatementCardHolderLabel(
-                                                                                card.cardHolder,
-                                                                                card.card_number
-                                                                            )}
+                                                                            <span className="text-black font-bold" style={{ fontWeight: 900 }}>
+                                                                                {formatStatementCardHolderLabel(
+                                                                                    card.cardHolder,
+                                                                                    card.card_number
+                                                                                )}
+                                                                            </span>
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
@@ -2011,16 +2013,18 @@ export default function CreditCardStatements() {
                                                 >
                                                     <TableCell className="text-gray-700 text-sm py-1 text-left">
                                                         <div
-                                                            className="truncate max-w-[9rem] font-medium"
+                                                            className="truncate max-w-[9rem]"
                                                             title={formatStatementCardHolderLabel(
                                                                 card.cardHolder,
                                                                 card.card_number
                                                             )}
                                                         >
-                                                            {formatStatementCardHolderLabel(
-                                                                card.cardHolder,
-                                                                card.card_number
-                                                            )}
+                                                            <span className="text-black font-bold" style={{ fontWeight: 900 }}>
+                                                                {formatStatementCardHolderLabel(
+                                                                    card.cardHolder,
+                                                                    card.card_number
+                                                                )}
+                                                            </span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
