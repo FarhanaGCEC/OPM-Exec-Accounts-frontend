@@ -11,6 +11,7 @@ import {
   remarksForDailyLedgerDisplay,
   isBouncedChequeRemarks,
   rowIsGcecPdcHighlight,
+  isCustomerPdcRemarksLabel,
 } from '../lib/dailyLedgerRemarksDisplay';
 import { canUploadStatements } from '../lib/authPayload';
 
@@ -687,6 +688,63 @@ function dailyTxnPdcType(txn: DailyTransaction): string | undefined {
   return txn.pdcType ?? txn.pdc_type;
 }
 
+/** Unapproved Customer / past-due GCEC daily ledger rows (cheque date arrived, not approved). */
+function isUnapprovedPdcDailyRow(txn: AllTransaction): boolean {
+  if (txn.transactionType !== 'Daily Transaction') return false;
+  const daily = txn as DailyTransaction;
+  if (daily.ledgerApproved) return false;
+
+  const pdcTypeRaw = dailyTxnPdcType(daily);
+  const hasExplicitPdcType = pdcTypeRaw != null && String(pdcTypeRaw).trim() !== '';
+  const normalizedType = hasExplicitPdcType ? normalizePdcTypeFromApi(pdcTypeRaw) : null;
+  const isCustomer =
+    isCustomerPdcRemarksLabel(daily.remarks) || normalizedType === 'Customer PDC';
+  const isGcec = rowIsGcecPdcHighlight(daily.remarks, pdcTypeRaw);
+  if (!isCustomer && !isGcec) return false;
+
+  const date = parseTransactionDate(daily.date);
+  if (!date) return isCustomer;
+  const day = startOfDay(date);
+  const today = startOfDay(new Date());
+  return day.getTime() <= today.getTime();
+}
+
+/** GCEC PDC with cheque date still in the future (within upcoming window) — always absolute top. */
+function isComingSoonGcecDailyRow(txn: AllTransaction): boolean {
+  if (txn.transactionType !== 'Daily Transaction') return false;
+  const daily = txn as DailyTransaction;
+  if (!rowIsGcecPdcHighlight(daily.remarks, dailyTxnPdcType(daily))) return false;
+  if (daily.ledgerApproved) return false;
+
+  const date = parseTransactionDate(daily.date);
+  if (!date) return false;
+  const day = startOfDay(date);
+  const today = startOfDay(new Date());
+  if (day.getTime() <= today.getTime()) return false;
+
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + UPCOMING_GCEC_DAILY_LEDGER_DAYS);
+  return day.getTime() <= startOfDay(horizon).getTime();
+}
+
+/**
+ * Dashboard Daily list order (matches bank priority):
+ * 1) Coming-soon GCEC (absolute top)
+ * 2) Unapproved past-due Customer / GCEC PDC
+ * 3) Remaining rows in existing order
+ */
+function pinDashboardDailyLedgerOrder(items: AllTransaction[]): AllTransaction[] {
+  const comingSoon: AllTransaction[] = [];
+  const unapproved: AllTransaction[] = [];
+  const rest: AllTransaction[] = [];
+  for (const item of items) {
+    if (isComingSoonGcecDailyRow(item)) comingSoon.push(item);
+    else if (isUnapprovedPdcDailyRow(item)) unapproved.push(item);
+    else rest.push(item);
+  }
+  return [...comingSoon, ...unapproved, ...rest];
+}
+
 const toTitleCaseWords = (value: string): string =>
   value
     .split(/\s+/)
@@ -825,8 +883,12 @@ export default function ViewAllTranstion() {
   transactionOrder.forEach((type) => {
     const typeTransactions = groupedTableTransactions[type] || [];
     if (typeTransactions.length > 0) {
+      const ordered =
+        type === 'Daily Transaction'
+          ? pinDashboardDailyLedgerOrder(typeTransactions)
+          : typeTransactions;
       transactionsWithHeadings.push({ type: 'heading', content: type });
-      typeTransactions.forEach((transaction) => {
+      ordered.forEach((transaction) => {
         transactionsWithHeadings.push({ type: 'transaction', content: transaction });
       });
     }

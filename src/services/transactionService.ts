@@ -1151,8 +1151,13 @@ export const transactionService = {
   },
 
   // Account Summary
+  /**
+   * Ledger-inclusive account summary (same spirit as bank LK running balance).
+   * Do not force `useStatementTotals=true` — that omits unapproved Customer PDC
+   * credits from Available Balance / totals and desyncs the dashboard from bank.
+   */
   getAccountSummary: async (): Promise<ApiResponse<AccountSummary>> => {
-    return api.get<AccountSummary>('/account-summary?useStatementTotals=true');
+    return api.get<AccountSummary>('/account-summary');
   },
 
   // PDC Reminders
