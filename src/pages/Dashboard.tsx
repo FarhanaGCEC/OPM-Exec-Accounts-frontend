@@ -16,8 +16,11 @@ type DashboardSummary = {
   totalDebit: number;
   totalCredit: number;
   currentBalance: number;
-  availableBalance: number;
-  availableBalanceRemark: string;
+};
+
+type AvailableBalanceFromTable = {
+  balance: number;
+  remark: string;
 };
 
 type SummarySource = Record<string, unknown>;
@@ -49,6 +52,22 @@ const pickAmountValue = (
 export default function Dashboard() {
   const [accountSummary, setAccountSummary] = useState<DashboardSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
+  const [availableFromTable, setAvailableFromTable] = useState<AvailableBalanceFromTable | null>(null);
+
+  const handleAvailableBalanceChange = useCallback((value: AvailableBalanceFromTable | null) => {
+    setAvailableFromTable((prev) => {
+      if (prev === null && value === null) return prev;
+      if (
+        prev &&
+        value &&
+        prev.balance === value.balance &&
+        prev.remark === value.remark
+      ) {
+        return prev;
+      }
+      return value;
+    });
+  }, []);
 
   const fetchAccountSummary = useCallback(async () => {
     try {
@@ -79,10 +98,6 @@ export default function Dashboard() {
               ? pickAmountValue(statementTotals, ['currentBalance', 'current_balance', 'ledgerBalance'])
               : undefined)
         ),
-        availableBalance: toAmount(
-          pickAmountValue(source, ['availableBalance', 'available_balance', 'mainAvailableBalance', 'main_available_balance'])
-        ),
-        availableBalanceRemark: '',
       });
     } catch (err) {
       console.error('[Dashboard] Error fetching account summary:', err);
@@ -99,10 +114,10 @@ export default function Dashboard() {
   const totalDebitValue = accountSummary?.totalDebit ?? 0;
   const totalCreditValue = accountSummary?.totalCredit ?? 0;
   const currentBalanceValue = accountSummary?.currentBalance ?? 0;
-  const availableBalanceValue = accountSummary?.availableBalance ?? 0;
-  const availableBalanceRemark = accountSummary?.availableBalanceRemark ?? '';
+  const availableBalanceValue = availableFromTable?.balance ?? 0;
   const shouldHighlightAvailableBalanceCell =
-    availableBalanceRemark.trim().toLowerCase() === 'available balance';
+    (availableFromTable?.remark ?? '').trim().toLowerCase().replace(/\s+/g, ' ') ===
+    'available balance';
 
   return (
     <Layout>
@@ -203,7 +218,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      <ViewAllTranstion />
+      <ViewAllTranstion onAvailableBalanceChange={handleAvailableBalanceChange} />
     </Layout>
   );
 }

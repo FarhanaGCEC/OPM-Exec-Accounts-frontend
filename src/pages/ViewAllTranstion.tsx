@@ -786,7 +786,21 @@ const getTransactionTypeDisplayName = (type: string): string => {
   return type;
 };
 
-export default function ViewAllTranstion() {
+export type AvailableBalanceFromTable = {
+  balance: number;
+  remark: string;
+};
+
+type ViewAllTranstionProps = {
+  onAvailableBalanceChange?: (value: AvailableBalanceFromTable | null) => void;
+};
+
+const isAvailableBalanceRemarks = (remarks: string): boolean =>
+  remarks.trim().toLowerCase().replace(/\s+/g, ' ') === 'available balance';
+
+export default function ViewAllTranstion({
+  onAvailableBalanceChange,
+}: ViewAllTranstionProps = {}) {
   const canUpload = canUploadStatements();
   const defaultDateRange = getDefaultDateRange();
   const [transactions, setTransactions] = useState<AllTransaction[]>([]);
@@ -927,7 +941,44 @@ export default function ViewAllTranstion() {
     acc[type].push(txn);
     return acc;
   }, {} as Record<string, AllTransaction[]>);
-  
+
+  // Available Balance card: use Balance from a Daily row on the current page
+  // whose Remarks display as "Available Balance". Else report null → Dashboard shows 0.
+  let pageAvailableBalance: AvailableBalanceFromTable | null = null;
+  for (const txn of transactionsOnPage) {
+    if (txn.transactionType !== 'Daily Transaction') continue;
+    const daily = txn as DailyTransaction;
+    const remarksDisplay =
+      remarksForDailyLedgerDisplay(daily.remarks, dailyTxnPdcType(daily)) || '';
+    if (!isAvailableBalanceRemarks(remarksDisplay)) continue;
+    const balance = parseFloat(String(daily.balance ?? 0).replace(/,/g, '').trim());
+    pageAvailableBalance = {
+      balance: Number.isNaN(balance) ? 0 : balance,
+      remark: remarksDisplay,
+    };
+    break;
+  }
+  const pageAvailableBalanceValue = pageAvailableBalance?.balance ?? null;
+  const pageAvailableBalanceRemark = pageAvailableBalance?.remark ?? '';
+
+  useEffect(() => {
+    if (!onAvailableBalanceChange) return;
+    if (pageAvailableBalanceValue === null) {
+      onAvailableBalanceChange(null);
+      return;
+    }
+    onAvailableBalanceChange({
+      balance: pageAvailableBalanceValue,
+      remark: pageAvailableBalanceRemark,
+    });
+  }, [onAvailableBalanceChange, pageAvailableBalanceValue, pageAvailableBalanceRemark]);
+
+  useEffect(() => {
+    return () => {
+      onAvailableBalanceChange?.(null);
+    };
+  }, [onAvailableBalanceChange]);
+
   // Get all transaction types that exist in the dataset
   const allTransactionTypes = new Set<string>();
   tableTransactions.forEach(txn => allTransactionTypes.add(txn.transactionType));
