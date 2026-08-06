@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FileText, Loader2, Trash2 } from 'lucide-react';
-import { Label } from './ui/label';
+import { FileText, Loader2, Upload, X } from 'lucide-react';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -131,6 +130,82 @@ function useStatementPdfPreview(
   return { mode, blobUrl };
 }
 
+function AttachmentPreviewDialog({
+  open,
+  onOpenChange,
+  label,
+  href,
+  showImage,
+  mode,
+  iframeSrc,
+  openTabHref,
+  onEditClick,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  label: string;
+  href: string;
+  showImage: boolean;
+  mode: AttachmentPreviewMode;
+  iframeSrc: string | null;
+  openTabHref: string | null;
+  onEditClick?: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto gap-4">
+        <DialogHeader>
+          <DialogTitle className="pr-8 truncate text-base">{label}</DialogTitle>
+        </DialogHeader>
+        <div className="flex min-h-[50vh] flex-col rounded-md border border-gray-100 bg-gray-50 overflow-hidden">
+          {showImage ? (
+            <img
+              src={href}
+              alt=""
+              className="max-h-[75vh] w-full object-contain bg-white"
+            />
+          ) : mode === 'loading' ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-gray-600">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <span className="text-sm">Loading preview…</span>
+            </div>
+          ) : mode === 'error' ? (
+            <p className="text-sm text-gray-600 px-4 py-8 text-center">
+              Preview could not be loaded. Use &quot;Open in new tab&quot; to view or download
+              the file.
+            </p>
+          ) : iframeSrc ? (
+            <iframe
+              title={label}
+              src={iframeSrc}
+              className="w-full min-h-[75vh] border-0 bg-white"
+            />
+          ) : null}
+        </div>
+        <DialogFooter className="gap-2 sm:gap-2">
+          {onEditClick ? (
+            <Button
+              type="button"
+              className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+              onClick={() => {
+                onOpenChange(false);
+                onEditClick();
+              }}
+            >
+              Edit
+            </Button>
+          ) : null}
+          <Button variant="outline" className="text-black" asChild>
+            <a href={openTabHref ?? href} target="_blank" rel="noopener noreferrer">
+              Open in new tab
+            </a>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function StatementAttachmentTableCell({
   card,
   isEditing,
@@ -142,6 +217,8 @@ export function StatementAttachmentTableCell({
   attachmentInputRef,
 }: StatementAttachmentTableCellProps) {
   const [open, setOpen] = useState(false);
+  const localInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = attachmentInputRef ?? localInputRef;
   const href = resolveStatementAttachmentHref(card.attachmentUrl);
   const label = card.attachmentName?.trim() || 'Statement attachment';
   const showImage = attachmentLooksLikeImage(
@@ -154,57 +231,122 @@ export function StatementAttachmentTableCell({
   if (isEditing) {
     const hasStored =
       Boolean(card.attachmentName?.trim()) || Boolean(card.attachmentUrl?.trim());
-    return (
-      <div className="flex flex-col gap-1.5 w-full min-w-0 max-w-full overflow-hidden">
-        <Label className="text-xs text-gray-600">Attachment (PDF or image)</Label>
-        {hasStored && !statementAttachmentFile ? (
-          <span
-            className="text-xs text-gray-700 truncate border border-gray-100 rounded px-2 py-1 bg-gray-50"
-            title={card.attachmentName || card.attachmentUrl || ''}
-          >
-            Current: {card.attachmentName?.trim() || 'attachment'}
-          </span>
-        ) : null}
-        {hasStored && onDeleteAttachment ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 w-full text-xs justify-start text-red-700 border-red-200 hover:bg-red-50"
-            disabled={deleteAttachmentBusy || Boolean(statementAttachmentFile)}
-            onClick={() => onDeleteAttachment()}
-            title={statementAttachmentFile ? 'Save or clear the new file first' : undefined}
-          >
-            <Trash2 className="h-3.5 w-3.5 mr-1 shrink-0" />
-            Remove PDF
-          </Button>
-        ) : null}
+    const displayName = statementAttachmentFile
+      ? statementAttachmentFile.name
+      : hasStored
+        ? card.attachmentName?.trim() || 'Current file'
+        : null;
 
+    return (
+      <div
+        className="inline-flex items-center gap-1 pt-1 pr-1"
+        title={
+          displayName
+            ? `Attachment: ${displayName}`
+            : 'Attachment (PDF or image)'
+        }
+      >
         <input
-          ref={attachmentInputRef}
+          ref={fileInputRef}
           type="file"
           data-statement-attachment-input
           accept=".pdf,application/pdf,image/jpeg,image/png,image/webp,image/gif"
-          className="block w-full min-w-0 max-w-full text-xs text-gray-700 file:mr-2 file:rounded file:border-0 file:bg-gray-100 file:px-2 file:py-1 file:text-xs"
+          className="sr-only"
           onChange={(e) => onAttachmentFileChange(e.target.files?.[0] ?? null)}
         />
-        {statementAttachmentFile ? (
-          <span
-            className="text-xs text-gray-600 truncate"
-            title={statementAttachmentFile.name}
+
+        {hasStored ? (
+          <div className="relative inline-flex shrink-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 p-0 text-gray-700 hover:bg-[#f7c46d]/40"
+              title={href ? `View: ${label}` : displayName || 'Current file'}
+              aria-label={href ? `View attachment: ${label}` : 'Current attachment'}
+              onClick={() => {
+                if (href) setOpen(true);
+              }}
+              disabled={!href}
+            >
+              <FileText className="h-4 w-4" />
+            </Button>
+            {onDeleteAttachment ? (
+              <button
+                type="button"
+                disabled={deleteAttachmentBusy}
+                title="Remove attachment"
+                aria-label="Remove attachment"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteAttachment();
+                }}
+                className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow-sm hover:bg-red-600 disabled:opacity-50"
+              >
+                {deleteAttachmentBusy ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                ) : (
+                  <X className="h-2.5 w-2.5" strokeWidth={3} />
+                )}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="relative inline-flex shrink-0">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={`h-8 w-8 p-0 hover:bg-[#f7c46d]/40 ${
+              statementAttachmentFile ? 'text-green-700' : 'text-gray-700'
+            }`}
+            title={
+              statementAttachmentFile
+                ? `Replace: ${statementAttachmentFile.name}`
+                : 'Choose PDF or image'
+            }
+            aria-label="Choose attachment"
+            onClick={() => fileInputRef.current?.click()}
           >
-            New: {statementAttachmentFile.name}
-          </span>
+            <Upload className="h-4 w-4" />
+          </Button>
+          {statementAttachmentFile ? (
+            <button
+              type="button"
+              title="Clear selected file"
+              aria-label="Clear selected file"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAttachmentFileChange(null);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+              className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow-sm hover:bg-red-600"
+            >
+              <X className="h-2.5 w-2.5" strokeWidth={3} />
+            </button>
+          ) : null}
+        </div>
+
+        {hasStored && href ? (
+          <AttachmentPreviewDialog
+            open={open}
+            onOpenChange={setOpen}
+            label={label}
+            href={href}
+            showImage={showImage}
+            mode={mode}
+            iframeSrc={iframeSrc}
+            openTabHref={openTabHref}
+          />
         ) : null}
       </div>
     );
   }
 
   if (href) {
-    const openEdit = () => {
-      setOpen(false);
-      onEditClick?.();
-    };
     const availableLimitTitle = formatAvailableLimitTooltip(card.availableLimit);
 
     return (
@@ -219,60 +361,27 @@ export function StatementAttachmentTableCell({
           <FileText className="h-4 w-4 shrink-0" />
         </button>
 
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto gap-4">
-            <DialogHeader>
-              <DialogTitle className="pr-8 truncate text-base">{label}</DialogTitle>
-            </DialogHeader>
-            <div className="flex min-h-[50vh] flex-col rounded-md border border-gray-100 bg-gray-50 overflow-hidden">
-              {showImage ? (
-                <img
-                  src={href}
-                  alt=""
-                  className="max-h-[75vh] w-full object-contain bg-white"
-                />
-              ) : mode === 'loading' ? (
-                <div className="flex flex-col items-center justify-center gap-2 py-16 text-gray-600">
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                  <span className="text-sm">Loading preview…</span>
-                </div>
-              ) : mode === 'error' ? (
-                <p className="text-sm text-gray-600 px-4 py-8 text-center">
-                  Preview could not be loaded. Use &quot;Open in new tab&quot; to view or download
-                  the file.
-                </p>
-              ) : iframeSrc ? (
-                <iframe
-                  title={label}
-                  src={iframeSrc}
-                  className="w-full min-h-[75vh] border-0 bg-white"
-                />
-              ) : null}
-            </div>
-            <DialogFooter className="gap-2 sm:gap-2">
-              {onEditClick ? (
-                <Button
-                  type="button"
-                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-                  onClick={openEdit}
-                >
-                  Edit
-                </Button>
-              ) : null}
-              <Button variant="outline" className="text-black" asChild>
-                <a href={openTabHref ?? href} target="_blank" rel="noopener noreferrer">
-                  Open in new tab
-                </a>
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <AttachmentPreviewDialog
+          open={open}
+          onOpenChange={setOpen}
+          label={label}
+          href={href}
+          showImage={showImage}
+          mode={mode}
+          iframeSrc={iframeSrc}
+          openTabHref={openTabHref}
+          onEditClick={onEditClick}
+        />
       </>
     );
   }
 
   if (card.attachmentName) {
-    return <span className="text-sm text-gray-700">{card.attachmentName}</span>;
+    return (
+      <span className="text-sm text-gray-700 truncate max-w-full" title={card.attachmentName}>
+        {card.attachmentName}
+      </span>
+    );
   }
 
   return <span className="text-sm text-gray-400">—</span>;

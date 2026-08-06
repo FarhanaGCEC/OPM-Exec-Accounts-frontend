@@ -4,7 +4,7 @@ import {
   attachmentLooksLikeImage,
   resolveAttachmentHref,
 } from '../lib/resolveAttachmentUrl';
-import { expandCenturyYear } from '../lib/formatDisplayDate';
+import { expandCenturyYear, formatDateForApi } from '../lib/formatDisplayDate';
 import { moneyFromApi, parseMoneyInput } from '../lib/money';
 import { readFileAsDataUrl } from './transactionService';
 
@@ -97,8 +97,59 @@ export const mapApiResponseToCreditCardDetail = (
 /** Label shown in credit card pickers (maps internal holder name to display name). */
 export function displayCreditCardHolderName(holder: string | undefined | null): string {
   const t = String(holder ?? '').trim();
-  if (t.toLowerCase() === 'suleman') return 'MST';
+  const lower = t.toLowerCase();
+  if (lower === 'suleman') return 'MST';
+  if (lower === 'farhana') return 'FK';
   return t;
+}
+
+/**
+ * Statement / list short bank codes (display-only).
+ * Keys are normalized lowercase full names.
+ */
+const CREDIT_CARD_BANK_SHORT_NAMES: Record<string, string> = {
+  'deem finance': 'DEEM',
+  'emirates nbd etihad': 'ENBD',
+  'mashreq smart saver': 'MASH',
+  'cbd smiles': 'CBD',
+  'mashreq solitaire': 'MASH',
+  'sunil enbd': 'ENBD',
+  'eib skywards infinite': 'EIB',
+  'adcb lulu card': 'ADCB-LULU',
+  'eib black card': 'EIB-BLACK',
+  'eib rta card': 'EIB-RTA',
+  'fab world': 'FAB',
+  'fab blue': 'FAB-BLU',
+  'adcb - primary': 'ADCB',
+  'adcb primary': 'ADCB',
+  'scb manhattan': 'SCB-MAN',
+  'scb journey': 'SCB-JRNY',
+  'fab world (farhana)': 'FAB-WORLD',
+};
+
+function normalizeCreditCardBankLookupKey(bank: string): string {
+  return bank
+    .toLowerCase()
+    .replace(/[_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Short bank label for statement UI (e.g. Emirates NBD Etihad → ENBD-EH). */
+export function displayCreditCardBankShortName(bank: string | undefined | null): string {
+  const t = String(bank ?? '').trim();
+  if (!t) return '';
+  const key = normalizeCreditCardBankLookupKey(t);
+  return CREDIT_CARD_BANK_SHORT_NAMES[key] ?? t;
+}
+
+/** Display-only mask: first 4 + **** **** + last 4 (e.g. `5313 **** **** 7036`). */
+export function maskCreditCardNumber(cardNo: string | undefined | null): string {
+  const digits = String(cardNo ?? '').replace(/\D/g, '');
+  if (digits.length < 8) {
+    return digits || String(cardNo ?? '').trim();
+  }
+  return `${digits.slice(0, 4)} **** **** ${digits.slice(-4)}`;
 }
 
 // API Response interface for Credit Card Statements (snake_case from backend)
@@ -169,13 +220,36 @@ export function mapCardStatementPaymentFromApi(item: unknown): CardStatementPaym
   };
 }
 
-/** Build PATCH payments array from edit-form amount strings. */
+/** One editable partial payment / EPP line (amount + optional paid-at date). */
+export type StatementPartialPaymentEdit = {
+  amount: string;
+  /** Display date (DD-MMM-YY / parseable); sent as `paid_at` YYYY-MM-DD */
+  paidAt: string;
+};
+
+/** PATCH / change-request payment row */
+export type StatementPaymentPayload = {
+  amount: number;
+  paid_at?: string;
+};
+
+/** Build PATCH payments array from edit-form amount + date rows. */
 export function statementPaymentsPayloadFromAmounts(
-  amounts: string[]
-): { amount: number }[] {
-  return amounts
-    .filter((a) => a !== '' && a != null)
-    .map((a) => ({ amount: parseMoneyInput(a) }));
+  rows: StatementPartialPaymentEdit[] | string[]
+): StatementPaymentPayload[] {
+  const normalized: StatementPartialPaymentEdit[] = rows.map((row) =>
+    typeof row === 'string' ? { amount: row, paidAt: '' } : row
+  );
+  return normalized
+    .filter((r) => r.amount !== '' && r.amount != null)
+    .map((r) => {
+      const payload: StatementPaymentPayload = { amount: parseMoneyInput(r.amount) };
+      const paidAt = String(r.paidAt ?? '').trim();
+      if (paidAt) {
+        payload.paid_at = formatDateForApi(paidAt);
+      }
+      return payload;
+    });
 }
 
 export interface PaidAgainstOptionApiResponse {
@@ -680,8 +754,8 @@ export const creditCardService = {
       minPaymentDue?: number;
       paid?: number;
       epp?: number;
-      payments?: { amount: number }[];
-      eppPayments?: { amount: number }[];
+      payments?: StatementPaymentPayload[];
+      eppPayments?: StatementPaymentPayload[];
     },
     month?: string
   ): Promise<ApiResponse<CreditCardStatement>> => {
@@ -732,8 +806,8 @@ export const creditCardService = {
       totalPaymentDue?: number;
       minPaymentDue?: number;
       epp?: number;
-      payments?: { amount: number }[];
-      eppPayments?: { amount: number }[];
+      payments?: StatementPaymentPayload[];
+      eppPayments?: StatementPaymentPayload[];
     }
   ): Promise<ApiResponse<CreditCardStatement>> => {
     let url = `/statements/${id}/attachment`;
@@ -853,6 +927,8 @@ export const creditCardService = {
     year?: number;
     /** Month indices 0–11. Omit (or pass full year) to fetch all months for the year — no `months` query param. */
     months?: number[];
+    /** Optional: `paid` | `epp` */
+    paymentType?: 'paid' | 'epp';
   }): Promise<ApiResponse<any[]>> => {
     let url = '/credit-card-payments';
     
@@ -871,6 +947,9 @@ export const creditCardService = {
         params.push(`months=${monthNumbers.join(',')}`);
       }
     }
+    if (options?.paymentType === 'paid' || options?.paymentType === 'epp') {
+      params.push(`payment_type=${options.paymentType}`);
+    }
     
     if (params.length > 0) {
       url += `?${params.join('&')}`;
@@ -880,17 +959,22 @@ export const creditCardService = {
     
     if (response.success && response.data) {
       // Map snake_case API response to camelCase
-      const mappedData = response.data.map((item: any) => ({
-        id: String(item.id || ''),
-        createdAt: item.created_at || item.createdAt || '',
-        paymentDate: item.payment_date || '',
-        cardHolder: item.card_holder || '',
-        cardNo: item.card_no || item.card_number || '',
-        issuingBank: item.issuing_bank || '',
-        amount: item.amount !== null && item.amount !== undefined ? Number(item.amount) : 0,
-        paidAgainst: item.paid_against || item.paidAgainst || '',
-        remarks: item.remarks || '',
-      }));
+      const mappedData = response.data.map((item: any) => {
+        const rawType = String(item.payment_type ?? item.paymentType ?? 'paid').toLowerCase();
+        const paymentType: 'paid' | 'epp' = rawType === 'epp' ? 'epp' : 'paid';
+        return {
+          id: String(item.id || ''),
+          createdAt: item.created_at || item.createdAt || '',
+          paymentDate: item.payment_date || '',
+          cardHolder: item.card_holder || '',
+          cardNo: item.card_no || item.card_number || '',
+          issuingBank: item.issuing_bank || '',
+          amount: item.amount !== null && item.amount !== undefined ? Number(item.amount) : 0,
+          paidAgainst: item.paid_against || item.paidAgainst || '',
+          remarks: item.remarks || '',
+          paymentType,
+        };
+      });
       
       return {
         ...response,
@@ -910,6 +994,8 @@ export const creditCardService = {
     amount: number;
     paidAgainst?: string;
     remarks?: string;
+    /** `paid` (default) | `epp` */
+    paymentType?: 'paid' | 'epp';
   }): Promise<ApiResponse<any>> => {
     // Convert to API format (snake_case)
     const payload: any = {
@@ -936,6 +1022,10 @@ export const creditCardService = {
     if (data.paidAgainst !== undefined) {
       payload.paid_against = data.paidAgainst;
     }
+
+    if (data.paymentType === 'paid' || data.paymentType === 'epp') {
+      payload.payment_type = data.paymentType;
+    }
     
     return api.post<any>('/credit-card-payments', payload);
   },
@@ -951,6 +1041,8 @@ export const creditCardService = {
       amount?: number;
       paidAgainst?: string;
       remarks?: string;
+      /** `paid` | `epp` */
+      paymentType?: 'paid' | 'epp';
     }
   ): Promise<ApiResponse<any>> => {
     // Convert to API format (snake_case)
@@ -982,6 +1074,10 @@ export const creditCardService = {
 
     if (data.paidAgainst !== undefined) {
       payload.paid_against = data.paidAgainst;
+    }
+
+    if (data.paymentType === 'paid' || data.paymentType === 'epp') {
+      payload.payment_type = data.paymentType;
     }
     
     return api.patch<any>(`/credit-card-payments/${id}`, payload);

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import Sidebar from './Sidebar';
 import { PanelLeft, PanelRight } from 'lucide-react';
+import { APP_SIDEBAR_OPEN_EVENT } from '../lib/sidebarControl';
 
 interface LayoutProps {
   children: ReactNode;
@@ -16,6 +17,19 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     localStorage.setItem('sidebarOpen', String(isSidebarOpen));
   }, [isSidebarOpen]);
+
+  useEffect(() => {
+    const onSidebarOpenEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      if (typeof detail?.open === 'boolean') {
+        setIsSidebarOpen(detail.open);
+      }
+    };
+    window.addEventListener(APP_SIDEBAR_OPEN_EVENT, onSidebarOpenEvent);
+    return () => {
+      window.removeEventListener(APP_SIDEBAR_OPEN_EVENT, onSidebarOpenEvent);
+    };
+  }, []);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -64,4 +78,3 @@ export default function Layout({ children }: LayoutProps) {
     </div>
   );
 }
-

@@ -40,7 +40,9 @@ import {
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import { 
     creditCardService, 
+    displayCreditCardHolderName,
     mapApiResponseToCreditCardDetail,
+    maskCreditCardNumber,
     type CreditCardDetail 
 } from '../services/creditCardService';
 import { canManageCreditCards, creditCardAdminOnlyMessage } from '../lib/authPayload';
@@ -147,11 +149,7 @@ export default function CreditCardDetails() {
         }
     }, [isModalOpen, form]);
 
-    const formatCardNumber = (cardNo: string) => {
-        if (!cardNo) return '';
-        // Return full card number as is (with spaces if present)
-        return cardNo;
-    };
+    const formatCardNumber = (cardNo: string) => maskCreditCardNumber(cardNo);
 
  
 
@@ -526,7 +524,7 @@ export default function CreditCardDetails() {
                                                 {card.issuingBank}
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                            {displayCreditCardHolderName(card.cardHolder)}
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                 {formatCardNumber(card.cardNo)}

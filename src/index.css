@@ -138,6 +138,11 @@
 .cc-statement-table thead th {
   background-color: #87CEEB !important;
 }
+
+.cc-statement-table td {
+  overflow: hidden;
+  vertical-align: middle;
+}
 .bank-tx-ledger tbody tr[data-row-bg='bounce'] > td {
   background-color: #95dcf7 !important;
 }

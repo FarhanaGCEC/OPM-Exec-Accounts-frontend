@@ -15,17 +15,30 @@ import { StatementAttachmentTableCell } from '../components/StatementAttachmentT
 import {
     appendStatementAttachmentToChangePayload,
     creditCardService,
+    displayCreditCardBankShortName,
     displayCreditCardHolderName,
     getDefaultStatementPeriod,
     statementPaymentsPayloadFromAmounts,
     statementPeriodMonthKey,
     validateStatementPdfFile,
+    type CardStatementPayment,
     type CreditCardStatement,
+    type StatementPartialPaymentEdit,
+    type StatementPaymentPayload,
 } from '../services/creditCardService';
+import Calendar from '../components/ui/calendar-tailwind';
+import {
+    formatDateForApi,
+    formatDisplayYear,
+    formatIsoDateDisplay,
+    formatJsDateDisplay,
+    parseCalendarDateLocal,
+} from '../lib/formatDisplayDate';
 import { changeRequestService } from '../services/changeRequestService';
 import type { ApiResponse } from '../lib/api';
 import { userMessageFromChangeRequestSubmit } from '../lib/changeRequestUi';
 import { isApprovalRequiredError } from '../lib/approvalError';
+import { setAppSidebarOpen } from '../lib/sidebarControl';
 import * as XLSX from 'xlsx';
 import {
   applyXlsxArialToWorkbook,
@@ -37,8 +50,8 @@ import {
     canSaveStatementsDirectly,
     usesStatementDeleteApprovalFlow,
 } from '../lib/authPayload';
-import { formatDisplayYear } from '../lib/formatDisplayDate';
 import { moneyFromApi, parseMoneyInput, roundMoney, sumMoney } from '../lib/money';
+import { mutationErrorMessage } from '../lib/changeRequestUi';
 import {
     useRegisterStatementApprovalSubmit,
     useStatementApprovalModal,
@@ -49,6 +62,8 @@ import {
 interface GroupedStatements {
     [monthKey: string]: CreditCardStatement[];
 }
+
+type ToastState = { type: 'error' | 'success'; message: string };
 
 interface StatementTotals {
     totalPaymentDue: number;
@@ -67,25 +82,50 @@ const STATEMENT_MONTH_BAR_CLASS =
 const STATEMENT_COLUMN_HEAD_CELL_CLASS =
     'bg-[#87CEEB] font-semibold text-black text-sm text-left py-1';
 
-/** Card holder display name with last 4 digits, e.g. "MST (7036)". */
-function formatStatementCardHolderLabel(
+/** Statement identity line: holder short + bank short + last 4, e.g. "MST ENBD-EH 2427". */
+function formatStatementCardIdentityLabel(
     cardHolder: string | undefined | null,
-    cardNumber: string | undefined | null
+    cardNumber: string | undefined | null,
+    issuingBank: string | undefined | null
 ): string {
-    const name = displayCreditCardHolderName(cardHolder);
+    const holder = displayCreditCardHolderName(cardHolder);
+    const bank = displayCreditCardBankShortName(issuingBank);
     const digits = String(cardNumber ?? '').replace(/\D/g, '');
     const last4 = digits.slice(-4);
-    if (name && last4) return `${name} (${last4})`;
-    if (name) return name;
-    if (last4) return `(${last4})`;
-    return '';
+    return [holder, bank, last4].filter(Boolean).join(' ');
 }
 
-function renderStatementTableHeadRow(showMinPaymentDue: boolean, canMutate: boolean) {
+/** Single-line Card Holder + Issuing Bank + last 4. */
+function StatementCardIdentityCell({
+    cardHolder,
+    cardNumber,
+    issuingBank,
+}: {
+    cardHolder: string | undefined | null;
+    cardNumber: string | undefined | null;
+    issuingBank: string | undefined | null;
+}) {
+    const label = formatStatementCardIdentityLabel(cardHolder, cardNumber, issuingBank);
+    const fullBank = String(issuingBank ?? '').trim();
+    const shortBank = displayCreditCardBankShortName(issuingBank);
+    const title = [label, fullBank && fullBank !== shortBank ? fullBank : '']
+        .filter(Boolean)
+        .join(' · ');
+    return (
+        <div className="min-w-0 max-w-full leading-tight" title={title || undefined}>
+            {label ? (
+                <div className="truncate text-gray-700 !text-xs font-normal">{label}</div>
+            ) : (
+                <span className="text-gray-400">—</span>
+            )}
+        </div>
+    );
+}
+
+function renderStatementTableHeadRow(showMinPaymentDue: boolean, _canMutate: boolean) {
     return (
         <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Card Holder</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Issuing Bank</TableHead>
+            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Card</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Statement Date</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Due Date</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Total Payment Due</TableHead>
@@ -96,9 +136,7 @@ function renderStatementTableHeadRow(showMinPaymentDue: boolean, canMutate: bool
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>EPP</TableHead>
             <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Amount Pending</TableHead>
             <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>File</TableHead>
-            {canMutate && (
-                <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>Actions</TableHead>
-            )}
+            <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>Actions</TableHead>
         </TableRow>
     );
 }
@@ -162,9 +200,11 @@ export default function CreditCardStatements() {
     const [editValues, setEditValues] = useState<{
         totalPaymentDue: string;
         minPaymentDue: string;
-        payments: string[];
-        eppPayments: string[];
+        payments: StatementPartialPaymentEdit[];
+        eppPayments: StatementPartialPaymentEdit[];
     } | null>(null);
+    /** Which partial payment date popover is open: `payments-0` / `eppPayments-1`. */
+    const [openPartialDateKey, setOpenPartialDateKey] = useState<string | null>(null);
     /** New PDF → POST /statements/:id/attachment */
     const [statementAttachmentFile, setStatementAttachmentFile] = useState<File | null>(null);
     const [saving, setSaving] = useState(false);
@@ -175,6 +215,7 @@ export default function CreditCardStatements() {
         Record<string, boolean>
     >({});
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [toast, setToast] = useState<ToastState | null>(null);
     const successBannerRef = useRef<HTMLDivElement>(null);
     const monthSectionRefs = useRef<Partial<Record<string, HTMLDivElement>>>({});
     const didScrollToSecondMonthOnLoad = useRef(false);
@@ -346,17 +387,16 @@ export default function CreditCardStatements() {
     };
 
     const getStatementTableColSpan = (showMinPaymentDue: boolean): number => {
-        const baseColumns = showMinPaymentDue ? 10 : 9;
-        return canMutate ? baseColumns + 1 : baseColumns;
+        // Card, dates, amounts, pending, file, actions (+ optional min due)
+        return showMinPaymentDue ? 10 : 9;
     };
 
     const renderStatementColGroup = (showMinPaymentDue: boolean) => {
-        // Card Holder, Issuing Bank, Statement Date, Due Date, Total Payment Due
-        const weights = [12, 14, 8, 8, 10];
-        if (showMinPaymentDue) weights.push(8);
-        // Paid, EPP, Amount Pending, File, Actions — keep File/Actions tight (icons only)
-        weights.push(8, 8, 9, 4);
-        if (canMutate) weights.push(4);
+        // Card (holder+bank), Statement Date, Due Date, Total Payment Due
+        const weights = [16, 8, 8, 9];
+        if (showMinPaymentDue) weights.push(7);
+        // Paid + EPP wider (amount + date side-by-side); File/Actions stay tight
+        weights.push(13, 13, 8, 4, 5);
         const total = weights.reduce((sum, w) => sum + w, 0);
         const widths = weights.map((w) => `${((w / total) * 100).toFixed(3)}%`);
         return (
@@ -457,6 +497,140 @@ export default function CreditCardStatements() {
         return `AED ${normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
+    const formatPaymentRowDate = (paidAt: string | null | undefined): string => {
+        if (!paidAt) return '—';
+        const d = formatIsoDateDisplay(paidAt);
+        return d === '—' ? String(paidAt) : d;
+    };
+
+    /** Resolve payment / EPP lines for accordion / edit (same synthesize rules). */
+    const getStatementPaymentDetailRows = (
+        rows: CreditCardStatement['payments'],
+        total: number
+    ): CardStatementPayment[] => {
+        if (rows && rows.length > 0) return rows;
+        const amount = moneyFromApi(total);
+        if (amount > 0) {
+            return [{ id: null, amount, paidAt: null, note: null, sortOrder: 0 }];
+        }
+        return [];
+    };
+
+    /** Multiple payment/EPP lines = partial breakdown → accordion always expanded. */
+    const isPartialPaymentBreakdown = (rowCount: number): boolean => rowCount > 1;
+
+    const renderPartialAmountsView = (
+        card: CreditCardStatement,
+        field: 'payments' | 'eppPayments',
+        _periodKey?: string
+    ) => {
+        const total = field === 'payments' ? card.paid : card.epp;
+        const rows = getStatementPaymentDetailRows(
+            field === 'payments' ? card.payments : card.eppPayments,
+            total
+        );
+        const totalMoney = moneyFromApi(total);
+
+        // 0 or 1 line = not partial breakdown → plain total, no accordion
+        if (!isPartialPaymentBreakdown(rows.length)) {
+            return (
+                <span className=" tabular-nums">{formatCurrency(totalMoney)}</span>
+            );
+        }
+
+        return (
+            <div className="min-w-[10rem] max-w-[14rem]">
+                <div className="space-y-1 rounded-md border border-gray-200 bg-white/80 px-2 py-1.5">
+                    {rows.map((row, index) => (
+                        <div
+                            key={row.id ?? `${field}-${index}`}
+                            className="flex items-baseline justify-between gap-2 text-xs"
+                        >
+                            <span className="shrink-0 text-xs text-gray-600">
+                                {formatPaymentRowDate(row.paidAt)}
+                            </span>
+                            <span className="tabular-nums font-medium text-gray-900 text-right">
+                                {formatCurrency(moneyFromApi(row.amount))}
+                            </span>
+                        </div>
+                    ))}
+                    <div className="flex items-baseline justify-between gap-2 border-t border-gray-100 pt-1 text-xs  text-gray-700">
+                        <span>Total</span>
+                        <span className="tabular-nums">{formatCurrency(totalMoney)}</span>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const renderStatementActionsCell = (
+        card: CreditCardStatement,
+        periodKey?: string
+    ) => {
+        const editing = isEditingStatement(card, periodKey);
+        return (
+            <TableCell
+                className={`text-gray-700 text-sm py-1 text-left px-2${
+                    editing ? ' align-top' : ''
+                }`}
+            >
+                {editing ? (
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (card.id) {
+                                    void handleSave(String(card.id), periodKey);
+                                }
+                            }}
+                            disabled={saving || deletingAttachment || !card.id}
+                            className="h-8 w-8 p-0 shrink-0 bg-green-500 hover:bg-green-600 text-white border-0"
+                        >
+                            {saving ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <Check className="w-4 h-4" />
+                            )}
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleCancelEdit}
+                            disabled={saving || deletingAttachment}
+                            className="h-8 w-8 p-0 shrink-0 bg-red-500 hover:bg-red-600 text-white border-0"
+                        >
+                            <X className="w-4 h-4" />
+                        </Button>
+                    </div>
+                ) : canMutate ? (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (card.id) {
+                                handleEdit(card, periodKey);
+                            }
+                        }}
+                        disabled={!card.id}
+                        className="h-8 w-8 p-0 text-black hover:bg-[#f7c46d]/40"
+                        title="Edit statement"
+                        aria-label="Edit statement"
+                    >
+                        <Pencil className="w-4 h-4 text-black" />
+                    </Button>
+                ) : (
+                    <span className="text-gray-300">—</span>
+                )}
+            </TableCell>
+        );
+    };
+
     const sanitizeSignedDecimalInput = (value: string): string => {
         let sanitized = value.replace(/[^0-9.-]/g, '');
         const isNegative = sanitized.startsWith('-');
@@ -487,54 +661,73 @@ export default function CreditCardStatements() {
 
     type PartialAmountField = 'payments' | 'eppPayments';
 
-    const partialAmountsToEditableStrings = (
-        rows: CreditCardStatement['payments'],
-        total: number
-    ): string[] => {
-        if (rows && rows.length > 0) {
-            return rows.map((p) => toEditableMoneyFieldValue(p.amount));
-        }
-        if (moneyFromApi(total) > 0) return [toEditableMoneyFieldValue(total)];
-        return [''];
+    const toEditablePaidAtField = (paidAt: string | null | undefined): string => {
+        if (!paidAt) return '';
+        const formatted = formatIsoDateDisplay(paidAt);
+        return formatted === '—' ? '' : formatted;
     };
 
-    const paymentsToEditableStrings = (card: CreditCardStatement): string[] =>
-        partialAmountsToEditableStrings(card.payments, card.paid);
+    const partialAmountsToEditableRows = (
+        rows: CreditCardStatement['payments'],
+        total: number
+    ): StatementPartialPaymentEdit[] => {
+        if (rows && rows.length > 0) {
+            return rows.map((p) => ({
+                amount: toEditableMoneyFieldValue(p.amount),
+                paidAt: toEditablePaidAtField(p.paidAt),
+            }));
+        }
+        if (moneyFromApi(total) > 0) {
+            return [{ amount: toEditableMoneyFieldValue(total), paidAt: '' }];
+        }
+        return [{ amount: '', paidAt: '' }];
+    };
 
-    const eppPaymentsToEditableStrings = (card: CreditCardStatement): string[] =>
-        partialAmountsToEditableStrings(card.eppPayments, card.epp);
+    const paymentsToEditableRows = (card: CreditCardStatement): StatementPartialPaymentEdit[] =>
+        partialAmountsToEditableRows(card.payments, card.paid);
 
-    const partialAmountsEditTotal = (amounts: string[]): number =>
+    const eppPaymentsToEditableRows = (card: CreditCardStatement): StatementPartialPaymentEdit[] =>
+        partialAmountsToEditableRows(card.eppPayments, card.epp);
+
+    const partialAmountsEditTotal = (rows: StatementPartialPaymentEdit[]): number =>
         sumMoney(
-            amounts
-                .filter((a) => a !== '' && a != null)
-                .map((a) => parseMoneyInput(a))
+            rows
+                .filter((r) => r.amount !== '' && r.amount != null)
+                .map((r) => parseMoneyInput(r.amount))
         );
 
     const partialAmountsEditMatchesCard = (
         rows: CreditCardStatement['payments'],
         total: number,
-        amounts: string[]
+        edited: StatementPartialPaymentEdit[]
     ): boolean => {
         const existing =
             rows && rows.length > 0
-                ? rows.map((p) => moneyFromApi(p.amount))
+                ? rows.map((p) => ({
+                      amount: moneyFromApi(p.amount),
+                      paidAt: p.paidAt ? formatDateForApi(p.paidAt) : '',
+                  }))
                 : moneyFromApi(total) > 0
-                  ? [moneyFromApi(total)]
+                  ? [{ amount: moneyFromApi(total), paidAt: '' }]
                   : [];
-        const edited = statementPaymentsPayloadFromAmounts(amounts).map((p) => p.amount);
-        if (existing.length !== edited.length) return false;
-        return existing.every((v, i) => v === edited[i]);
+        const payload = statementPaymentsPayloadFromAmounts(edited).map((p) => ({
+            amount: p.amount,
+            paidAt: p.paid_at ?? '',
+        }));
+        if (existing.length !== payload.length) return false;
+        return existing.every(
+            (v, i) => v.amount === payload[i].amount && v.paidAt === payload[i].paidAt
+        );
     };
 
     const paymentsEditMatchesCard = (
         card: CreditCardStatement,
-        amounts: string[]
+        amounts: StatementPartialPaymentEdit[]
     ): boolean => partialAmountsEditMatchesCard(card.payments, card.paid, amounts);
 
     const eppPaymentsEditMatchesCard = (
         card: CreditCardStatement,
-        amounts: string[]
+        amounts: StatementPartialPaymentEdit[]
     ): boolean => partialAmountsEditMatchesCard(card.eppPayments, card.epp, amounts);
 
     const getDisplayAmountPending = (statement: CreditCardStatement): number => {
@@ -651,9 +844,11 @@ export default function CreditCardStatements() {
         setEditValues({
             totalPaymentDue: toEditableMoneyFieldValue(card.totalPaymentDue),
             minPaymentDue: toEditableMoneyFieldValue(card.minPaymentDue),
-            payments: paymentsToEditableStrings(card),
-            eppPayments: eppPaymentsToEditableStrings(card),
+            payments: paymentsToEditableRows(card),
+            eppPayments: eppPaymentsToEditableRows(card),
         });
+        setOpenPartialDateKey(null);
+        setAppSidebarOpen(false);
     }, []);
 
     const exitStatementEditMode = () => {
@@ -661,7 +856,9 @@ export default function CreditCardStatements() {
         setEditingMonthKey(null);
         setEditValues(null);
         setStatementAttachmentFile(null);
+        setOpenPartialDateKey(null);
         resetStatementTableScroll();
+        setAppSidebarOpen(true);
     };
 
     const handleCancelEdit = () => {
@@ -689,6 +886,24 @@ export default function CreditCardStatements() {
         successBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, [successMessage]);
 
+    useEffect(() => {
+        if (!toast) return;
+        const timer = window.setTimeout(() => setToast(null), 4500);
+        return () => window.clearTimeout(timer);
+    }, [toast]);
+
+    const showToast = useCallback((type: ToastState['type'], message: string) => {
+        setToast({ type, message });
+    }, []);
+
+    const reportSaveError = useCallback(
+        (message: string) => {
+            setError(message);
+            showToast('error', message);
+        },
+        [showToast]
+    );
+
     const findStatementCard = (
         cardId: string,
         periodKey?: string | null
@@ -701,7 +916,12 @@ export default function CreditCardStatements() {
 
     const statementAmountsUnchanged = (
         card: CreditCardStatement,
-        values: { totalPaymentDue: string; minPaymentDue: string; payments: string[]; eppPayments: string[] }
+        values: {
+            totalPaymentDue: string;
+            minPaymentDue: string;
+            payments: StatementPartialPaymentEdit[];
+            eppPayments: StatementPartialPaymentEdit[];
+        }
     ): boolean =>
         parseMoneyInput(values.totalPaymentDue) === moneyFromApi(card.totalPaymentDue) &&
         parseMoneyInput(values.minPaymentDue) === moneyFromApi(card.minPaymentDue) &&
@@ -758,9 +978,9 @@ export default function CreditCardStatements() {
         totalPaymentDue: number;
         minPaymentDue: number;
         paid: number;
-        payments: { amount: number }[];
+        payments: StatementPaymentPayload[];
         epp: number;
-        eppPayments: { amount: number }[];
+        eppPayments: StatementPaymentPayload[];
         attachmentFile?: File | null;
         amountsUnchanged?: boolean;
     }): boolean => {
@@ -883,7 +1103,7 @@ export default function CreditCardStatements() {
         if (!editValues) return;
         const validCardId = String(cardId);
         if (!validCardId || validCardId === 'null' || validCardId === 'undefined' || validCardId === '') {
-            setError('Invalid card ID');
+            reportSaveError('Invalid card ID');
             return;
         }
 
@@ -903,11 +1123,11 @@ export default function CreditCardStatements() {
         if (newAttachment) {
             const fileErr = validateStatementPdfFile(newAttachment);
             if (fileErr) {
-                setError(fileErr);
+                reportSaveError(fileErr);
                 return;
             }
         } else if (amountsUnchanged) {
-            setError('No changes to save');
+            reportSaveError('No changes to save');
             return;
         }
 
@@ -944,7 +1164,7 @@ export default function CreditCardStatements() {
                         monthParam
                     );
                     if (!uploadRes.success || !uploadRes.data) {
-                        setError(uploadRes.message || 'Failed to upload statement PDF');
+                        reportSaveError(uploadRes.message || 'Failed to upload statement PDF');
                         return;
                     }
                     applySavedStatementToState(uploadRes.data, validCardId, updateBucketKey);
@@ -982,7 +1202,7 @@ export default function CreditCardStatements() {
             );
 
             if (!patchRes.success || !patchRes.data) {
-                setError(patchRes.message || 'Failed to update statement');
+                reportSaveError(patchRes.message || 'Failed to update statement');
                 return;
             }
 
@@ -995,7 +1215,7 @@ export default function CreditCardStatements() {
                     monthParam
                 );
                 if (!uploadRes.success || !uploadRes.data) {
-                    setError(
+                    reportSaveError(
                         uploadRes.message ||
                             'Statement saved, but PDF upload failed — try uploading the file again.'
                     );
@@ -1026,8 +1246,7 @@ export default function CreditCardStatements() {
                     amountsUnchanged,
                 });
             } else {
-                const errorMessage = err instanceof Error ? err.message : 'Failed to update statement';
-                setError(errorMessage);
+                reportSaveError(mutationErrorMessage(err) || 'Failed to update statement');
             }
         } finally {
             setSaving(false);
@@ -1051,10 +1270,10 @@ export default function CreditCardStatements() {
 
     const handlePartialAmountFocus = (field: PartialAmountField, index: number) => {
         if (!editValues) return;
-        if (isLoneZeroEditString(editValues[field][index])) {
-            const amounts = [...editValues[field]];
-            amounts[index] = '';
-            setEditValues({ ...editValues, [field]: amounts });
+        if (isLoneZeroEditString(editValues[field][index].amount)) {
+            const rows = [...editValues[field]];
+            rows[index] = { ...rows[index], amount: '' };
+            setEditValues({ ...editValues, [field]: rows });
         }
     };
 
@@ -1064,66 +1283,183 @@ export default function CreditCardStatements() {
         value: string
     ) => {
         if (!editValues) return;
-        const amounts = [...editValues[field]];
-        amounts[index] = normalizeEditFieldWhileTyping(amounts[index], value);
-        setEditValues({ ...editValues, [field]: amounts });
+        const rows = [...editValues[field]];
+        rows[index] = {
+            ...rows[index],
+            amount: normalizeEditFieldWhileTyping(rows[index].amount, value),
+        };
+        setEditValues({ ...editValues, [field]: rows });
+    };
+
+    const handlePartialPaidAtChange = (
+        field: PartialAmountField,
+        index: number,
+        value: string
+    ) => {
+        if (!editValues) return;
+        const rows = [...editValues[field]];
+        rows[index] = { ...rows[index], paidAt: value };
+        setEditValues({ ...editValues, [field]: rows });
+    };
+
+    const handlePartialPaidAtSelect = (
+        field: PartialAmountField,
+        index: number,
+        date: Date | null
+    ) => {
+        if (!editValues || !date) return;
+        const rows = [...editValues[field]];
+        rows[index] = { ...rows[index], paidAt: formatJsDateDisplay(date) };
+        setEditValues({ ...editValues, [field]: rows });
+        setOpenPartialDateKey(null);
     };
 
     const addPartialAmountLine = (field: PartialAmountField) => {
         if (!editValues) return;
-        setEditValues({ ...editValues, [field]: [...editValues[field], ''] });
+        setEditValues({
+            ...editValues,
+            [field]: [...editValues[field], { amount: '', paidAt: '' }],
+        });
     };
 
     const removePartialAmountLine = (field: PartialAmountField, index: number) => {
         if (!editValues) return;
-        const amounts = editValues[field].filter((_, i) => i !== index);
-        setEditValues({ ...editValues, [field]: amounts.length > 0 ? amounts : [''] });
+        const rows = editValues[field].filter((_, i) => i !== index);
+        setEditValues({
+            ...editValues,
+            [field]: rows.length > 0 ? rows : [{ amount: '', paidAt: '' }],
+        });
+        setOpenPartialDateKey(null);
+    };
+
+    const calendarDefaultMonthFromPeriod = (periodKey?: string | null): Date => {
+        const key =
+            periodKey ||
+            editingMonthKey ||
+            (selectedMonths.length > 0
+                ? statementPeriodMonthKey(selectedYear, selectedMonths[0], selectedMonths)
+                : null);
+        if (key) {
+            const [yStr, mStr] = key.split('-');
+            const y = Number(yStr);
+            const m = Number(mStr);
+            if (!Number.isNaN(y) && !Number.isNaN(m) && m >= 1 && m <= 12) {
+                return new Date(y, m - 1, 1);
+            }
+        }
+        return new Date(
+            selectedYear,
+            selectedMonths.length > 0 ? selectedMonths[0] : new Date().getMonth(),
+            1
+        );
     };
 
     const renderPartialAmountsEdit = (
         field: PartialAmountField,
         addLabel: string,
-        removeAriaLabel: string
+        removeAriaLabel: string,
+        periodKey?: string | null
     ) => {
         if (!editValues) return null;
-        const amounts = editValues[field];
-        const total = partialAmountsEditTotal(amounts);
+        const rows = editValues[field];
+        const total = partialAmountsEditTotal(rows);
+        const calendarDefaultMonth = calendarDefaultMonthFromPeriod(periodKey);
         return (
-            <div className="space-y-1 w-full max-w-full">
-                {amounts.map((amount, index) => (
-                    <div key={index} className="flex items-center gap-1">
-                        <input
-                            type="text"
-                            inputMode="decimal"
-                            pattern="-?[0-9]*[.]?[0-9]*"
-                            value={amount}
-                            onFocus={() => handlePartialAmountFocus(field, index)}
-                            onChange={(e) =>
-                                handlePartialAmountChange(field, index, e.target.value)
-                            }
-                            className="w-full min-w-0 px-2 py-1 border border-gray-300 rounded text-sm"
-                        />
-                        {amounts.length > 1 && (
-                            <button
-                                type="button"
-                                onClick={() => removePartialAmountLine(field, index)}
-                                className="shrink-0 p-0.5 text-gray-400 hover:text-red-600"
-                                aria-label={removeAriaLabel}
+            <div className="flex w-full min-w-[11.5rem] flex-col gap-1.5 box-border">
+                {rows.map((row, index) => {
+                    const dateKey = `${field}-${index}`;
+                    const selectedDate = row.paidAt
+                        ? parseCalendarDateLocal(row.paidAt)
+                        : null;
+                    const isDateOpen = openPartialDateKey === dateKey;
+                    return (
+                        <div key={index} className="flex w-full items-center gap-1">
+                            <Popover
+                                open={isDateOpen}
+                                onOpenChange={(open) =>
+                                    setOpenPartialDateKey(open ? dateKey : null)
+                                }
                             >
-                                <X className="w-3.5 h-3.5" />
-                            </button>
-                        )}
-                    </div>
-                ))}
+                                <div className="relative min-w-0 flex-1">
+                                    <input
+                                        type="text"
+                                        placeholder="Date"
+                                        value={row.paidAt}
+                                        onChange={(e) =>
+                                            handlePartialPaidAtChange(
+                                                field,
+                                                index,
+                                                e.target.value.slice(0, 11)
+                                            )
+                                        }
+                                        maxLength={11}
+                                        className="w-full min-w-0 px-1.5 py-1 pr-6 border border-gray-300 rounded text-xs !text-xs"
+                                        aria-label="Payment date"
+                                    />
+                                    <PopoverTrigger asChild>
+                                        <button
+                                            type="button"
+                                            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                                            aria-label="Open calendar"
+                                        >
+                                            <CalendarIcon className="w-3.5 h-3.5" />
+                                        </button>
+                                    </PopoverTrigger>
+                                </div>
+                                <PopoverContent
+                                    className="w-auto p-0"
+                                    align="start"
+                                    side="bottom"
+                                    sideOffset={6}
+                                    collisionPadding={16}
+                                >
+                                    {isDateOpen ? (
+                                        <Calendar
+                                            key={`${dateKey}-${calendarDefaultMonth.getFullYear()}-${calendarDefaultMonth.getMonth()}`}
+                                            date={selectedDate}
+                                            defaultMonth={calendarDefaultMonth}
+                                            onSelect={(date) =>
+                                                handlePartialPaidAtSelect(field, index, date)
+                                            }
+                                        />
+                                    ) : null}
+                                </PopoverContent>
+                            </Popover>
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                pattern="-?[0-9]*[.]?[0-9]*"
+                                value={row.amount}
+                                onFocus={() => handlePartialAmountFocus(field, index)}
+                                onChange={(e) =>
+                                    handlePartialAmountChange(field, index, e.target.value)
+                                }
+                                placeholder="Amount"
+                                className="w-[42%] min-w-0 shrink px-1.5 py-1 border border-gray-300 rounded text-sm"
+                                aria-label="Amount"
+                            />
+                            {rows.length > 1 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => removePartialAmountLine(field, index)}
+                                    className="shrink-0 p-0.5 text-gray-400 hover:text-red-600"
+                                    aria-label={removeAriaLabel}
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            ) : null}
+                        </div>
+                    );
+                })}
                 <button
                     type="button"
                     onClick={() => addPartialAmountLine(field)}
-                    className="flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-800"
+                    className="flex items-center gap-0.5 self-start text-xs text-blue-600 hover:text-blue-800"
                 >
                     <Plus className="w-3 h-3" />
                     {addLabel}
                 </button>
-                <div className="text-xs text-gray-500 font-medium">
+                <div className="text-xs text-gray-500 font-medium whitespace-nowrap border-t border-gray-100 pt-1">
                     Total: {formatCurrency(total)}
                 </div>
             </div>
@@ -1282,8 +1618,12 @@ export default function CreditCardStatements() {
                     // Add statement rows
                     statements.forEach((card) => {
                         excelData.push([
-                            formatStatementCardHolderLabel(card.cardHolder, card.card_number),
-                            card.issuingBank || '',
+                            formatStatementCardIdentityLabel(
+                                card.cardHolder,
+                                card.card_number,
+                                card.issuingBank
+                            ),
+                            displayCreditCardBankShortName(card.issuingBank) || '',
                             formatDate(card.statement_date || ''),
                             formatDate(card.due_date || ''),
                             moneyFromApi(card.totalPaymentDue),
@@ -1312,8 +1652,8 @@ export default function CreditCardStatements() {
 
                     // Set column widths
                     worksheet['!cols'] = [
-                        { wch: 18 }, // Card Holder
-                        { wch: 20 }, // Issuing Bank
+                        { wch: 28 }, // Card Holder
+                        { wch: 14 }, // Issuing Bank
                         { wch: 15 }, // Statement Date
                         { wch: 15 }, // Due Date
                         { wch: 18 }, // Total Payment Due
@@ -1395,8 +1735,12 @@ export default function CreditCardStatements() {
             // Add statement rows
             creditCards.forEach((card) => {
                 excelData.push([
-                    formatStatementCardHolderLabel(card.cardHolder, card.card_number),
-                    card.issuingBank || '',
+                    formatStatementCardIdentityLabel(
+                        card.cardHolder,
+                        card.card_number,
+                        card.issuingBank
+                    ),
+                    displayCreditCardBankShortName(card.issuingBank) || '',
                     formatDate(card.statement_date || ''),
                     formatDate(card.due_date || ''),
                     moneyFromApi(card.totalPaymentDue),
@@ -1425,8 +1769,8 @@ export default function CreditCardStatements() {
 
             // Set column widths
             worksheet['!cols'] = [
-                { wch: 18 }, // Card Holder
-                { wch: 20 }, // Issuing Bank
+                { wch: 28 }, // Card Holder
+                { wch: 14 }, // Issuing Bank
                 { wch: 15 }, // Statement Date
                 { wch: 15 }, // Due Date
                 { wch: 18 }, // Total Payment Due
@@ -1502,7 +1846,7 @@ export default function CreditCardStatements() {
                         variant="outline"
                         onClick={handleDownloadExcel}
                         disabled={loading || creditCards.length === 0}
-                        className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2 font-semibold"
+                        className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2 "
                     >
                         <Download className="w-4 h-4" />
                         <span>Download Excel</span>
@@ -1529,13 +1873,13 @@ export default function CreditCardStatements() {
                                 <div className="text-xs font-medium text-gray-600 mb-1">Selected Period</div>
                                 <div className="flex items-center space-x-2">
                                     <CalendarIcon className="w-4 h-4 text-gray-600" />
-                                    <span className="font-semibold text-black">{formatSelectedPeriod()}</span>
+                                    <span className=" text-black">{formatSelectedPeriod()}</span>
                                 </div>
                             </div>
 
                             {/* Year Selection */}
                             <div>
-                                <div className="text-sm font-semibold text-gray-700 mb-2">Select Year</div>
+                                <div className="text-sm  text-gray-700 mb-2">Select Year</div>
                                 <div className="flex gap-2">
                                     {years.map((year) => (
                                         <button
@@ -1555,7 +1899,7 @@ export default function CreditCardStatements() {
 
                             {/* Month Selection */}
                             <div>
-                                <div className="text-sm font-semibold text-gray-700 mb-2">Select Month</div>
+                                <div className="text-sm  text-gray-700 mb-2">Select Month</div>
                                 <div className="grid grid-cols-3 gap-2">
                                     {months.map((month, index) => (
                                         <button
@@ -1652,7 +1996,7 @@ export default function CreditCardStatements() {
                                         renderColGroup={renderStatementColGroup}
                                         monthBar={
                                             <>
-                                                <h3 className="text-lg font-bold text-black">
+                                                <h3 className="text-lg font-semibold text-black">
                                                     {monthName} {year}
                                                 </h3>
                                                 <Button
@@ -1684,7 +2028,7 @@ export default function CreditCardStatements() {
                                                 {statements.length === 0 ? (
                                                     <TableRow>
                                                         <TableCell colSpan={getStatementTableColSpan(showMinPaymentDue)} className="text-center py-4">
-                                                            <p className="text-sm text-gray-500">No statements found for {monthName} {year}.</p>
+                                                            <p className="text-sm font-bold text-gray-500">No statements found for {monthName} {year}.</p>
                                                         </TableCell>
                                                     </TableRow>
                                                 ) : (
@@ -1696,36 +2040,20 @@ export default function CreditCardStatements() {
                                                                     key={`${monthKey}-${card.id}`}
                                                                     className={getStatementRowClassName(card)}
                                                                 >
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                                        <div
-                                                                            className="truncate max-w-[9rem]"
-                                                                            title={formatStatementCardHolderLabel(
-                                                                                card.cardHolder,
-                                                                                card.card_number
-                                                                            )}
-                                                                        >
-                                                                            <span className="text-black font-bold" style={{ fontWeight: 900 }}>
-                                                                                {formatStatementCardHolderLabel(
-                                                                                    card.cardHolder,
-                                                                                    card.card_number
-                                                                                )}
-                                                                            </span>
-                                                                        </div>
+                                                                    <TableCell className="!text-xs text-gray-700 py-1 text-left !whitespace-normal overflow-hidden">
+                                                                        <StatementCardIdentityCell
+                                                                            cardHolder={card.cardHolder}
+                                                                            cardNumber={card.card_number}
+                                                                            issuingBank={card.issuingBank}
+                                                                        />
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
-                                                                        <div className="truncate max-w-[11rem]" title={card.issuingBank || ''}>
-                                                                            <span className="text-black font-bold" style={{ fontWeight: 900 }}>
-                                                                                {card.issuingBank}
-                                                                            </span>
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                                    <TableCell className="!text-xs text-gray-700 py-1 text-left tabular-nums">
                                                                         {formatDate(card.statement_date || '')}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                                    <TableCell className="!text-xs text-gray-700 py-1 text-left tabular-nums">
                                                                         {formatDate(card.due_date || '')}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
+                                                                    <TableCell className="text-gray-700  text-sm py-1 text-left">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
@@ -1741,7 +2069,7 @@ export default function CreditCardStatements() {
                                                                         )}
                                                                     </TableCell>
                                                                     {showMinPaymentDue && (
-                                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
+                                                                    <TableCell className="text-gray-700  text-sm py-1 text-left">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
@@ -1760,38 +2088,48 @@ export default function CreditCardStatements() {
                                                                     <TableCell
                                                                         className={`text-gray-700 text-sm py-1 text-left${
                                                                             isEditingStatement(card, monthKey)
-                                                                                ? ' align-top'
-                                                                                : ''
+                                                                                ? ' align-top !whitespace-normal overflow-hidden'
+                                                                                : ' align-top !whitespace-normal'
                                                                         }`}
                                                                     >
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             renderPartialAmountsEdit(
                                                                                 'payments',
                                                                                 'Add payment',
-                                                                                'Remove payment'
+                                                                                'Remove payment',
+                                                                                monthKey
                                                                             )
                                                                         ) : (
-                                                                            formatCurrency(card.paid)
+                                                                            renderPartialAmountsView(
+                                                                                card,
+                                                                                'payments',
+                                                                                monthKey
+                                                                            )
                                                                         )}
                                                                     </TableCell>
                                                                     <TableCell
                                                                         className={`text-gray-700 text-sm py-1 text-left${
                                                                             isEditingStatement(card, monthKey)
-                                                                                ? ' align-top'
-                                                                                : ''
+                                                                                ? ' align-top !whitespace-normal overflow-hidden'
+                                                                                : ' align-top !whitespace-normal'
                                                                         }`}
                                                                     >
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             renderPartialAmountsEdit(
                                                                                 'eppPayments',
                                                                                 'Add EPP',
-                                                                                'Remove EPP payment'
+                                                                                'Remove EPP payment',
+                                                                                monthKey
                                                                             )
                                                                         ) : (
-                                                                            formatCurrency(card.epp)
+                                                                            renderPartialAmountsView(
+                                                                                card,
+                                                                                'eppPayments',
+                                                                                monthKey
+                                                                            )
                                                                         )}
                                                                     </TableCell>
-                                                                    <TableCell className={`text-sm py-1 text-left font-semibold ${
+                                                                    <TableCell className={`text-sm py-1 text-left  ${
                                                                         amountPending > 0 ? 'text-red-600' : 'text-black'
                                                                     }`}>
                                                                         {formatCurrency(amountPending)}
@@ -1799,7 +2137,7 @@ export default function CreditCardStatements() {
                                                                     <TableCell
                                                                         className={`text-gray-700 text-sm py-1 text-left px-2${
                                                                             isEditingStatement(card, monthKey)
-                                                                                ? ' align-top !whitespace-normal overflow-hidden'
+                                                                                ? ' align-top !whitespace-normal !overflow-visible'
                                                                                 : ''
                                                                         }`}
                                                                     >
@@ -1834,92 +2172,30 @@ export default function CreditCardStatements() {
                                                                             }
                                                                         />
                                                                     </TableCell>
-                                                                    {canMutate && (
-                                                                    <TableCell
-                                                                        className={`text-gray-700 text-sm py-1 text-left px-2${
-                                                                            isEditingStatement(card, monthKey)
-                                                                                ? ' align-top'
-                                                                                : ''
-                                                                        }`}
-                                                                    >
-                                                                        {isEditingStatement(card, monthKey) ? (
-                                                                            <div className="flex flex-col gap-1.5 shrink-0">
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    onClick={(e) => {
-                                                                                        e.preventDefault();
-                                                                                        e.stopPropagation();
-                                                                                        if (card.id) {
-                                                                                            void handleSave(String(card.id), monthKey);
-                                                                                        }
-                                                                                    }}
-                                                                                    disabled={
-                                                                                        saving ||
-                                                                                        deletingAttachment ||
-                                                                                        !card.id
-                                                                                    }
-                                                                                    className="h-8 w-8 p-0 shrink-0 bg-green-500 hover:bg-green-600 text-white border-0"
-                                                                                >
-                                                                                    {saving ? (
-                                                                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                                                                    ) : (
-                                                                                        <Check className="w-4 h-4" />
-                                                                                    )}
-                                                                                </Button>
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    onClick={handleCancelEdit}
-                                                                                    disabled={saving || deletingAttachment}
-                                                                                    className="h-8 w-8 p-0 shrink-0 bg-red-500 hover:bg-red-600 text-white border-0"
-                                                                                >
-                                                                                    <X className="w-4 h-4" />
-                                                                                </Button>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="icon"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    if (card.id) {
-                                                                                        handleEdit(card, monthKey);
-                                                                                    }
-                                                                                }}
-                                                                                disabled={!card.id}
-                                                                                className="h-8 w-8 p-0 text-black hover:bg-[#f7c46d]/40"
-                                                                            >
-                                                                                <Pencil className="w-4 h-4 text-black" />
-                                                                            </Button>
-                                                                        )}
-                                                                    </TableCell>
-                                                                    )}
+                                                                    {renderStatementActionsCell(card, monthKey)}
                                                                 </TableRow>
                                                             );
                                                         })}
                                                         <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                            <TableCell colSpan={4} className="font-bold text-gray-900 py-1 text-right">
+                                                            <TableCell colSpan={3} className=" text-gray-900 py-1 text-right">
                                                                 Total
                                                             </TableCell>
-                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                            <TableCell className=" text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.totalPaymentDue)}
                                                             </TableCell>
                                                             {showMinPaymentDue && (
-                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                            <TableCell className=" text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.minPaymentDue)}
                                                             </TableCell>
                                                             )}
-                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                            <TableCell className=" text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.paid)}
                                                             </TableCell>
-                                                            <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                            <TableCell className=" text-gray-900 py-1 text-left">
                                                                 {formatCurrency(monthlyTotals.epp)}
                                                             </TableCell>
                                                             <TableCell
-                                                                className={`font-bold py-1 text-left ${
+                                                                className={` py-1 text-left ${
                                                                     roundMoney(monthlyTotals.amountPending) > 0
                                                                         ? 'text-red-600'
                                                                         : 'text-green-600'
@@ -1927,7 +2203,7 @@ export default function CreditCardStatements() {
                                                             >
                                                                 {formatCurrency(monthlyTotals.amountPending)}
                                                             </TableCell>
-                                                            <TableCell colSpan={canMutate ? 2 : 1} />
+                                                            <TableCell colSpan={2} />
                                                         </TableRow>
                                                     </>
                                                 )}
@@ -1954,13 +2230,12 @@ export default function CreditCardStatements() {
                 <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg">
                     <CardContent className="p-0">
                         <StatementTableSection
-                            showMinPaymentDue={showMinPaymentDue}
-                            canMutate={canMutate}
+                            showMinPaymentDue={showMinPaymentDue}                            canMutate={canMutate}
                             renderColGroup={renderStatementColGroup}
                             monthBar={
                                 singleMonthLabel ? (
                                     <>
-                                        <h3 className="text-lg font-bold text-black">{singleMonthLabel}</h3>
+                                        <h3 className="text-lg font-semibold text-black">{singleMonthLabel}</h3>
                                         <Button
                                             type="button"
                                             variant="ghost"
@@ -2011,34 +2286,20 @@ export default function CreditCardStatements() {
                                                     key={card.id}
                                                     className={getStatementRowClassName(card)}
                                                 >
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
-                                                        <div
-                                                            className="truncate max-w-[9rem]"
-                                                            title={formatStatementCardHolderLabel(
-                                                                card.cardHolder,
-                                                                card.card_number
-                                                            )}
-                                                        >
-                                                            <span className="text-black font-bold" style={{ fontWeight: 900 }}>
-                                                                {formatStatementCardHolderLabel(
-                                                                    card.cardHolder,
-                                                                    card.card_number
-                                                                )}
-                                                            </span>
-                                                        </div>
+                                                    <TableCell className="!text-xs text-gray-700 py-1 text-left !whitespace-normal overflow-hidden">
+                                                        <StatementCardIdentityCell
+                                                            cardHolder={card.cardHolder}
+                                                            cardNumber={card.card_number}
+                                                            issuingBank={card.issuingBank}
+                                                        />
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 font-medium text-sm py-1 text-left">
-                                                        <div className="truncate max-w-[11rem] font-bold" title={card.issuingBank || ''}>
-                                                            {card.issuingBank}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                    <TableCell className="!text-xs text-gray-700 py-1 text-left tabular-nums">
                                                         {formatDate(card.statement_date || '')}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 text-sm py-1 text-left">
+                                                    <TableCell className="!text-xs text-gray-700 py-1 text-left tabular-nums">
                                                         {formatDate(card.due_date || '')}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
+                                                    <TableCell className="text-gray-700  text-sm py-1 text-left">
                                                         {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
@@ -2054,7 +2315,7 @@ export default function CreditCardStatements() {
                                                         )}
                                                     </TableCell>
                                                     {showMinPaymentDue && (
-                                                    <TableCell className="text-gray-700 font-semibold text-sm py-1 text-left">
+                                                    <TableCell className="text-gray-700  text-sm py-1 text-left">
                                                         {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
@@ -2072,36 +2333,50 @@ export default function CreditCardStatements() {
                                                     )}
                                                     <TableCell
                                                         className={`text-gray-700 text-sm py-1 text-left${
-                                                            isEditingStatement(card) ? ' align-top' : ''
+                                                            isEditingStatement(card)
+                                                                ? ' align-top !whitespace-normal overflow-hidden'
+                                                                : ' align-top !whitespace-normal'
                                                         }`}
                                                     >
                                                         {isEditingStatement(card) ? (
                                                             renderPartialAmountsEdit(
                                                                 'payments',
                                                                 'Add payment',
-                                                                'Remove payment'
+                                                                'Remove payment',
+                                                                singleMonthKey
                                                             )
                                                         ) : (
-                                                            formatCurrency(card.paid)
+                                                            renderPartialAmountsView(
+                                                                card,
+                                                                'payments',
+                                                                singleMonthKey
+                                                            )
                                                         )}
                                                     </TableCell>
                                                     <TableCell
                                                         className={`text-gray-700 text-sm py-1 text-left${
-                                                            isEditingStatement(card) ? ' align-top' : ''
+                                                            isEditingStatement(card)
+                                                                ? ' align-top !whitespace-normal overflow-hidden'
+                                                                : ' align-top !whitespace-normal'
                                                         }`}
                                                     >
                                                         {isEditingStatement(card) ? (
                                                             renderPartialAmountsEdit(
                                                                 'eppPayments',
                                                                 'Add EPP',
-                                                                'Remove EPP payment'
+                                                                'Remove EPP payment',
+                                                                singleMonthKey
                                                             )
                                                         ) : (
-                                                            formatCurrency(card.epp)
+                                                            renderPartialAmountsView(
+                                                                card,
+                                                                'eppPayments',
+                                                                singleMonthKey
+                                                            )
                                                         )}
                                                     </TableCell>
                                                 
-                                                    <TableCell className={`text-sm py-1 text-left font-semibold ${
+                                                    <TableCell className={`text-sm py-1 text-left  ${
                                                         amountPending > 0 ? 'text-red-600' : 'text-black'
                                                     }`}>
                                                         {/* amountPending is auto-calculated, so it's read-only */}
@@ -2110,7 +2385,7 @@ export default function CreditCardStatements() {
                                                     <TableCell
                                                         className={`text-gray-700 text-sm py-1 text-left px-2${
                                                             isEditingStatement(card)
-                                                                ? ' align-top !whitespace-normal overflow-hidden'
+                                                                ? ' align-top !whitespace-normal !overflow-visible'
                                                                 : ''
                                                         }`}
                                                     >
@@ -2138,88 +2413,30 @@ export default function CreditCardStatements() {
                                                             onEditClick={canMutate ? () => handleEdit(card) : undefined}
                                                         />
                                                     </TableCell>
-                                                    {canMutate && (
-                                                    <TableCell
-                                                        className={`text-gray-700 text-sm py-1 text-left px-2${
-                                                            isEditingStatement(card) ? ' align-top' : ''
-                                                        }`}
-                                                    >
-                                                        {isEditingStatement(card) ? (
-                                                            <div className="flex flex-col gap-1.5 shrink-0">
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        if (card.id) {
-                                                                            void handleSave(String(card.id));
-                                                                        }
-                                                                    }}
-                                                                    disabled={
-                                                                        saving || deletingAttachment || !card.id
-                                                                    }
-                                                                    className="h-8 w-8 p-0 shrink-0 bg-green-500 hover:bg-green-600 text-white border-0"
-                                                                >
-                                                                    {saving ? (
-                                                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                                                    ) : (
-                                                                        <Check className="w-4 h-4" />
-                                                                    )}
-                                                                </Button>
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={handleCancelEdit}
-                                                                    disabled={saving || deletingAttachment}
-                                                                    className="h-8 w-8 p-0 shrink-0 bg-red-500 hover:bg-red-600 text-white border-0"
-                                                                >
-                                                                    <X className="w-4 h-4" />
-                                                                </Button>
-                                                            </div>
-                                                        ) : (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (card.id) {
-                                                                        handleEdit(card);
-                                                                    }
-                                                                }}
-                                                                disabled={!card.id}
-                                                                className="h-8 w-8 p-0 text-black hover:bg-[#f7c46d]/40"
-                                                            >
-                                                                <Pencil className="w-4 h-4 text-black" />
-                                                            </Button>
-                                                        )}
-                                                    </TableCell>
-                                                    )}
+                                                    {renderStatementActionsCell(card, singleMonthKey)}
                                                 </TableRow>
                                                 );
                                             })}
                                             <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                <TableCell colSpan={4} className="font-bold text-gray-900 py-1 text-right">
+                                                <TableCell colSpan={3} className="font-bold text-gray-900 py-1 text-right">
                                                     Total
                                                 </TableCell>
                                                 <TableCell className="font-bold text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.totalPaymentDue)}
                                                 </TableCell>
                                                 {showMinPaymentDue && (
-                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                <TableCell className=" text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.minPaymentDue)}
                                                 </TableCell>
                                                 )}
-                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                <TableCell className=" text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.paid)}
                                                 </TableCell>
-                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                <TableCell className=" text-gray-900 py-1 text-left">
                                                     {formatCurrency(monthlyTotals.epp)}
                                                 </TableCell>
                                                 <TableCell
-                                                    className={`font-bold py-1 text-left ${
+                                                    className={` py-1 text-left ${
                                                         roundMoney(monthlyTotals.amountPending) > 0
                                                             ? 'text-red-600'
                                                             : 'text-green-600'
@@ -2227,7 +2444,7 @@ export default function CreditCardStatements() {
                                                 >
                                                     {formatCurrency(monthlyTotals.amountPending)}
                                                 </TableCell>
-                                                <TableCell colSpan={canMutate ? 2 : 1} />
+                                                <TableCell colSpan={2} />
                                             </TableRow>
                                         </>
                                     )}
@@ -2236,6 +2453,19 @@ export default function CreditCardStatements() {
                 </Card>
                     );
                 })()
+            )}
+
+            {toast && (
+                <div
+                    className={`fixed bottom-6 right-6 z-[250] max-w-sm rounded-lg border px-4 py-3 text-sm shadow-lg ${
+                        toast.type === 'error'
+                            ? 'border-red-200 bg-red-50 text-red-800'
+                            : 'border-green-200 bg-green-50 text-green-800'
+                    }`}
+                    role="status"
+                >
+                    {toast.message}
+                </div>
             )}
 
         </Layout>

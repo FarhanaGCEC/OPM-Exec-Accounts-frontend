@@ -8,26 +8,37 @@ import { formatDisplayYear } from "@/src/lib/formatDisplayDate";
 
 export interface CalendarProps {
   date?: Date | null;
+  /**
+   * Month/year shown when the calendar opens.
+   * Prefer this over `date` (and over today) so period-scoped UIs open on the right month.
+   */
+  defaultMonth?: Date | null;
   onSelect?: (date: Date | null) => void;
   className?: string;
 }
 
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
 const Calendar: React.FC<CalendarProps> = ({
   date,
+  defaultMonth,
   onSelect,
   className,
 }) => {
-  const [currentDate, setCurrentDate] = React.useState<Date>(
-    date || new Date()
+  const [currentDate, setCurrentDate] = React.useState<Date>(() =>
+    startOfMonth(defaultMonth ?? date ?? new Date())
   );
 
   React.useEffect(() => {
-    if (date) {
-      setCurrentDate(new Date(date.getFullYear(), date.getMonth(), 1));
+    const anchor = defaultMonth ?? date;
+    if (anchor) {
+      setCurrentDate(startOfMonth(anchor));
     } else {
-      setCurrentDate(new Date());
+      setCurrentDate(startOfMonth(new Date()));
     }
-  }, [date]);
+  }, [date, defaultMonth]);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();

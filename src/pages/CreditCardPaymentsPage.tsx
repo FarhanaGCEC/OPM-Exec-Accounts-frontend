@@ -40,6 +40,7 @@ import {
     creditCardService, 
     mapApiResponseToCreditCardDetail,
     displayCreditCardHolderName,
+    maskCreditCardNumber,
     type CreditCardDetail,
 } from '../services/creditCardService';
 import * as XLSX from 'xlsx';
@@ -58,6 +59,8 @@ import {
     userMessageFromChangeRequestSubmit,
 } from '../lib/changeRequestUi';
 
+export type CreditCardPaymentType = 'paid' | 'epp';
+
 export interface CreditCardPayment {
     id: string;
     createdAt?: string;
@@ -68,6 +71,7 @@ export interface CreditCardPayment {
     amount: number;
     paidAgainst?: string;
     remarks: string;
+    paymentType: CreditCardPaymentType;
 }
 
 // Zod validation schema
@@ -84,6 +88,7 @@ const paymentSchema = z.object({
             return !isNaN(num) && num > 0;
         }, 'Amount must be greater than 0'),
     remarks: z.string().optional(),
+    paymentType: z.enum(['paid', 'epp']),
 });
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
@@ -111,9 +116,11 @@ export default function CreditCardPaymentsPage() {
     const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
     const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
     const [selectedIssuingBank, setSelectedIssuingBank] = useState<string>('all');
+    const [selectedPaymentType, setSelectedPaymentType] = useState<'all' | CreditCardPaymentType>('all');
     const [appliedMonth, setAppliedMonth] = useState<number | 'all'>('all');
     const [appliedYear, setAppliedYear] = useState<number>(currentDate.getFullYear());
     const [appliedIssuingBank, setAppliedIssuingBank] = useState<string>('all');
+    const [appliedPaymentType, setAppliedPaymentType] = useState<'all' | CreditCardPaymentType>('all');
     const monthOptions = useMemo(
         () => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
         []
@@ -150,17 +157,26 @@ export default function CreditCardPaymentsPage() {
             creditCardId: '',
             amount: '',
             remarks: '',
+            paymentType: 'paid',
         },
     });
 
  
-    const fetchCreditCards = useCallback(async (year: number, months?: number[]) => {
+    const fetchCreditCards = useCallback(async (
+        year: number,
+        months?: number[],
+        paymentType?: 'all' | CreditCardPaymentType
+    ) => {
         try {
             setLoading(true);
             setError(null);
-            const response = await creditCardService.getCreditCardPayments(
-                months && months.length > 0 ? { year, months } : { year }
-            );
+            const response = await creditCardService.getCreditCardPayments({
+                year,
+                ...(months && months.length > 0 ? { months } : {}),
+                ...(paymentType === 'paid' || paymentType === 'epp'
+                    ? { paymentType }
+                    : {}),
+            });
             
             if (response.success && response.data) {
                 setCreditCards(response.data);
@@ -199,11 +215,11 @@ export default function CreditCardPaymentsPage() {
 
     useEffect(() => {
         if (appliedMonth === 'all') {
-            void fetchCreditCards(appliedYear);
+            void fetchCreditCards(appliedYear, undefined, appliedPaymentType);
         } else {
-            void fetchCreditCards(appliedYear, [appliedMonth]);
+            void fetchCreditCards(appliedYear, [appliedMonth], appliedPaymentType);
         }
-    }, [appliedMonth, appliedYear, fetchCreditCards]);
+    }, [appliedMonth, appliedYear, appliedPaymentType, fetchCreditCards]);
 
     useEffect(() => {
         fetchAvailableCreditCards();
@@ -218,6 +234,7 @@ export default function CreditCardPaymentsPage() {
             creditCardId: '',
             amount: '',
             remarks: '',
+            paymentType: 'paid',
         });
         setIsModalOpen(true);
     };
@@ -279,6 +296,7 @@ export default function CreditCardPaymentsPage() {
             creditCardId: creditCardId,
             amount: formatAmountInputValue(payment.amount),
             remarks: payment.remarks || '',
+            paymentType: payment.paymentType === 'epp' ? 'epp' : 'paid',
         });
         setIsModalOpen(true);
     };
@@ -318,6 +336,7 @@ export default function CreditCardPaymentsPage() {
             const payload: any = {
                 paymentDate: formattedDate,
                 amount: parseFloat(data.amount.replace(/,/g, '')),
+                paymentType: data.paymentType,
             };
 
             if (data.cardNo) {
@@ -362,10 +381,19 @@ export default function CreditCardPaymentsPage() {
                 }
                 setIsModalOpen(false);
                 setEditingPayment(null);
-                form.reset();
+                form.reset({
+                    paymentDate: '',
+                    cardNo: '',
+                    cardHolder: '',
+                    creditCardId: '',
+                    amount: '',
+                    remarks: '',
+                    paymentType: 'paid',
+                });
                 await fetchCreditCards(
                     appliedYear,
-                    appliedMonth === 'all' ? undefined : [appliedMonth]
+                    appliedMonth === 'all' ? undefined : [appliedMonth],
+                    appliedPaymentType
                 );
             } else {
                 setError(response.error || (editingPayment ? 'Failed to update payment' : 'Failed to create payment'));
@@ -407,7 +435,8 @@ export default function CreditCardPaymentsPage() {
             setSuccessMessage(response.message || 'Payment deleted.');
             await fetchCreditCards(
                 appliedYear,
-                appliedMonth === 'all' ? undefined : [appliedMonth]
+                appliedMonth === 'all' ? undefined : [appliedMonth],
+                appliedPaymentType
             );
         } catch (err: unknown) {
             const errorMessage = mutationErrorMessage(err) || 'Failed to delete credit card payment';
@@ -648,10 +677,13 @@ export default function CreditCardPaymentsPage() {
         if (appliedIssuingBank !== 'all') {
             excelData.push(['Issuing Bank:', appliedIssuingBank]);
         }
+        if (appliedPaymentType !== 'all') {
+            excelData.push(['Payment Type:', appliedPaymentType === 'epp' ? 'EPP' : 'Paid']);
+        }
         excelData.push([]);
 
         // Add table headers
-        excelData.push(['Payment Date', 'Card Holder', 'Issuing Bank', 'Card Number', 'Amount (AED)', 'Remarks']);
+        excelData.push(['Payment Date', 'Card Holder', 'Issuing Bank', 'Card Number', 'Amount (AED)', 'Payment Type', 'Remarks']);
 
         // Sort payments by date (oldest first) for better readability in Excel
         const sortedPayments = [...sortedCreditCards].sort((a, b) => {
@@ -696,15 +728,16 @@ export default function CreditCardPaymentsPage() {
                 displayDate,
                 cardHolder,
                 payment.issuingBank || '',
-                payment.cardNo || '',
+                maskCreditCardNumber(payment.cardNo),
                 payment.amount || 0, // Store as number
+                payment.paymentType === 'epp' ? 'EPP' : 'Paid',
                 payment.remarks || '',
             ]);
         });
 
         // Add total row
         excelData.push([]);
-        excelData.push(['Total Amount (AED):', '', '', '', totalAmount, '']);
+        excelData.push(['Total Amount (AED):', '', '', '', totalAmount, '', '']);
 
         // Create worksheet from data
         const worksheet = XLSX.utils.aoa_to_sheet(excelData);
@@ -716,6 +749,7 @@ export default function CreditCardPaymentsPage() {
             { wch: 20 }, // Issuing Bank
             { wch: 20 }, // Card Number
             { wch: 18 }, // Amount
+            { wch: 14 }, // Payment Type
             { wch: 30 }, // Remarks
         ];
 
@@ -723,8 +757,10 @@ export default function CreditCardPaymentsPage() {
         const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
 
         // Format header row (row after company header and info)
-        const headerRow = appliedIssuingBank !== 'all' ? 9 : 8;
-        for (let col = 0; col <= 5; col++) {
+        let headerRow = 8;
+        if (appliedIssuingBank !== 'all') headerRow += 1;
+        if (appliedPaymentType !== 'all') headerRow += 1;
+        for (let col = 0; col <= 6; col++) {
             const headerCellRef = XLSX.utils.encode_cell({ r: headerRow, c: col });
             if (worksheet[headerCellRef]) {
                 if (!worksheet[headerCellRef].s) {
@@ -768,13 +804,14 @@ export default function CreditCardPaymentsPage() {
         applyXlsxArialToWorkbook(workbook);
         XLSX.writeFile(workbook, fileName, XLSX_WRITE_WITH_STYLES);
 
-    }, [sortedCreditCards, appliedIssuingBank]);
+    }, [sortedCreditCards, appliedIssuingBank, appliedPaymentType]);
 
     const handleApplyFilters = useCallback(() => {
         setAppliedMonth(selectedMonth);
         setAppliedYear(selectedYear);
         setAppliedIssuingBank(selectedIssuingBank);
-    }, [selectedMonth, selectedYear, selectedIssuingBank]);
+        setAppliedPaymentType(selectedPaymentType);
+    }, [selectedMonth, selectedYear, selectedIssuingBank, selectedPaymentType]);
 
     return (
         <Layout>
@@ -854,6 +891,20 @@ export default function CreditCardPaymentsPage() {
                         ))}
                     </select>
                 </div>
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-gray-600">Payment Type</label>
+                    <select
+                        value={selectedPaymentType}
+                        onChange={(e) =>
+                            setSelectedPaymentType(e.target.value as 'all' | CreditCardPaymentType)
+                        }
+                        className="h-10 min-w-32 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                    >
+                        <option value="all">All Types</option>
+                        <option value="paid">Paid</option>
+                        <option value="epp">EPP</option>
+                    </select>
+                </div>
                 <Button
                     type="button"
                     variant="outline"
@@ -867,7 +918,11 @@ export default function CreditCardPaymentsPage() {
             <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
                 <p className="text-xs font-medium text-gray-600">
                     Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {formatDisplayYear(appliedYear)}
-                    {appliedIssuingBank !== 'all' ? ` · ${appliedIssuingBank}` : ''})
+                    {appliedIssuingBank !== 'all' ? ` · ${appliedIssuingBank}` : ''}
+                    {appliedPaymentType !== 'all'
+                        ? ` · ${appliedPaymentType === 'epp' ? 'EPP' : 'Paid'}`
+                        : ''}
+                    )
                 </p>
                 <p className="text-lg font-semibold text-gray-900">
                     {formatPaymentAmount(totalPaymentAmount)}
@@ -908,6 +963,9 @@ export default function CreditCardPaymentsPage() {
                                     </TableHead>
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Amount
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        Payment Type
                                     </TableHead>
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Remarks
@@ -960,10 +1018,13 @@ export default function CreditCardPaymentsPage() {
                                                 </span>
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                {card.cardNo}
+                                                {maskCreditCardNumber(card.cardNo)}
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">
                                                 {formatPaymentAmount(card.amount)}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                                {card.paymentType === 'epp' ? 'EPP' : 'Paid'}
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm py-2 text-left">    {card.remarks}</TableCell>
                                             {canMutate && (
@@ -1179,8 +1240,8 @@ export default function CreditCardPaymentsPage() {
                                             >
                                                 {availableCreditCards.map((card) => {
                                                     const shown = displayCreditCardHolderName(card.cardHolder);
-                                                    const line = `${shown} - ${card.cardNo.slice(-4)} (${card.issuingBank})`;
-                                                    const searchText = `${card.cardHolder} ${shown} ${card.cardNo} ${card.issuingBank}`;
+                                                    const line = `${shown} - ${maskCreditCardNumber(card.cardNo)} (${card.issuingBank})`;
+                                                    const searchText = `${card.cardHolder} ${shown} ${card.cardNo} ${maskCreditCardNumber(card.cardNo)} ${card.issuingBank}`;
                                                     return (
                                                         <SelectItem key={card.id} value={card.id} textValue={searchText}>
                                                             {line}
@@ -1262,6 +1323,33 @@ export default function CreditCardPaymentsPage() {
                                                 }}
                                                 disabled={isSubmitting}
                                             />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Payment Type Field */}
+                            <FormField
+                                control={form.control}
+                                name="paymentType"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-base font-medium text-gray-700">
+                                            Payment Type <span className="text-red-500">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            <select
+                                                value={field.value}
+                                                onChange={(e) =>
+                                                    field.onChange(e.target.value as CreditCardPaymentType)
+                                                }
+                                                disabled={isSubmitting}
+                                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <option value="paid">Paid</option>
+                                                <option value="epp">EPP</option>
+                                            </select>
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>

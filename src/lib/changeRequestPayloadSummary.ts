@@ -149,6 +149,8 @@ const RESOURCE_FIELD_ORDER: Record<string, string[]> = {
     'cardHolder',
     'card_holder',
     'remarks',
+    'paymentType',
+    'payment_type',
   ],
   payables_category: ['name'],
   receivables_category: ['name'],
