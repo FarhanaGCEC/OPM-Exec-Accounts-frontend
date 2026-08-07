@@ -137,11 +137,65 @@
 
 .cc-statement-table thead th {
   background-color: #87CEEB !important;
+  overflow: visible;
 }
 
 .cc-statement-table td {
   overflow: hidden;
   vertical-align: middle;
+}
+
+.cc-statement-col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 5;
+  width: 12px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+/* Always-visible Excel-like vertical grip line */
+.cc-statement-col-resize::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.cc-statement-col-resize::after {
+  content: '';
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  width: 3px;
+  height: 56%;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.cc-statement-col-resize:hover::before,
+.cc-statement-col-resize:hover::after,
+body.cc-statement-col-resizing .cc-statement-col-resize:hover::before,
+body.cc-statement-col-resizing .cc-statement-col-resize:hover::after {
+  background: rgba(15, 80, 140, 0.85);
+}
+
+body.cc-statement-col-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.cc-statement-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .bank-tx-ledger tbody tr[data-row-bg='bounce'] > td {
   background-color: #95dcf7 !important;

@@ -80,7 +80,70 @@ const STATEMENT_MONTH_BAR_CLASS =
     'cc-statement-month-bar px-4 py-2 border-b border-gray-200 flex items-center justify-between';
 
 const STATEMENT_COLUMN_HEAD_CELL_CLASS =
-    'bg-[#87CEEB] font-semibold text-black text-sm text-left py-1';
+    'bg-[#87CEEB] font-semibold text-black text-sm text-left py-1 relative select-none overflow-visible';
+
+const STATEMENT_FOOTER_ROW_CLASS =
+    'bg-[#87CEEB] border-0 font-semibold hover:bg-[#87CEEB]';
+
+const STATEMENT_FOOTER_CELL_CLASS =
+    'bg-[#87CEEB] font-semibold text-sm py-1 text-black';
+
+const STATEMENT_COLUMN_MIN_WIDTH_PX = 56;
+
+type StatementColumnId =
+    | 'card'
+    | 'statementDate'
+    | 'dueDate'
+    | 'totalPaymentDue'
+    | 'minPaymentDue'
+    | 'paid'
+    | 'epp'
+    | 'amountPending'
+    | 'file'
+    | 'actions';
+
+type StatementColumnWidths = Record<StatementColumnId, number>;
+
+/** Relative weights — table stays full width; resize redistributes these. */
+const DEFAULT_STATEMENT_COLUMN_WIDTHS_PX: StatementColumnWidths = {
+    card: 180,
+    statementDate: 110,
+    dueDate: 110,
+    totalPaymentDue: 140,
+    minPaymentDue: 120,
+    paid: 150,
+    epp: 150,
+    amountPending: 140,
+    file: 56,
+    actions: 64,
+};
+
+function getVisibleStatementColumnIds(showMinPaymentDue: boolean): StatementColumnId[] {
+    return showMinPaymentDue
+        ? [
+              'card',
+              'statementDate',
+              'dueDate',
+              'totalPaymentDue',
+              'minPaymentDue',
+              'paid',
+              'epp',
+              'amountPending',
+              'file',
+              'actions',
+          ]
+        : [
+              'card',
+              'statementDate',
+              'dueDate',
+              'totalPaymentDue',
+              'paid',
+              'epp',
+              'amountPending',
+              'file',
+              'actions',
+          ];
+}
 
 /** Statement identity line: holder short + bank short + last 4, e.g. "MST ENBD-EH 2427". */
 function formatStatementCardIdentityLabel(
@@ -114,7 +177,7 @@ function StatementCardIdentityCell({
     return (
         <div className="min-w-0 max-w-full leading-tight" title={title || undefined}>
             {label ? (
-                <div className="truncate text-gray-700 !text-xs font-normal">{label}</div>
+                <div className="truncate text-gray-700 !text-xs font-bold">{label}</div>
             ) : (
                 <span className="text-gray-400">—</span>
             )}
@@ -122,21 +185,87 @@ function StatementCardIdentityCell({
     );
 }
 
-function renderStatementTableHeadRow(showMinPaymentDue: boolean, _canMutate: boolean) {
+function StatementColumnResizeHandle({
+    columnId,
+    onResizeStart,
+}: {
+    columnId: StatementColumnId;
+    onResizeStart: (
+        columnId: StatementColumnId,
+        clientX: number,
+        tableEl: HTMLTableElement | null
+    ) => void;
+}) {
+    return (
+        <span
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={`Resize ${columnId} column`}
+            title="Drag to resize column"
+            className="cc-statement-col-resize"
+            onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const tableEl = (event.currentTarget as HTMLElement).closest(
+                    'table'
+                );
+                onResizeStart(columnId, event.clientX, tableEl);
+            }}
+            onTouchStart={(event) => {
+                if (event.touches.length !== 1) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const tableEl = (event.currentTarget as HTMLElement).closest(
+                    'table'
+                );
+                onResizeStart(columnId, event.touches[0].clientX, tableEl);
+            }}
+        />
+    );
+}
+
+function renderStatementTableHeadRow(
+    showMinPaymentDue: boolean,
+    _canMutate: boolean,
+    onColumnResizeStart: (
+        columnId: StatementColumnId,
+        clientX: number,
+        tableEl: HTMLTableElement | null
+    ) => void
+) {
+    const headers: { id: StatementColumnId; label: string; className?: string }[] = [
+        { id: 'card', label: 'Card' },
+        { id: 'statementDate', label: 'Statement Date' },
+        { id: 'dueDate', label: 'Due Date' },
+        { id: 'totalPaymentDue', label: 'Total Payment Due' },
+    ];
+    if (showMinPaymentDue) {
+        headers.push({ id: 'minPaymentDue', label: 'Min Payment Due' });
+    }
+    headers.push(
+        { id: 'paid', label: 'Paid' },
+        { id: 'epp', label: 'EPP' },
+        { id: 'amountPending', label: 'Amount Pending' },
+        { id: 'file', label: 'File', className: 'px-2' },
+        { id: 'actions', label: 'Actions', className: 'px-2' }
+    );
+
     return (
         <TableRow className="bg-[#87CEEB] border-0 hover:bg-[#6bb8d9]">
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Card</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Statement Date</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Due Date</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Total Payment Due</TableHead>
-            {showMinPaymentDue && (
-                <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Min Payment Due</TableHead>
-            )}
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Paid</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>EPP</TableHead>
-            <TableHead className={STATEMENT_COLUMN_HEAD_CELL_CLASS}>Amount Pending</TableHead>
-            <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>File</TableHead>
-            <TableHead className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS} px-2`}>Actions</TableHead>
+            {headers.map((header) => (
+                <TableHead
+                    key={header.id}
+                    className={`${STATEMENT_COLUMN_HEAD_CELL_CLASS}${
+                        header.className ? ` ${header.className}` : ''
+                    }`}
+                >
+                    {header.label}
+                    <StatementColumnResizeHandle
+                        columnId={header.id}
+                        onResizeStart={onColumnResizeStart}
+                    />
+                </TableHead>
+            ))}
         </TableRow>
     );
 }
@@ -146,12 +275,19 @@ function StatementTableSection({
     showMinPaymentDue,
     canMutate,
     renderColGroup,
+    onColumnResizeStart,
     children,
 }: {
     monthBar?: ReactNode;
     showMinPaymentDue: boolean;
     canMutate: boolean;
     renderColGroup: (showMinPaymentDue: boolean) => ReactNode;
+    onColumnResizeStart: (
+        columnId: StatementColumnId,
+        clientX: number,
+        tableEl: HTMLTableElement | null,
+        showMinPaymentDue: boolean
+    ) => void;
     children: ReactNode;
 }) {
     return (
@@ -164,7 +300,17 @@ function StatementTableSection({
             <table className={STATEMENT_TABLE_CLASS}>
                 {renderColGroup(showMinPaymentDue)}
                 <TableHeader className="cc-statement-thead--sticky">
-                    {renderStatementTableHeadRow(showMinPaymentDue, canMutate)}
+                    {renderStatementTableHeadRow(
+                        showMinPaymentDue,
+                        canMutate,
+                        (columnId, clientX, tableEl) =>
+                            onColumnResizeStart(
+                                columnId,
+                                clientX,
+                                tableEl,
+                                showMinPaymentDue
+                            )
+                    )}
                 </TableHeader>
                 <TableBody>{children}</TableBody>
             </table>
@@ -218,6 +364,18 @@ export default function CreditCardStatements() {
     const [toast, setToast] = useState<ToastState | null>(null);
     const successBannerRef = useRef<HTMLDivElement>(null);
     const monthSectionRefs = useRef<Partial<Record<string, HTMLDivElement>>>({});
+    const [columnWidths, setColumnWidths] = useState<StatementColumnWidths>(
+        () => ({ ...DEFAULT_STATEMENT_COLUMN_WIDTHS_PX })
+    );
+    const columnResizeRef = useRef<{
+        columnId: StatementColumnId;
+        nextColumnId: StatementColumnId;
+        startX: number;
+        startWidth: number;
+        startNextWidth: number;
+        tableWidthPx: number;
+        totalWeight: number;
+    } | null>(null);
     const didScrollToSecondMonthOnLoad = useRef(false);
 
     const resetStatementTableScroll = () => {
@@ -391,18 +549,124 @@ export default function CreditCardStatements() {
         return showMinPaymentDue ? 10 : 9;
     };
 
+    const handleColumnResizeStart = useCallback(
+        (
+            columnId: StatementColumnId,
+            clientX: number,
+            tableEl: HTMLTableElement | null,
+            showMinPaymentDue: boolean
+        ) => {
+            const columnIds = getVisibleStatementColumnIds(showMinPaymentDue);
+            const index = columnIds.indexOf(columnId);
+            if (index < 0) return;
+            const nextColumnId =
+                index < columnIds.length - 1
+                    ? columnIds[index + 1]
+                    : columnIds[index - 1];
+            if (!nextColumnId || nextColumnId === columnId) return;
+
+            const tableWidthPx = tableEl?.getBoundingClientRect().width || 1;
+            const totalWeight = columnIds.reduce(
+                (sum, id) => sum + columnWidths[id],
+                0
+            );
+
+            columnResizeRef.current = {
+                columnId,
+                nextColumnId,
+                startX: clientX,
+                startWidth: columnWidths[columnId],
+                startNextWidth: columnWidths[nextColumnId],
+                tableWidthPx,
+                totalWeight,
+            };
+            document.body.classList.add('cc-statement-col-resizing');
+        },
+        [columnWidths]
+    );
+
+    useEffect(() => {
+        const applyResizeDelta = (clientX: number) => {
+            const active = columnResizeRef.current;
+            if (!active) return;
+            const deltaPx = clientX - active.startX;
+            const weightDelta =
+                (deltaPx / active.tableWidthPx) * active.totalWeight;
+            const minWeight = STATEMENT_COLUMN_MIN_WIDTH_PX;
+            let nextWidth = active.startWidth + weightDelta;
+            let nextNeighbor = active.startNextWidth - weightDelta;
+
+            if (nextWidth < minWeight) {
+                nextNeighbor -= minWeight - nextWidth;
+                nextWidth = minWeight;
+            }
+            if (nextNeighbor < minWeight) {
+                nextWidth -= minWeight - nextNeighbor;
+                nextNeighbor = minWeight;
+            }
+            nextWidth = Math.max(minWeight, Math.round(nextWidth));
+            nextNeighbor = Math.max(minWeight, Math.round(nextNeighbor));
+
+            setColumnWidths((prev) => {
+                if (
+                    prev[active.columnId] === nextWidth &&
+                    prev[active.nextColumnId] === nextNeighbor
+                ) {
+                    return prev;
+                }
+                return {
+                    ...prev,
+                    [active.columnId]: nextWidth,
+                    [active.nextColumnId]: nextNeighbor,
+                };
+            });
+        };
+
+        const onMouseMove = (event: MouseEvent) => {
+            applyResizeDelta(event.clientX);
+        };
+
+        const onTouchMove = (event: TouchEvent) => {
+            if (event.touches.length !== 1) return;
+            event.preventDefault();
+            applyResizeDelta(event.touches[0].clientX);
+        };
+
+        const endResize = () => {
+            if (!columnResizeRef.current) return;
+            columnResizeRef.current = null;
+            document.body.classList.remove('cc-statement-col-resizing');
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', endResize);
+        document.addEventListener('touchmove', onTouchMove, { passive: false });
+        document.addEventListener('touchend', endResize);
+        document.addEventListener('touchcancel', endResize);
+        window.addEventListener('blur', endResize);
+        return () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', endResize);
+            document.removeEventListener('touchmove', onTouchMove);
+            document.removeEventListener('touchend', endResize);
+            document.removeEventListener('touchcancel', endResize);
+            window.removeEventListener('blur', endResize);
+            document.body.classList.remove('cc-statement-col-resizing');
+        };
+    }, []);
+
     const renderStatementColGroup = (showMinPaymentDue: boolean) => {
-        // Card (holder+bank), Statement Date, Due Date, Total Payment Due
-        const weights = [16, 8, 8, 9];
-        if (showMinPaymentDue) weights.push(7);
-        // Paid + EPP wider (amount + date side-by-side); File/Actions stay tight
-        weights.push(13, 13, 8, 4, 5);
-        const total = weights.reduce((sum, w) => sum + w, 0);
-        const widths = weights.map((w) => `${((w / total) * 100).toFixed(3)}%`);
+        const columnIds = getVisibleStatementColumnIds(showMinPaymentDue);
+        const total = columnIds.reduce((sum, id) => sum + columnWidths[id], 0);
         return (
             <colgroup>
-                {widths.map((width, index) => (
-                    <col key={index} style={{ width }} />
+                {columnIds.map((columnId) => (
+                    <col
+                        key={columnId}
+                        style={{
+                            width: `${((columnWidths[columnId] / total) * 100).toFixed(4)}%`,
+                        }}
+                    />
                 ))}
             </colgroup>
         );
@@ -554,9 +818,9 @@ export default function CreditCardStatements() {
                             </span>
                         </div>
                     ))}
-                    <div className="flex items-baseline justify-between gap-2 border-t border-gray-100 pt-1 text-xs  text-gray-700">
+                    <div className="flex items-baseline justify-between gap-2 border-t border-gray-100 pt-1 text-xs font-bold text-gray-900">
                         <span>Total</span>
-                        <span className="tabular-nums">{formatCurrency(totalMoney)}</span>
+                        <span className="tabular-nums font-bold">{formatCurrency(totalMoney)}</span>
                     </div>
                 </div>
             </div>
@@ -1459,7 +1723,7 @@ export default function CreditCardStatements() {
                     <Plus className="w-3 h-3" />
                     {addLabel}
                 </button>
-                <div className="text-xs text-gray-500 font-medium whitespace-nowrap border-t border-gray-100 pt-1">
+                <div className="text-xs text-gray-900 font-bold whitespace-nowrap border-t border-gray-100 pt-1">
                     Total: {formatCurrency(total)}
                 </div>
             </div>
@@ -1994,6 +2258,7 @@ export default function CreditCardStatements() {
                                         showMinPaymentDue={showMinPaymentDue}
                                         canMutate={canMutate}
                                         renderColGroup={renderStatementColGroup}
+                                        onColumnResizeStart={handleColumnResizeStart}
                                         monthBar={
                                             <>
                                                 <h3 className="text-lg font-semibold text-black">
@@ -2129,7 +2394,7 @@ export default function CreditCardStatements() {
                                                                             )
                                                                         )}
                                                                     </TableCell>
-                                                                    <TableCell className={`text-sm py-1 text-left  ${
+                                                                    <TableCell className={`text-sm font-bold py-1 text-left  ${
                                                                         amountPending > 0 ? 'text-red-600' : 'text-black'
                                                                     }`}>
                                                                         {formatCurrency(amountPending)}
@@ -2176,34 +2441,28 @@ export default function CreditCardStatements() {
                                                                 </TableRow>
                                                             );
                                                         })}
-                                                        <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                            <TableCell colSpan={3} className=" text-gray-900 py-1 text-right">
+                                                        <TableRow className={STATEMENT_FOOTER_ROW_CLASS}>
+                                                            <TableCell colSpan={3} className={`${STATEMENT_FOOTER_CELL_CLASS} text-right`}>
                                                                 Total
                                                             </TableCell>
-                                                            <TableCell className=" text-gray-900 py-1 text-left">
+                                                            <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                                 {formatCurrency(monthlyTotals.totalPaymentDue)}
                                                             </TableCell>
                                                             {showMinPaymentDue && (
-                                                            <TableCell className=" text-gray-900 py-1 text-left">
+                                                            <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                                 {formatCurrency(monthlyTotals.minPaymentDue)}
                                                             </TableCell>
                                                             )}
-                                                            <TableCell className=" text-gray-900 py-1 text-left">
+                                                            <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                                 {formatCurrency(monthlyTotals.paid)}
                                                             </TableCell>
-                                                            <TableCell className=" text-gray-900 py-1 text-left">
+                                                            <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                                 {formatCurrency(monthlyTotals.epp)}
                                                             </TableCell>
-                                                            <TableCell
-                                                                className={` py-1 text-left ${
-                                                                    roundMoney(monthlyTotals.amountPending) > 0
-                                                                        ? 'text-red-600'
-                                                                        : 'text-green-600'
-                                                                }`}
-                                                            >
+                                                            <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                                 {formatCurrency(monthlyTotals.amountPending)}
                                                             </TableCell>
-                                                            <TableCell colSpan={2} />
+                                                            <TableCell colSpan={2} className={STATEMENT_FOOTER_CELL_CLASS} />
                                                         </TableRow>
                                                     </>
                                                 )}
@@ -2230,8 +2489,10 @@ export default function CreditCardStatements() {
                 <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg">
                     <CardContent className="p-0">
                         <StatementTableSection
-                            showMinPaymentDue={showMinPaymentDue}                            canMutate={canMutate}
+                            showMinPaymentDue={showMinPaymentDue}
+                            canMutate={canMutate}
                             renderColGroup={renderStatementColGroup}
+                            onColumnResizeStart={handleColumnResizeStart}
                             monthBar={
                                 singleMonthLabel ? (
                                     <>
@@ -2376,7 +2637,7 @@ export default function CreditCardStatements() {
                                                         )}
                                                     </TableCell>
                                                 
-                                                    <TableCell className={`text-sm py-1 text-left  ${
+                                                    <TableCell className={`text-sm font-bold py-1 text-left  ${
                                                         amountPending > 0 ? 'text-red-600' : 'text-black'
                                                     }`}>
                                                         {/* amountPending is auto-calculated, so it's read-only */}
@@ -2417,34 +2678,28 @@ export default function CreditCardStatements() {
                                                 </TableRow>
                                                 );
                                             })}
-                                            <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                                <TableCell colSpan={3} className="font-bold text-gray-900 py-1 text-right">
+                                            <TableRow className={STATEMENT_FOOTER_ROW_CLASS}>
+                                                <TableCell colSpan={3} className={`${STATEMENT_FOOTER_CELL_CLASS} text-right`}>
                                                     Total
                                                 </TableCell>
-                                                <TableCell className="font-bold text-gray-900 py-1 text-left">
+                                                <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                     {formatCurrency(monthlyTotals.totalPaymentDue)}
                                                 </TableCell>
                                                 {showMinPaymentDue && (
-                                                <TableCell className=" text-gray-900 py-1 text-left">
+                                                <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                     {formatCurrency(monthlyTotals.minPaymentDue)}
                                                 </TableCell>
                                                 )}
-                                                <TableCell className=" text-gray-900 py-1 text-left">
+                                                <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                     {formatCurrency(monthlyTotals.paid)}
                                                 </TableCell>
-                                                <TableCell className=" text-gray-900 py-1 text-left">
+                                                <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                     {formatCurrency(monthlyTotals.epp)}
                                                 </TableCell>
-                                                <TableCell
-                                                    className={` py-1 text-left ${
-                                                        roundMoney(monthlyTotals.amountPending) > 0
-                                                            ? 'text-red-600'
-                                                            : 'text-green-600'
-                                                    }`}
-                                                >
+                                                <TableCell className={`${STATEMENT_FOOTER_CELL_CLASS} text-left`}>
                                                     {formatCurrency(monthlyTotals.amountPending)}
                                                 </TableCell>
-                                                <TableCell colSpan={2} />
+                                                <TableCell colSpan={2} className={STATEMENT_FOOTER_CELL_CLASS} />
                                             </TableRow>
                                         </>
                                     )}
