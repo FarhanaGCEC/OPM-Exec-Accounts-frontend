@@ -780,8 +780,12 @@ export default function CreditCardStatements() {
         return [];
     };
 
-    /** Multiple payment/EPP lines = partial breakdown → accordion always expanded. */
-    const isPartialPaymentBreakdown = (rowCount: number): boolean => rowCount > 1;
+    /** Show date+amount breakdown for multi payments, or a single payment that has a date. */
+    const shouldShowPaymentBreakdown = (rows: CardStatementPayment[]): boolean => {
+        if (rows.length > 1) return true;
+        if (rows.length === 1 && Boolean(rows[0].paidAt)) return true;
+        return false;
+    };
 
     const renderPartialAmountsView = (
         card: CreditCardStatement,
@@ -795,12 +799,14 @@ export default function CreditCardStatements() {
         );
         const totalMoney = moneyFromApi(total);
 
-        // 0 or 1 line = not partial breakdown → plain total, no accordion
-        if (!isPartialPaymentBreakdown(rows.length)) {
+        // No dated single/multi lines → plain total only
+        if (!shouldShowPaymentBreakdown(rows)) {
             return (
                 <span className=" tabular-nums">{formatCurrency(totalMoney)}</span>
             );
         }
+
+        const showTotalFooter = rows.length > 1;
 
         return (
             <div className="min-w-[10rem] max-w-[14rem]">
@@ -818,10 +824,12 @@ export default function CreditCardStatements() {
                             </span>
                         </div>
                     ))}
-                    <div className="flex items-baseline justify-between gap-2 border-t border-gray-100 pt-1 text-xs font-bold text-gray-900">
-                        <span>Total</span>
-                        <span className="tabular-nums font-bold">{formatCurrency(totalMoney)}</span>
-                    </div>
+                    {showTotalFooter ? (
+                        <div className="flex items-baseline justify-between gap-2 border-t border-gray-100 pt-1 text-xs font-bold text-gray-900">
+                            <span>Total</span>
+                            <span className="tabular-nums font-bold">{formatCurrency(totalMoney)}</span>
+                        </div>
+                    ) : null}
                 </div>
             </div>
         );
