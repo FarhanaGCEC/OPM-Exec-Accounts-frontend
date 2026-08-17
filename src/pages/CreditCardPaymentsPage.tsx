@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -35,12 +36,14 @@ import {
     SelectItem,
 } from '../components/ui/select';
 import Calendar from '../components/ui/calendar-tailwind';
-import { Loader2, Plus, Calendar as CalendarIcon, Download, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Calendar as CalendarIcon, Download, Trash2, ChevronDown } from 'lucide-react';
 import { 
     creditCardService, 
     mapApiResponseToCreditCardDetail,
     displayCreditCardHolderName,
     maskCreditCardNumber,
+    getDefaultStatementPeriod,
+    groupStatementMonthIndicesByYear,
     type CreditCardDetail,
 } from '../services/creditCardService';
 import * as XLSX from 'xlsx';
@@ -93,20 +96,25 @@ const paymentSchema = z.object({
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
-type MonthFilter = number | 'all' | 'latest2';
+const MONTH_OPTIONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
-function latestTwoMonthRanges(referenceDate = new Date()): Array<{ year: number; months: number[] }> {
-    const currentMonth = referenceDate.getMonth();
-    const currentYear = referenceDate.getFullYear();
+/** URL uses 1-based months: ?year=2026&months=7,8 → Jul + Aug */
+function parseMonthsFromUrl(value: string | null): number[] | null {
+    if (!value) return null;
+    const indices = value
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !Number.isNaN(n) && n >= 1 && n <= 12)
+        .map((n) => n - 1);
+    if (indices.length === 0) return null;
+    return [...new Set(indices)].sort((a, b) => a - b);
+}
 
-    if (currentMonth === 0) {
-        return [
-            { year: currentYear - 1, months: [11] },
-            { year: currentYear, months: [0] },
-        ];
-    }
-
-    return [{ year: currentYear, months: [currentMonth - 1, currentMonth] }];
+function monthsEqual(a: number[], b: number[]): boolean {
+    if (a.length !== b.length) return false;
+    const sortedA = [...a].sort((x, y) => x - y);
+    const sortedB = [...b].sort((x, y) => x - y);
+    return sortedA.every((value, index) => value === sortedB[index]);
 }
 
 /** e.g. "Jul - Aug" for current month August and previous July */
@@ -123,9 +131,57 @@ function formatLatestTwoMonthsLabel(
     return `${monthOptions[currentMonth - 1]} - ${monthOptions[currentMonth]}`;
 }
 
+function formatSelectedMonthsLabel(
+    monthOptions: readonly string[],
+    year: number,
+    months: number[],
+    allMonths: boolean,
+    referenceDate = new Date()
+): string {
+    if (allMonths) return `All Months ${formatDisplayYear(year)}`;
+    if (months.length === 0) return 'Select months';
+
+    const defaultPeriod = getDefaultStatementPeriod(referenceDate);
+    if (
+        year === defaultPeriod.year &&
+        monthsEqual(months, defaultPeriod.months)
+    ) {
+        return formatLatestTwoMonthsLabel(monthOptions, referenceDate);
+    }
+
+    if (months.length === 1) {
+        return `${monthOptions[months[0]]} ${formatDisplayYear(year)}`;
+    }
+
+    const sorted = [...months].sort((a, b) => a - b);
+    if (sorted.length === 2) {
+        return `${monthOptions[sorted[0]]} - ${monthOptions[sorted[1]]}`;
+    }
+    return sorted.map((m) => monthOptions[m]).join(', ');
+}
+
+function mergePaymentResponses(responses: ApiResponse<CreditCardPayment[]>[]): CreditCardPayment[] {
+    const merged: CreditCardPayment[] = [];
+    const seen = new Set<string>();
+
+    for (const response of responses) {
+        if (!response.success || !response.data) continue;
+        for (const item of response.data) {
+            const id = String(item.id || '');
+            if (id && !seen.has(id)) {
+                seen.add(id);
+                merged.push(item);
+            }
+        }
+    }
+
+    return merged;
+}
+
 export default function CreditCardPaymentsPage() {
     const canMutate = canMutateRecords();
     const canCreatePayment = canCreateCreditCardPayment();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [creditCards, setCreditCards] = useState<CreditCardPayment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -141,28 +197,43 @@ export default function CreditCardPaymentsPage() {
     const [loadingCreditCards, setLoadingCreditCards] = useState(false);
     const [editingPayment, setEditingPayment] = useState<CreditCardPayment | null>(null);
     
-    // Period selection state — default: latest 2 calendar months
     const currentDate = new Date();
-    const [selectedMonth, setSelectedMonth] = useState<MonthFilter>('latest2');
-    const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
+    const defaultPeriod = useMemo(() => getDefaultStatementPeriod(currentDate), [currentDate]);
+    const initialYear = useMemo(() => {
+        const fromUrl = parseInt(searchParams.get('year') || '', 10);
+        return !Number.isNaN(fromUrl) ? fromUrl : defaultPeriod.year;
+    }, [searchParams, defaultPeriod.year]);
+    const initialMonths = useMemo(() => {
+        if (searchParams.get('months') === 'all') return [];
+        const fromUrl = parseMonthsFromUrl(searchParams.get('months'));
+        return fromUrl ?? defaultPeriod.months;
+    }, [searchParams, defaultPeriod.months]);
+    const initialAllMonths = searchParams.get('months') === 'all';
+
+    const [selectedMonths, setSelectedMonths] = useState<number[]>(initialMonths);
+    const [selectedYear, setSelectedYear] = useState<number>(initialYear);
+    const [selectedAllMonths, setSelectedAllMonths] = useState(initialAllMonths);
     const [selectedIssuingBank, setSelectedIssuingBank] = useState<string>('all');
     const [selectedPaymentType, setSelectedPaymentType] = useState<'all' | CreditCardPaymentType>('all');
-    const [appliedMonth, setAppliedMonth] = useState<MonthFilter>('latest2');
-    const [appliedYear, setAppliedYear] = useState<number>(currentDate.getFullYear());
+    const [appliedMonths, setAppliedMonths] = useState<number[]>(initialMonths);
+    const [appliedYear, setAppliedYear] = useState<number>(initialYear);
+    const [appliedAllMonths, setAppliedAllMonths] = useState(initialAllMonths);
     const [appliedIssuingBank, setAppliedIssuingBank] = useState<string>('all');
     const [appliedPaymentType, setAppliedPaymentType] = useState<'all' | CreditCardPaymentType>('all');
-    const monthOptions = useMemo(
-        () => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-        []
-    );
-    const latestTwoMonthsLabel = useMemo(
-        () => formatLatestTwoMonthsLabel(monthOptions),
-        [monthOptions]
-    );
+    const [isMonthSelectorOpen, setIsMonthSelectorOpen] = useState(false);
+    const monthOptions = MONTH_OPTIONS;
     const yearOptions = useMemo(() => {
         const currentYear = currentDate.getFullYear();
         return Array.from({ length: 7 }, (_, index) => currentYear - 3 + index);
     }, [currentDate]);
+    const appliedPeriodLabel = useMemo(
+        () => formatSelectedMonthsLabel(monthOptions, appliedYear, appliedMonths, appliedAllMonths),
+        [monthOptions, appliedYear, appliedMonths, appliedAllMonths]
+    );
+    const selectedPeriodLabel = useMemo(
+        () => formatSelectedMonthsLabel(monthOptions, selectedYear, selectedMonths, selectedAllMonths),
+        [monthOptions, selectedYear, selectedMonths, selectedAllMonths]
+    );
     const issuingBankOptions = useMemo(() => {
         const banks = new Set<string>();
         creditCards.forEach((card) => {
@@ -196,74 +267,51 @@ export default function CreditCardPaymentsPage() {
     });
 
  
-    const fetchCreditCards = useCallback(async (
+    const fetchPaymentsForPeriod = useCallback(async (
         year: number,
-        months?: number[],
+        months: number[],
+        allMonths: boolean,
         paymentType?: 'all' | CreditCardPaymentType
     ) => {
         try {
             setLoading(true);
             setError(null);
-            const response = await creditCardService.getCreditCardPayments({
-                year,
-                ...(months && months.length > 0 ? { months } : {}),
-                ...(paymentType === 'paid' || paymentType === 'epp'
-                    ? { paymentType }
-                    : {}),
-            });
-            
-            if (response.success && response.data) {
-                setCreditCards(response.data);
-            } else {
-                setError('Failed to fetch credit card payments');
-                setCreditCards([]);
+
+            const paymentTypeOpt =
+                paymentType === 'paid' || paymentType === 'epp' ? { paymentType } : {};
+
+            if (allMonths) {
+                const response = await creditCardService.getCreditCardPayments({
+                    year,
+                    ...paymentTypeOpt,
+                });
+                if (response.success && response.data) {
+                    setCreditCards(response.data);
+                } else {
+                    setError('Failed to fetch credit card payments');
+                    setCreditCards([]);
+                }
+                return;
             }
-        } catch (err: any) {
-            const errorMessage = err?.message || 'Failed to fetch credit card payments';
-            console.error('Error fetching credit card payments:', err);
-            setError(errorMessage);
-            setCreditCards([]);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
 
-    const fetchLatestTwoMonths = useCallback(async (
-        paymentType?: 'all' | CreditCardPaymentType
-    ) => {
-        try {
-            setLoading(true);
-            setError(null);
+            if (months.length === 0) {
+                setCreditCards([]);
+                return;
+            }
 
-            const ranges = latestTwoMonthRanges();
+            const ranges = groupStatementMonthIndicesByYear(year, months);
             const responses = await Promise.all(
                 ranges.map((range) =>
                     creditCardService.getCreditCardPayments({
                         year: range.year,
                         months: range.months,
-                        ...(paymentType === 'paid' || paymentType === 'epp'
-                            ? { paymentType }
-                            : {}),
+                        ...paymentTypeOpt,
                     })
                 )
             );
 
-            const merged: CreditCardPayment[] = [];
-            const seen = new Set<string>();
-            let anySuccess = false;
-
-            for (const response of responses) {
-                if (response.success && response.data) {
-                    anySuccess = true;
-                    for (const item of response.data) {
-                        const id = String(item.id || '');
-                        if (id && !seen.has(id)) {
-                            seen.add(id);
-                            merged.push(item);
-                        }
-                    }
-                }
-            }
+            const merged = mergePaymentResponses(responses);
+            const anySuccess = responses.some((r) => r.success);
 
             if (anySuccess) {
                 setCreditCards(merged);
@@ -283,21 +331,18 @@ export default function CreditCardPaymentsPage() {
     }, []);
 
     const refetchPayments = useCallback(async () => {
-        if (appliedMonth === 'latest2') {
-            await fetchLatestTwoMonths(appliedPaymentType);
-            return;
-        }
-        if (appliedMonth === 'all') {
-            await fetchCreditCards(appliedYear, undefined, appliedPaymentType);
-            return;
-        }
-        await fetchCreditCards(appliedYear, [appliedMonth], appliedPaymentType);
+        await fetchPaymentsForPeriod(
+            appliedYear,
+            appliedMonths,
+            appliedAllMonths,
+            appliedPaymentType
+        );
     }, [
-        appliedMonth,
         appliedYear,
+        appliedMonths,
+        appliedAllMonths,
         appliedPaymentType,
-        fetchCreditCards,
-        fetchLatestTwoMonths,
+        fetchPaymentsForPeriod,
     ]);
 
     // Fetch available credit cards for dropdown
@@ -320,14 +365,13 @@ export default function CreditCardPaymentsPage() {
  
 
     useEffect(() => {
-        if (appliedMonth === 'latest2') {
-            void fetchLatestTwoMonths(appliedPaymentType);
-        } else if (appliedMonth === 'all') {
-            void fetchCreditCards(appliedYear, undefined, appliedPaymentType);
-        } else {
-            void fetchCreditCards(appliedYear, [appliedMonth], appliedPaymentType);
-        }
-    }, [appliedMonth, appliedYear, appliedPaymentType, fetchCreditCards, fetchLatestTwoMonths]);
+        void fetchPaymentsForPeriod(
+            appliedYear,
+            appliedMonths,
+            appliedAllMonths,
+            appliedPaymentType
+        );
+    }, [appliedYear, appliedMonths, appliedAllMonths, appliedPaymentType, fetchPaymentsForPeriod]);
 
     useEffect(() => {
         fetchAvailableCreditCards();
@@ -906,12 +950,53 @@ export default function CreditCardPaymentsPage() {
 
     }, [sortedCreditCards, appliedIssuingBank, appliedPaymentType]);
 
+    const toggleMonth = (monthIndex: number) => {
+        setSelectedAllMonths(false);
+        setSelectedMonths((prev) => {
+            if (prev.includes(monthIndex)) {
+                return prev.filter((m) => m !== monthIndex);
+            }
+            return [...prev, monthIndex].sort((a, b) => a - b);
+        });
+    };
+
+    const handleResetToLatestTwoMonths = () => {
+        const period = getDefaultStatementPeriod();
+        setSelectedAllMonths(false);
+        setSelectedYear(period.year);
+        setSelectedMonths(period.months);
+    };
+
     const handleApplyFilters = useCallback(() => {
-        setAppliedMonth(selectedMonth);
+        if (!selectedAllMonths && selectedMonths.length === 0) {
+            setError('Select at least one month or choose All Months.');
+            return;
+        }
+
+        setAppliedMonths(selectedMonths);
         setAppliedYear(selectedYear);
+        setAppliedAllMonths(selectedAllMonths);
         setAppliedIssuingBank(selectedIssuingBank);
         setAppliedPaymentType(selectedPaymentType);
-    }, [selectedMonth, selectedYear, selectedIssuingBank, selectedPaymentType]);
+        setIsMonthSelectorOpen(false);
+
+        const params: Record<string, string> = {
+            year: String(selectedYear),
+        };
+        if (selectedAllMonths) {
+            params.months = 'all';
+        } else {
+            params.months = selectedMonths.map((m) => m + 1).join(',');
+        }
+        setSearchParams(params, { replace: true });
+    }, [
+        selectedMonths,
+        selectedYear,
+        selectedAllMonths,
+        selectedIssuingBank,
+        selectedPaymentType,
+        setSearchParams,
+    ]);
 
     return (
         <Layout>
@@ -945,44 +1030,89 @@ export default function CreditCardPaymentsPage() {
         <div className="mx-8 mb-4 flex flex-wrap items-end justify-between gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-end gap-3">
                 <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-gray-600">Month</label>
-                    <select
-                        value={String(selectedMonth)}
-                        onChange={(e) => {
-                            const value = e.target.value;
-                            if (value === 'all') {
-                                setSelectedMonth('all');
-                            } else if (value === 'latest2') {
-                                setSelectedMonth('latest2');
-                            } else {
-                                setSelectedMonth(Number(value));
-                            }
-                        }}
-                        className="h-10 min-w-36 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
-                    >
-                        <option value="latest2">{latestTwoMonthsLabel}</option>
-                        <option value="all">All Months</option>
-                        {monthOptions.map((month, index) => (
-                            <option key={month} value={index}>
-                                {month}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-gray-600">Year</label>
-                    <select
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(Number(e.target.value))}
-                        disabled={selectedMonth === 'latest2'}
-                        className="h-10 min-w-28 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d] disabled:bg-gray-100 disabled:text-gray-500"
-                    >
-                        {yearOptions.map((year) => (
-                            <option key={year} value={year}>
-                                {formatDisplayYear(year)}
-                            </option>
-                        ))}
-                    </select>
+                    <label className="text-xs font-medium text-gray-600">Period</label>
+                    <Popover open={isMonthSelectorOpen} onOpenChange={setIsMonthSelectorOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-10 min-w-44 justify-between border-gray-300 bg-white px-3 text-sm font-normal text-gray-700 hover:bg-gray-50"
+                            >
+                                <span className="flex items-center gap-2 truncate">
+                                    <CalendarIcon className="h-4 w-4 shrink-0 text-gray-500" />
+                                    {selectedPeriodLabel}
+                                </span>
+                                <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-72 p-4" align="start">
+                            <div className="space-y-4">
+                                <div className="rounded-md border border-[#f7c46d] bg-[#fff7e8] px-3 py-2">
+                                    <p className="text-xs font-medium text-gray-600">Selected Period</p>
+                                    <p className="text-sm font-medium text-gray-900">{selectedPeriodLabel}</p>
+                                </div>
+
+                                <div>
+                                    <p className="mb-2 text-xs font-medium text-gray-600">Year</p>
+                                    <select
+                                        value={selectedYear}
+                                        onChange={(e) => setSelectedYear(Number(e.target.value))}
+                                        className="h-9 w-full rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                                    >
+                                        {yearOptions.map((year) => (
+                                            <option key={year} value={year}>
+                                                {formatDisplayYear(year)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                        <p className="text-xs font-medium text-gray-600">Months</p>
+                                        <button
+                                            type="button"
+                                            onClick={handleResetToLatestTwoMonths}
+                                            className="text-xs font-medium text-[#9a7b2f] hover:underline"
+                                        >
+                                            Latest 2 months
+                                        </button>
+                                    </div>
+                                    <label className="mb-2 flex items-center gap-2 text-sm text-gray-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedAllMonths}
+                                            onChange={(e) => {
+                                                setSelectedAllMonths(e.target.checked);
+                                                if (e.target.checked) {
+                                                    setSelectedMonths([]);
+                                                }
+                                            }}
+                                            className="rounded border-gray-300"
+                                        />
+                                        All Months
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                        {monthOptions.map((month, index) => (
+                                            <button
+                                                key={month}
+                                                type="button"
+                                                disabled={selectedAllMonths}
+                                                onClick={() => toggleMonth(index)}
+                                                className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                                    selectedMonths.includes(index)
+                                                        ? 'bg-[#f7c46d] text-black'
+                                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                {month}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                 </div>
                 <div className="flex flex-col gap-1">
                     <label className="text-xs font-medium text-gray-600">Issuing Bank</label>
@@ -1025,11 +1155,7 @@ export default function CreditCardPaymentsPage() {
             </div>
             <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
                 <p className="text-xs font-medium text-gray-600">
-                    Total Payment ({appliedMonth === 'latest2'
-                        ? latestTwoMonthsLabel
-                        : appliedMonth === 'all'
-                          ? `All Months ${formatDisplayYear(appliedYear)}`
-                          : `${monthOptions[appliedMonth]} ${formatDisplayYear(appliedYear)}`}
+                    Total Payment ({appliedPeriodLabel}
                     {appliedIssuingBank !== 'all' ? ` · ${appliedIssuingBank}` : ''}
                     {appliedPaymentType !== 'all'
                         ? ` · ${appliedPaymentType === 'epp' ? 'EPP' : 'Paid'}`

@@ -620,7 +620,7 @@ export function getDefaultStatementPeriod(date = new Date()): {
 }
 
 /** When both Dec (11) and Jan (0) are selected, December belongs to the prior year. */
-function groupStatementMonthIndicesByYear(
+export function groupStatementMonthIndicesByYear(
   year: number,
   monthIndices: number[]
 ): { year: number; months: number[] }[] {
