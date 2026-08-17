@@ -93,6 +93,36 @@ const paymentSchema = z.object({
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
+type MonthFilter = number | 'all' | 'latest2';
+
+function latestTwoMonthRanges(referenceDate = new Date()): Array<{ year: number; months: number[] }> {
+    const currentMonth = referenceDate.getMonth();
+    const currentYear = referenceDate.getFullYear();
+
+    if (currentMonth === 0) {
+        return [
+            { year: currentYear - 1, months: [11] },
+            { year: currentYear, months: [0] },
+        ];
+    }
+
+    return [{ year: currentYear, months: [currentMonth - 1, currentMonth] }];
+}
+
+/** e.g. "Jul - Aug" for current month August and previous July */
+function formatLatestTwoMonthsLabel(
+    monthOptions: readonly string[],
+    referenceDate = new Date()
+): string {
+    const currentMonth = referenceDate.getMonth();
+    if (currentMonth === 0) {
+        const prevYear = formatDisplayYear(referenceDate.getFullYear() - 1);
+        const curYear = formatDisplayYear(referenceDate.getFullYear());
+        return `${monthOptions[11]} ${prevYear} - ${monthOptions[0]} ${curYear}`;
+    }
+    return `${monthOptions[currentMonth - 1]} - ${monthOptions[currentMonth]}`;
+}
+
 export default function CreditCardPaymentsPage() {
     const canMutate = canMutateRecords();
     const canCreatePayment = canCreateCreditCardPayment();
@@ -111,19 +141,23 @@ export default function CreditCardPaymentsPage() {
     const [loadingCreditCards, setLoadingCreditCards] = useState(false);
     const [editingPayment, setEditingPayment] = useState<CreditCardPayment | null>(null);
     
-    // Period selection state
+    // Period selection state — default: latest 2 calendar months
     const currentDate = new Date();
-    const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
+    const [selectedMonth, setSelectedMonth] = useState<MonthFilter>('latest2');
     const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
     const [selectedIssuingBank, setSelectedIssuingBank] = useState<string>('all');
     const [selectedPaymentType, setSelectedPaymentType] = useState<'all' | CreditCardPaymentType>('all');
-    const [appliedMonth, setAppliedMonth] = useState<number | 'all'>('all');
+    const [appliedMonth, setAppliedMonth] = useState<MonthFilter>('latest2');
     const [appliedYear, setAppliedYear] = useState<number>(currentDate.getFullYear());
     const [appliedIssuingBank, setAppliedIssuingBank] = useState<string>('all');
     const [appliedPaymentType, setAppliedPaymentType] = useState<'all' | CreditCardPaymentType>('all');
     const monthOptions = useMemo(
         () => ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
         []
+    );
+    const latestTwoMonthsLabel = useMemo(
+        () => formatLatestTwoMonthsLabel(monthOptions),
+        [monthOptions]
     );
     const yearOptions = useMemo(() => {
         const currentYear = currentDate.getFullYear();
@@ -194,6 +228,78 @@ export default function CreditCardPaymentsPage() {
         }
     }, []);
 
+    const fetchLatestTwoMonths = useCallback(async (
+        paymentType?: 'all' | CreditCardPaymentType
+    ) => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const ranges = latestTwoMonthRanges();
+            const responses = await Promise.all(
+                ranges.map((range) =>
+                    creditCardService.getCreditCardPayments({
+                        year: range.year,
+                        months: range.months,
+                        ...(paymentType === 'paid' || paymentType === 'epp'
+                            ? { paymentType }
+                            : {}),
+                    })
+                )
+            );
+
+            const merged: CreditCardPayment[] = [];
+            const seen = new Set<string>();
+            let anySuccess = false;
+
+            for (const response of responses) {
+                if (response.success && response.data) {
+                    anySuccess = true;
+                    for (const item of response.data) {
+                        const id = String(item.id || '');
+                        if (id && !seen.has(id)) {
+                            seen.add(id);
+                            merged.push(item);
+                        }
+                    }
+                }
+            }
+
+            if (anySuccess) {
+                setCreditCards(merged);
+            } else {
+                setError('Failed to fetch credit card payments');
+                setCreditCards([]);
+            }
+        } catch (err: unknown) {
+            const errorMessage =
+                err instanceof Error ? err.message : 'Failed to fetch credit card payments';
+            console.error('Error fetching credit card payments:', err);
+            setError(errorMessage);
+            setCreditCards([]);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    const refetchPayments = useCallback(async () => {
+        if (appliedMonth === 'latest2') {
+            await fetchLatestTwoMonths(appliedPaymentType);
+            return;
+        }
+        if (appliedMonth === 'all') {
+            await fetchCreditCards(appliedYear, undefined, appliedPaymentType);
+            return;
+        }
+        await fetchCreditCards(appliedYear, [appliedMonth], appliedPaymentType);
+    }, [
+        appliedMonth,
+        appliedYear,
+        appliedPaymentType,
+        fetchCreditCards,
+        fetchLatestTwoMonths,
+    ]);
+
     // Fetch available credit cards for dropdown
     const fetchAvailableCreditCards = useCallback(async () => {
         try {
@@ -214,12 +320,14 @@ export default function CreditCardPaymentsPage() {
  
 
     useEffect(() => {
-        if (appliedMonth === 'all') {
+        if (appliedMonth === 'latest2') {
+            void fetchLatestTwoMonths(appliedPaymentType);
+        } else if (appliedMonth === 'all') {
             void fetchCreditCards(appliedYear, undefined, appliedPaymentType);
         } else {
             void fetchCreditCards(appliedYear, [appliedMonth], appliedPaymentType);
         }
-    }, [appliedMonth, appliedYear, appliedPaymentType, fetchCreditCards]);
+    }, [appliedMonth, appliedYear, appliedPaymentType, fetchCreditCards, fetchLatestTwoMonths]);
 
     useEffect(() => {
         fetchAvailableCreditCards();
@@ -390,11 +498,7 @@ export default function CreditCardPaymentsPage() {
                     remarks: '',
                     paymentType: 'paid',
                 });
-                await fetchCreditCards(
-                    appliedYear,
-                    appliedMonth === 'all' ? undefined : [appliedMonth],
-                    appliedPaymentType
-                );
+                await refetchPayments();
             } else {
                 setError(response.error || (editingPayment ? 'Failed to update payment' : 'Failed to create payment'));
             }
@@ -433,11 +537,7 @@ export default function CreditCardPaymentsPage() {
                 return next;
             });
             setSuccessMessage(response.message || 'Payment deleted.');
-            await fetchCreditCards(
-                appliedYear,
-                appliedMonth === 'all' ? undefined : [appliedMonth],
-                appliedPaymentType
-            );
+            await refetchPayments();
         } catch (err: unknown) {
             const errorMessage = mutationErrorMessage(err) || 'Failed to delete credit card payment';
             console.error('Error deleting payment:', err);
@@ -683,7 +783,7 @@ export default function CreditCardPaymentsPage() {
         excelData.push([]);
 
         // Add table headers
-        excelData.push(['Payment Date', 'Card Holder', 'Issuing Bank', 'Card Number', 'Amount (AED)', 'Payment Type', 'Remarks']);
+        excelData.push(['Payment Date', 'Issuing Bank', 'Card Holder', 'Card Number', 'Amount (AED)', 'Payment Type', 'Remarks']);
 
         // Sort payments by date (oldest first) for better readability in Excel
         const sortedPayments = [...sortedCreditCards].sort((a, b) => {
@@ -726,8 +826,8 @@ export default function CreditCardPaymentsPage() {
 
             excelData.push([
                 displayDate,
-                cardHolder,
                 payment.issuingBank || '',
+                cardHolder,
                 maskCreditCardNumber(payment.cardNo),
                 payment.amount || 0, // Store as number
                 payment.paymentType === 'epp' ? 'EPP' : 'Paid',
@@ -745,8 +845,8 @@ export default function CreditCardPaymentsPage() {
         // Set column widths
         worksheet['!cols'] = [
             { wch: 18 }, // Payment Date
-            { wch: 20 }, // Card Holder
             { wch: 20 }, // Issuing Bank
+            { wch: 20 }, // Card Holder
             { wch: 20 }, // Card Number
             { wch: 18 }, // Amount
             { wch: 14 }, // Payment Type
@@ -847,13 +947,20 @@ export default function CreditCardPaymentsPage() {
                 <div className="flex flex-col gap-1">
                     <label className="text-xs font-medium text-gray-600">Month</label>
                     <select
-                        value={selectedMonth}
+                        value={String(selectedMonth)}
                         onChange={(e) => {
                             const value = e.target.value;
-                            setSelectedMonth(value === 'all' ? 'all' : Number(value));
+                            if (value === 'all') {
+                                setSelectedMonth('all');
+                            } else if (value === 'latest2') {
+                                setSelectedMonth('latest2');
+                            } else {
+                                setSelectedMonth(Number(value));
+                            }
                         }}
-                        className="h-10 min-w-32 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                        className="h-10 min-w-36 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
                     >
+                        <option value="latest2">{latestTwoMonthsLabel}</option>
                         <option value="all">All Months</option>
                         {monthOptions.map((month, index) => (
                             <option key={month} value={index}>
@@ -867,7 +974,8 @@ export default function CreditCardPaymentsPage() {
                     <select
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(Number(e.target.value))}
-                        className="h-10 min-w-28 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                        disabled={selectedMonth === 'latest2'}
+                        className="h-10 min-w-28 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d] disabled:bg-gray-100 disabled:text-gray-500"
                     >
                         {yearOptions.map((year) => (
                             <option key={year} value={year}>
@@ -917,7 +1025,11 @@ export default function CreditCardPaymentsPage() {
             </div>
             <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
                 <p className="text-xs font-medium text-gray-600">
-                    Total Payment ({appliedMonth === 'all' ? 'All Months' : monthOptions[appliedMonth]} {formatDisplayYear(appliedYear)}
+                    Total Payment ({appliedMonth === 'latest2'
+                        ? latestTwoMonthsLabel
+                        : appliedMonth === 'all'
+                          ? `All Months ${formatDisplayYear(appliedYear)}`
+                          : `${monthOptions[appliedMonth]} ${formatDisplayYear(appliedYear)}`}
                     {appliedIssuingBank !== 'all' ? ` · ${appliedIssuingBank}` : ''}
                     {appliedPaymentType !== 'all'
                         ? ` · ${appliedPaymentType === 'epp' ? 'EPP' : 'Paid'}`
@@ -946,32 +1058,32 @@ export default function CreditCardPaymentsPage() {
             <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto rounded-lg">
-                        <Table>
+                        <Table className="[&_th]:py-1 [&_td]:py-1 [&_th]:px-3 [&_td]:px-3 [&_th]:leading-tight [&_td]:leading-tight">
                             <TableHeader>
                                 <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Payment Date
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
-                                        Card Holder
-                                    </TableHead>
-                                    <TableHead className="text-black text-sm text-left py-2" style={{ fontWeight: 900 }}>
+                                    <TableHead className="text-black text-sm text-left" style={{ fontWeight: 900 }}>
                                         Issuing Bank
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
+                                        Card Holder
+                                    </TableHead>
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Card No
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Amount
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Payment Type
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Remarks
                                     </TableHead>
                                     {canMutate && (
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        <TableHead className="font-semibold text-black text-sm text-left">
                                             Actions
                                         </TableHead>
                                     )}
@@ -999,40 +1111,41 @@ export default function CreditCardPaymentsPage() {
                                             key={card.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
-                                            <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
-                                                <span className="inline-flex flex-wrap items-center gap-1.5">
+                                            <TableCell className="text-gray-700 font-medium text-sm text-left">
+                                                <span className="inline-flex flex-wrap items-center gap-1">
                                                     {formatDate(card.paymentDate)}
                                                     {pendingApprovalIds.has(String(card.id)) && (
-                                                        <span className="inline-flex rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+                                                        <span className="inline-flex rounded-md bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-900">
                                                             Pending approval
                                                         </span>
                                                     )}
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
-                                            </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 text-sm text-left max-w-[10rem] truncate">
                                                 <span className="text-black" style={{ fontWeight: 900 }}>
                                                     {card.issuingBank }
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap">
+                                            {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}
+                                            </TableCell>
+                                            <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap tabular-nums">
                                                 {maskCreditCardNumber(card.cardNo)}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap tabular-nums">
                                                 {formatPaymentAmount(card.amount)}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap">
                                                 {card.paymentType === 'epp' ? 'EPP' : 'Paid'}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">    {card.remarks}</TableCell>
+                                            <TableCell className="text-gray-700 text-sm text-left max-w-[12rem] truncate">{card.remarks}</TableCell>
                                             {canMutate && (
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left"> 
-                                                    <div className="flex items-center gap-2">
-                                                        <Button 
-                                                            variant="outline" 
-                                                            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                                <TableCell className="text-gray-700 text-sm text-left">
+                                                    <div className="flex items-center gap-1">
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 px-2 bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                                             onClick={() => handleEditClick(card)}
                                                             disabled={isSubmitting || deletingPaymentId === card.id}
                                                         >
@@ -1040,7 +1153,8 @@ export default function CreditCardPaymentsPage() {
                                                         </Button>
                                                         <Button
                                                             variant="outline"
-                                                            className="border-red-200 text-red-600 hover:bg-red-50"
+                                                            size="sm"
+                                                            className="h-7 w-7 p-0 border-red-200 text-red-600 hover:bg-red-50"
                                                             onClick={() => {
                                                                 openDeleteDialog(card);
                                                             }}

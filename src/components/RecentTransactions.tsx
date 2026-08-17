@@ -12,7 +12,7 @@ import {
 export interface Transaction {
   date: string;
   description: string;
-  type: 'Debit' | 'Credit';
+  type: 'Credit' | 'Debit' ;
   amount: string;
   status: string;
 }

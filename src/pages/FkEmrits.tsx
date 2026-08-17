@@ -86,8 +86,8 @@ export default function FkEmrits() {
   const [formData, setFormData] = useState<{
     date: string;
     description: string;
-    type: 'Debit' | 'Credit' | '';
-    paymentType: 'cheque' | 'online' | 'cash' | 'creditcard' | '';
+    type: 'Credit' | 'Debit' | '';
+    paymentType: 'cash' | 'cheque' | 'creditcard' | 'online' | '';
     chequeNumber: string;
     amount: string;
     bankCharges: string;
@@ -1091,8 +1091,8 @@ export default function FkEmrits() {
                   <SelectValue placeholder="Select Type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Debit">Debit</SelectItem>
                   <SelectItem value="Credit">Credit</SelectItem>
+                  <SelectItem value="Debit">Debit</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1100,7 +1100,7 @@ export default function FkEmrits() {
               <Label htmlFor="paymentType">Payment Type</Label>
               <Select
                 value={formData.paymentType}
-                onValueChange={(value) => setFormData({ ...formData, paymentType: value as 'cheque' | 'online' | 'cash' | 'creditcard' | '', chequeNumber: '' })}
+                onValueChange={(value) => setFormData({ ...formData, paymentType: value as typeof formData.paymentType, chequeNumber: '' })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select Payment Type" />

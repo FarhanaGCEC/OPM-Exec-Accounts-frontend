@@ -2,7 +2,7 @@
 import { Button } from '@/components/ui/button';
 import Layout from '../components/Layout';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Edit, Trash2, Loader2, Search, Download, Upload, X, Eye } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, Download, Upload, X, Eye } from 'lucide-react';
 import api, { type ApiResponse } from '../lib/api';
 import { transactionService, type BankTransaction as BankTransactionType } from '../services/transactionService';
 import ExcelJS from 'exceljs';
@@ -12,23 +12,21 @@ import {
   buildFxDebitCreditBankChargesPayload,
   fxEditFormAmountAndBankCharges,
 } from '../lib/fxTransactionAmounts';
-import { Card, CardContent } from '../components/ui/card';
+import { fxAdcbDetailsFromPaymentType, fxAdcbPaymentTypeFromDetails } from '../lib/fxAdcbPaymentDetails';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../components/ui/dialog';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
-import { SearchableSelect } from '../components/ui/searchable-select';
+  emptyFxAdcbFilters,
+  filterFxAdcbTransactions,
+} from '../lib/fxAdcbTransactionFilters';
+import { apiDateToTransactionFormDate } from '../lib/transactionFormDate';
+import FxAdcbTransactionFilterBar, {
+  type FxAdcbActiveTab,
+  type FxAdcbFilterState,
+} from '../components/FxAdcbTransactionFilterBar';
+import FxAdcbTransactionFormDialog, {
+  emptyFxAdcbFormValues,
+  resolveFxAdcbCategoryId,
+  type FxAdcbFormValues,
+} from '../components/FxAdcbTransactionFormDialog';
 import DeleteConfirmationDialog from '../components/DeleteConfirmationDialog';
 import {
   Table,
@@ -100,9 +98,12 @@ export default function GbpTranstion() {
   const [transactionToDelete, setTransactionToDelete] = useState<GbpTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [filterText, setFilterText] = useState('');
+  const [filters, setFilters] = useState<FxAdcbFilterState>(emptyFxAdcbFilters);
+  const [activeTab, setActiveTab] = useState<FxAdcbActiveTab>('all');
   const [debtorsList, setDebtorsList] = useState<ReceivablesCategory[]>([]);
   const [creditorsList, setCreditorsList] = useState<PayablesCategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [formInitialValues, setFormInitialValues] = useState<FxAdcbFormValues>(emptyFxAdcbFormValues);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [reportFile, setReportFile] = useState<File | null>(null);
@@ -111,25 +112,6 @@ export default function GbpTranstion() {
   const [statementLoading, setStatementLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isViewingPdf, setIsViewingPdf] = useState(false);
-  
-  // Form state
-  const [formData, setFormData] = useState<{
-    date: string;
-    description: string;
-    type: 'Debit' | 'Credit' | '';
-    paymentType: 'cheque' | 'online' | 'cash' | 'creditcard' | '';
-    chequeNumber: string;
-    amount: string;
-    bankCharges: string;
-  }>({
-    date: '',
-    description: '',
-    type: '',
-    paymentType: '',
-    chequeNumber: '',
-    amount: '',
-    bankCharges: '',
-  });
 
   // Fetch transactions
   const fetchTransactions = useCallback(async () => {
@@ -295,140 +277,102 @@ export default function GbpTranstion() {
 
   const filteredTransactions = useMemo(
     () =>
-      sortedTransactions.filter((transaction) => {
-        if (filterText.trim()) {
-          const needle = filterText.toLowerCase().trim();
-          const haystack = `${transaction.description} ${transaction.details} ${transaction.date}`.toLowerCase();
-          if (!haystack.includes(needle)) return false;
-        }
-        return true;
-      }),
-    [sortedTransactions, filterText]
+      filterFxAdcbTransactions(
+        sortedTransactions,
+        filters,
+        activeTab,
+        parseGbpTransactionDate
+      ),
+    [sortedTransactions, filters, activeTab]
   );
 
-  const parseAmount = (value: number | string | null | undefined): number => {
-    if (value === null || value === undefined || value === '') return 0;
-    const parsed = parseFloat(String(value).replace(/,/g, ''));
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-
-  // Balance is a running balance, so the current total is the most recent
-  // transaction's balance (list is sorted newest-first), not the sum of all rows.
-  const totalAmount = filteredTransactions.length > 0
-    ? parseAmount(filteredTransactions[0].balance)
-    : 0;
-
-  const descriptionOptions = useMemo(() => {
-    const debtorNames = debtorsList
-      .map((d) => String(d.name ?? '').trim())
-      .filter(Boolean);
-    const creditorNames = creditorsList
-      .map((c) => String(c.name ?? '').trim())
-      .filter(Boolean);
-    const fromTransactions = transactions
-      .map((t) => String(t.description ?? '').trim())
-      .filter(Boolean);
-    return [...new Set([...debtorNames, ...creditorNames, ...fromTransactions])].sort(
-      (a, b) => a.localeCompare(b)
-    );
-  }, [debtorsList, creditorsList, transactions]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const toArray = (value: unknown): Array<Record<string, unknown>> => {
-      if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
-      if (value && typeof value === 'object') {
-        const nested = value as Record<string, unknown>;
-        for (const key of ['data', 'items', 'categories', 'receivables', 'payables', 'results', 'rows']) {
-          const v = nested[key];
-          if (Array.isArray(v)) return v as Array<Record<string, unknown>>;
+  const loadCategories = useCallback(async () => {
+    setLoadingCategories(true);
+    try {
+      const toArray = (value: unknown): Array<Record<string, unknown>> => {
+        if (Array.isArray(value)) return value as Array<Record<string, unknown>>;
+        if (value && typeof value === 'object') {
+          const nested = value as Record<string, unknown>;
+          for (const key of ['data', 'items', 'categories', 'receivables', 'payables', 'results', 'rows']) {
+            const v = nested[key];
+            if (Array.isArray(v)) return v as Array<Record<string, unknown>>;
+          }
         }
+        return [];
+      };
+
+      const [debtorsRes, creditorsRes] = await Promise.all([
+        receivablesService.getReceivables(),
+        payablesService.getPayables(),
+      ]);
+      if (debtorsRes.success) {
+        const debtors = toArray(debtorsRes.data)
+          .map((item, index) => ({
+            id: String(item.id ?? item.value ?? `debtor-${index}`),
+            name: String(item.name ?? item.customerName ?? item.customer_name ?? '').trim(),
+          }))
+          .filter((item) => item.name.length > 0);
+        setDebtorsList(debtors);
       }
-      return [];
-    };
-
-    void (async () => {
-      try {
-        const [debtorsRes, creditorsRes] = await Promise.all([
-          receivablesService.getReceivables(),
-          payablesService.getPayables(),
-        ]);
-        if (!cancelled && debtorsRes.success) {
-          const debtors = toArray(debtorsRes.data)
-            .map((item, index) => ({
-              id: String(item.id ?? item.value ?? `debtor-${index}`),
-              name: String(item.name ?? item.customerName ?? item.customer_name ?? '').trim(),
-            }))
-            .filter((item) => item.name.length > 0);
-          setDebtorsList(debtors);
-        }
-        if (!cancelled && creditorsRes.success) {
-          const creditors = toArray(creditorsRes.data)
-            .map((item, index) => ({
-              id: String(item.id ?? item.value ?? `creditor-${index}`),
-              name: String(item.name ?? item.vendorName ?? item.vendor_name ?? '').trim(),
-            }))
-            .filter((item) => item.name.length > 0);
-          setCreditorsList(creditors);
-        }
-      } catch (e) {
-        console.error('[GbpTranstion] Failed to load debtors/creditors list', e);
+      if (creditorsRes.success) {
+        const creditors = toArray(creditorsRes.data)
+          .map((item, index) => ({
+            id: String(item.id ?? item.value ?? `creditor-${index}`),
+            name: String(item.name ?? item.vendorName ?? item.vendor_name ?? '').trim(),
+          }))
+          .filter((item) => item.name.length > 0);
+        setCreditorsList(creditors);
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    } catch (e) {
+      console.error('[GbpTranstion] Failed to load debtors/creditors list', e);
+    } finally {
+      setLoadingCategories(false);
+    }
   }, []);
 
-  // Handle Add New
+  useEffect(() => {
+    void loadCategories();
+  }, [loadCategories]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    void loadCategories();
+  }, [isModalOpen, loadCategories]);
+
   const handleAddNew = () => {
     setEditingTransaction(null);
-    setFormData({
-      date: '',
-      description: '',
-      type: '',
-      paymentType: '',
-      chequeNumber: '',
-      amount: '',
-      bankCharges: '',
-    });
+    setError(null);
+    setFormInitialValues({ ...emptyFxAdcbFormValues });
     setIsModalOpen(true);
   };
 
-  // Handle Edit
   const handleEdit = (transaction: GbpTransaction) => {
     setEditingTransaction(transaction);
-    
+
     const { type, amount, bankCharges } = fxEditFormAmountAndBankCharges(
       transaction.debit,
       transaction.credit,
       transaction.bankCharges
     );
-    
-    // Map details to paymentType (normalize to match dropdown values)
-    let paymentType: 'cheque' | 'online' | 'cash' | 'creditcard' | '' = '';
-    const detailsLower = (transaction.details || '').toLowerCase();
-    if (detailsLower.includes('cheque')) {
-      paymentType = 'cheque';
-    } else if (detailsLower.includes('online')) {
-      paymentType = 'online';
-    } else if (detailsLower.includes('cash')) {
-      paymentType = 'cash';
-    } else if (detailsLower.includes('credit') || detailsLower.includes('card')) {
-      paymentType = 'creditcard';
-    }
-    
-    setFormData({
-      date: formatDateForApi(transaction.date) || '',
-      description: transaction.description || '',
-      type: type as 'Debit' | 'Credit' | '',
-      paymentType: paymentType,
-      chequeNumber: (transaction as any).chequeNumber || '',
-      amount: amount,
-      bankCharges: bankCharges,
+    const { paymentType, chequeNumber } = fxAdcbPaymentTypeFromDetails(transaction.details || '');
+    const resolvedType = (type || 'Debit') as 'Debit' | 'Credit';
+    const categoryId = resolveFxAdcbCategoryId(
+      transaction.description || '',
+      resolvedType,
+      creditorsList,
+      debtorsList
+    );
+
+    setFormInitialValues({
+      date: apiDateToTransactionFormDate(transaction.date),
+      type: resolvedType,
+      categoryId,
+      paymentType: paymentType || 'cash',
+      chequeNumber,
+      amount,
+      bankCharges,
     });
+    setError(null);
     setIsModalOpen(true);
   };
 
@@ -472,80 +416,52 @@ export default function GbpTranstion() {
     }
   };
 
-  // Handle Save (Create or Update)
-  const handleSave = async () => {
+  const handleFormSubmit = async (values: FxAdcbFormValues) => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Parse amounts — backend requires at least one of debit, credit, or bank_charges > 0
+
       const amountValue =
-        formData.amount && formData.amount.trim() !== ''
-          ? parseFloat(formData.amount.replace(/,/g, ''))
+        values.amount && values.amount.trim() !== ''
+          ? parseFloat(values.amount.replace(/,/g, ''))
           : 0;
       const bankChargesValue =
-        formData.bankCharges && formData.bankCharges.trim() !== ''
-          ? parseFloat(formData.bankCharges.replace(/,/g, ''))
+        values.bankCharges && values.bankCharges.trim() !== ''
+          ? parseFloat(values.bankCharges.replace(/,/g, ''))
           : 0;
       const hasAmount = !isNaN(amountValue) && amountValue > 0;
       const hasBankCharges = !isNaN(bankChargesValue) && bankChargesValue > 0;
 
-      if (!hasAmount && !hasBankCharges) {
-        setError('Please enter an amount or bank charges greater than 0');
-        setLoading(false);
-        return;
-      }
+      const categoryList = values.type === 'Debit' ? creditorsList : debtorsList;
+      const category = categoryList.find((c) => String(c.id) === values.categoryId);
+      const description = category?.name ?? '';
 
-      // Type / payment type only required when there is a debit/credit amount
-      if (hasAmount && !formData.type) {
-        setError('Please select a type (Debit or Credit)');
-        setLoading(false);
-        return;
-      }
-      if (hasAmount && !formData.paymentType) {
-        setError('Please select a payment type');
-        setLoading(false);
-        return;
-      }
-      if (formData.paymentType === 'cheque' && !formData.chequeNumber.trim()) {
-        setError('Cheque number is required when payment type is cheque');
-        setLoading(false);
-        return;
-      }
-      
-      // Convert paymentType to details format
-      let details = '';
-      if (formData.paymentType === 'cheque') {
-        details = formData.chequeNumber; // Use cheque number as details
-      } else if (formData.paymentType === 'creditcard') {
-        details = 'Credit Card';
-      } else if (formData.paymentType) {
-        details = formData.paymentType.charAt(0).toUpperCase() + formData.paymentType.slice(1);
-      }
-      
-      const payload: any = {
-        date: formData.date,
-        description: formData.description,
-        details: details,
+      const details = fxAdcbDetailsFromPaymentType(
+        values.paymentType,
+        values.chequeNumber ?? ''
+      );
+
+      const payload = {
+        date: formatDateForApi(values.date) || values.date.trim(),
+        description,
+        details,
         ...buildFxDebitCreditBankChargesPayload(
-          formData.type,
+          values.type,
           amountValue,
           bankChargesValue,
           hasAmount,
           hasBankCharges
         ),
       };
-      
+
       let response: ApiResponse<BankTransactionType>;
-      
+
       if (editingTransaction?.id) {
-        // Update
         response = await transactionService.updateGbpTransaction(String(editingTransaction.id), payload);
       } else {
-        // Create
         response = await transactionService.createGbpTransaction(payload);
       }
-      
+
       if (response.success) {
         if (isChangeRequestQueuedResponse(response)) {
           setToast({
@@ -719,7 +635,10 @@ export default function GbpTranstion() {
     }
   };
 
-  const clearFilters = () => setFilterText('');
+  const clearFilters = () => {
+    setFilters(emptyFxAdcbFilters);
+    setActiveTab('all');
+  };
 
   const formatAmount = (value: number | string | null | undefined): string => {
     if (value === null || value === undefined) return '-';
@@ -736,37 +655,6 @@ export default function GbpTranstion() {
           <h2 className="text-2xl font-bold text-gray-900">ADCB GCEC CLOUD (GBP)</h2>
         </div>
         <div className="flex items-center gap-3 mr-4">
-          <Button
-            onClick={handleViewStatementPdf}
-            variant="outline"
-            className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
-            disabled={statementLoading || isViewingPdf || !statementMeta}
-            title="View bank statement"
-          >
-            <Eye className="h-4 w-4" />
-            <span>{isViewingPdf ? 'Opening...' : 'View Bank Statement'}</span>
-          </Button>
-          {canUploadStatements() && (
-            <Button
-              onClick={openUploadModal}
-              variant="outline"
-              className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black"
-              disabled={isUploading}
-              title="Upload bank statement"
-            >
-              <Upload className="h-4 w-4" />
-              <span>Upload Bank Statement</span>
-            </Button>
-          )}
-          <Button
-            onClick={handleDownloadExcel}
-            variant="outline"
-            className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
-            disabled={loading || filteredTransactions.length === 0}
-          >
-            <Download className="w-4 h-4" />
-            <span>Download Excel</span>
-          </Button>
           {canMutate && (
             <Button
               onClick={handleAddNew}
@@ -781,42 +669,69 @@ export default function GbpTranstion() {
       </div>
 
       {error && (
-        <div className="mx-8 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+        <div className="mx-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
           {error}
         </div>
       )}
 
-      <div className="mx-8">
-        <div className="mb-4 bg-white rounded-lg border border-gray-200 p-4">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
-            <div className="relative md:col-span-3">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <Input
-                type="text"
-                value={filterText}
-                onChange={(e) => setFilterText(e.target.value)}
-                placeholder="Filter by description, details, or date..."
-                className="pl-10"
-              />
-            </div>
-            <Button variant="outline" onClick={clearFilters} className="text-black md:col-span-1">
-              Clear Filters
+      <FxAdcbTransactionFilterBar
+        filters={filters}
+        activeTab={activeTab}
+        onFiltersChange={setFilters}
+        onActiveTabChange={setActiveTab}
+        onClearFilters={clearFilters}
+        toolbarActions={
+          <>
+            <Button
+              onClick={handleViewStatementPdf}
+              variant="outline"
+              className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
+              disabled={statementLoading || isViewingPdf || !statementMeta}
+              title="View bank statement"
+            >
+              <Eye className="h-4 w-4" />
+              <span>{isViewingPdf ? 'Opening...' : 'View Bank Statement'}</span>
             </Button>
-            <Card className="border border-gray-200 shadow-sm md:col-span-1">
-              <CardContent className="py-3 px-4">
-                <p className="text-xs text-gray-500">Total Amount</p>
-                <p className="text-lg font-bold text-black">£{formatAmount(totalAmount)}</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+            {canUploadStatements() && (
+              <Button
+                onClick={openUploadModal}
+                variant="outline"
+                className="flex items-center gap-2 border-gray-300 hover:bg-gray-50 text-black"
+                disabled={isUploading}
+                title="Upload bank statement"
+              >
+                <Upload className="h-4 w-4" />
+                <span>Upload Bank Statement</span>
+              </Button>
+            )}
+            <Button
+              onClick={handleDownloadExcel}
+              variant="outline"
+              className="flex items-center space-x-2 border-gray-300 hover:bg-gray-50 text-black font-semibold"
+              disabled={loading || filteredTransactions.length === 0}
+            >
+              <Download className="w-4 h-4" />
+              <span>Download Excel</span>
+            </Button>
+          </>
+        }
+      />
+
+      <div className="mx-4">
         {loading && transactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="w-8 h-8 animate-spin text-[#f7c46d]" />
           </div>
         ) : filteredTransactions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            No transactions found for selected filters.
+            {filters.startDate ||
+            filters.endDate ||
+            filters.searchDetails ||
+            filters.searchAmount ||
+            filters.searchDescription ||
+            activeTab !== 'all'
+              ? 'No transactions match your filters.'
+              : 'No transactions found. Click "Add New" to create one.'}
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -1002,168 +917,26 @@ export default function GbpTranstion() {
         </div>
       )}
 
-      {/* Add/Edit Modal */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingTransaction ? 'Edit GBP Transaction' : 'Add New GBP Transaction'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="date">Date</Label>
-              <Input
-                id="date"
-                type="date"
-                value={formData.date}
-                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <SearchableSelect
-                value={formData.description || undefined}
-                onValueChange={(value) => setFormData({ ...formData, description: value })}
-                placeholder="Select description"
-                searchPlaceholder="Search Description..."
-              >
-                {(() => {
-                  const current = formData.description.trim();
-                  const legacyOption =
-                    current && !descriptionOptions.includes(current) ? current : null;
-
-                  return [
-                    ...(legacyOption
-                      ? [
-                          <SelectItem
-                            key={`legacy-${legacyOption}`}
-                            value={legacyOption}
-                            textValue={legacyOption}
-                          >
-                            {legacyOption} (not in list)
-                          </SelectItem>,
-                        ]
-                      : []),
-                    ...descriptionOptions.map((name) => (
-                      <SelectItem key={name} value={name} textValue={name}>
-                        {name}
-                      </SelectItem>
-                    )),
-                  ];
-                })()}
-              </SearchableSelect>
-            </div>
-            <div>
-              <Label htmlFor="type">Type</Label>
-              <Select
-                value={formData.type}
-                onValueChange={(value) => setFormData({ ...formData, type: value as 'Debit' | 'Credit' | '' })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Debit">Debit</SelectItem>
-                  <SelectItem value="Credit">Credit</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="paymentType">Payment Type</Label>
-              <Select
-                value={formData.paymentType}
-                onValueChange={(value) => setFormData({ ...formData, paymentType: value as 'cheque' | 'online' | 'cash' | 'creditcard' | '', chequeNumber: '' })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Payment Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="online">Online</SelectItem>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="creditcard">Credit Card</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {formData.paymentType === 'cheque' && (
-              <div>
-                <Label htmlFor="chequeNumber">Cheque Number</Label>
-                <Input
-                  id="chequeNumber"
-                  value={formData.chequeNumber}
-                  onChange={(e) => setFormData({ ...formData, chequeNumber: e.target.value })}
-                  placeholder="Enter cheque number"
-                />
-              </div>
-            )}
-            <div>
-              <Label htmlFor="amount">Amount</Label>
-              <Input
-                id="amount"
-                type="text"
-                inputMode="decimal"
-                pattern="[0-9]*[.]?[0-9]*"
-                value={formData.amount}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    amount: e.target.value
-                      .replace(/[^0-9.]/g, '')
-                      .replace(/(\..*)\./g, '$1'),
-                  })
-                }
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <Label htmlFor="bank_charges">Bank Charges</Label>
-              <Input
-                id="bank_charges"
-                type="text"
-                inputMode="decimal"
-                pattern="[0-9]*[.]?[0-9]*"
-                value={formData.bankCharges}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    bankCharges: e.target.value
-                      .replace(/[^0-9.]/g, '')
-                      .replace(/(\..*)\./g, '$1'),
-                  })
-                }
-                placeholder="0"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsModalOpen(false);
-                  setEditingTransaction(null);
-                }}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={loading}
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  'Save'
-                )}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <FxAdcbTransactionFormDialog
+        open={isModalOpen}
+        onOpenChange={(open) => {
+          setIsModalOpen(open);
+          if (!open) {
+            setEditingTransaction(null);
+            setError(null);
+          }
+        }}
+        currencyLabel="GBP"
+        currencySymbol="£"
+        editing={!!editingTransaction}
+        initialValues={formInitialValues}
+        payablesCategories={creditorsList}
+        receivablesCategories={debtorsList}
+        loadingCategories={loadingCategories}
+        isSubmitting={loading}
+        error={error}
+        onSubmit={handleFormSubmit}
+      />
 
       {/* Delete Confirmation Dialog */}
       <DeleteConfirmationDialog

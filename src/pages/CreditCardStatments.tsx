@@ -74,7 +74,7 @@ interface StatementTotals {
 }
 
 const STATEMENT_TABLE_CLASS =
-    'cc-statement-table w-full text-[14px] sm:text-[15px] border-x border-b border-gray-200 [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-2 [&_td]:px-2 [&_th]:py-1 [&_td]:py-1 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight [&_tbody_td]:align-middle';
+    'cc-statement-table w-full text-[14px] sm:text-[15px] border-x border-b border-gray-200 [&_th]:whitespace-normal [&_td]:whitespace-nowrap [&_th]:px-2 [&_td]:px-2 [&_th]:py-1 [&_td]:py-1 [&_th]:text-[14px] sm:[&_th]:text-[15px] [&_td]:text-[14px] sm:[&_td]:text-[15px] [&_td]:leading-tight [&_th]:leading-tight [&_tbody_td]:align-top';
 
 const STATEMENT_MONTH_BAR_CLASS =
     'cc-statement-month-bar px-4 py-2 border-b border-gray-200 flex items-center justify-between';
@@ -802,7 +802,11 @@ export default function CreditCardStatements() {
         // No dated single/multi lines → plain total only
         if (!shouldShowPaymentBreakdown(rows)) {
             return (
-                <span className=" tabular-nums">{formatCurrency(totalMoney)}</span>
+                <span
+                    className={`tabular-nums${totalMoney !== 0 ? ' font-bold text-gray-900' : ''}`}
+                >
+                    {formatCurrency(totalMoney)}
+                </span>
             );
         }
 
@@ -811,7 +815,10 @@ export default function CreditCardStatements() {
         return (
             <div className="min-w-[10rem] max-w-[14rem]">
                 <div className="space-y-1 rounded-md border border-gray-200 bg-white/80 px-2 py-1.5">
-                    {rows.map((row, index) => (
+                    {rows.map((row, index) => {
+                        const rowAmount = moneyFromApi(row.amount);
+                        const isSingleLine = rows.length === 1;
+                        return (
                         <div
                             key={row.id ?? `${field}-${index}`}
                             className="flex items-baseline justify-between gap-2 text-xs"
@@ -819,11 +826,15 @@ export default function CreditCardStatements() {
                             <span className="shrink-0 text-xs text-gray-600">
                                 {formatPaymentRowDate(row.paidAt)}
                             </span>
-                            <span className="tabular-nums font-medium text-gray-900 text-right">
-                                {formatCurrency(moneyFromApi(row.amount))}
+                            <span
+                                className={`tabular-nums text-right text-gray-900 ${
+                                    isSingleLine && rowAmount !== 0 ? 'font-bold' : 'font-medium'
+                                }`}
+                            >
+                                {formatCurrency(rowAmount)}
                             </span>
                         </div>
-                    ))}
+                    );})}
                     {showTotalFooter ? (
                         <div className="flex items-baseline justify-between gap-2 border-t border-gray-100 pt-1 text-xs font-bold text-gray-900">
                             <span>Total</span>
@@ -2326,7 +2337,7 @@ export default function CreditCardStatements() {
                                                                     <TableCell className="!text-xs text-gray-700 py-1 text-left tabular-nums">
                                                                         {formatDate(card.due_date || '')}
                                                                     </TableCell>
-                                                                    <TableCell className="text-gray-700  text-sm py-1 text-left">
+                                                                    <TableCell className="text-gray-700 text-sm font-bold py-1 text-left tabular-nums">
                                                                         {isEditingStatement(card, monthKey) ? (
                                                                             <input
                                                                                 type="text"
@@ -2335,7 +2346,7 @@ export default function CreditCardStatements() {
                                                                                 value={editValues!.totalPaymentDue}
                                                                                 onFocus={() => handleEditFieldFocus('totalPaymentDue')}
                                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
-                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-normal"
                                                                             />
                                                                         ) : (
                                                                             formatCurrency(card.totalPaymentDue)
@@ -2568,7 +2579,7 @@ export default function CreditCardStatements() {
                                                     <TableCell className="!text-xs text-gray-700 py-1 text-left tabular-nums">
                                                         {formatDate(card.due_date || '')}
                                                     </TableCell>
-                                                    <TableCell className="text-gray-700  text-sm py-1 text-left">
+                                                    <TableCell className="text-gray-700 text-sm font-bold py-1 text-left tabular-nums">
                                                         {isEditingStatement(card) ? (
                                                             <input
                                                                 type="text"
@@ -2577,7 +2588,7 @@ export default function CreditCardStatements() {
                                                                 value={editValues!.totalPaymentDue}
                                                                 onFocus={() => handleEditFieldFocus('totalPaymentDue')}
                                                                 onChange={(e) => handleEditValueChange('totalPaymentDue', e.target.value)}
-                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm font-normal"
                                                             />
                                                         ) : (
                                                             formatCurrency(card.totalPaymentDue)

@@ -449,26 +449,26 @@ export default function CreditCardDetails() {
             <Card className="bg-white border border-gray-200 shadow-sm m-8 rounded-lg overflow-hidden">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto rounded-lg">
-                        <Table>
+                        <Table className="[&_th]:py-1 [&_td]:py-1 [&_th]:px-3 [&_td]:px-3 [&_th]:leading-tight [&_td]:leading-tight">
                             <TableHeader>
                                 <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Issuing Bank
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Card Holder
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Card no
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Expiry
                                     </TableHead>
-                                    <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                    <TableHead className="font-semibold text-black text-sm text-left">
                                         Status
                                     </TableHead>
                                     {canManageCards && (
-                                        <TableHead className="font-semibold text-black text-sm text-left py-2">
+                                        <TableHead className="font-semibold text-black text-sm text-left">
                                             Actions
                                         </TableHead>
                                     )}
@@ -520,20 +520,20 @@ export default function CreditCardDetails() {
                                             key={card.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
-                                            <TableCell className="text-gray-700 font-medium text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 font-medium text-sm text-left max-w-[10rem] truncate">
                                                 {card.issuingBank}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap">
                                             {displayCreditCardHolderName(card.cardHolder)}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap tabular-nums">
                                                 {formatCardNumber(card.cardNo)}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
+                                            <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap">
                                                 {card.expiry_date && card.expiry_date.trim() ? card.expiry_date : '-'}
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            <TableCell className="text-gray-700 text-sm text-left">
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                                                     card.isActive 
                                                         ? 'bg-green-100 text-green-800' 
                                                         : 'bg-gray-100 text-gray-800'
@@ -542,16 +542,16 @@ export default function CreditCardDetails() {
                                                 </span>
                                             </TableCell>
                                             {canManageCards && (
-                                                <TableCell className="text-gray-700 text-sm py-2 text-left">
-                                                    <div className="flex items-center gap-2">
+                                                <TableCell className="text-gray-700 text-sm text-left">
+                                                    <div className="flex items-center gap-1">
                                                         <Button
                                                             variant="outline"
                                                             size="sm"
                                                             onClick={() => handleEditClick(card)}
-                                                            className="text-gray-700 hover:text-gray-900"
+                                                            className="h-7 w-7 p-0 text-gray-700 hover:text-gray-900"
                                                             title="Edit card"
                                                         >
-                                                            <Pencil className="w-4 h-4" />
+                                                            <Pencil className="w-3.5 h-3.5" />
                                                         </Button>
                                                         {card.isActive ? (
                                                             <Button
@@ -561,22 +561,22 @@ export default function CreditCardDetails() {
                                                                     setDeletingCardId(card.id);
                                                                     setIsDeleteModalOpen(true);
                                                                 }}
-                                                                className="text-red-600 hover:text-red-700"
+                                                                className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
                                                                 disabled={isDeleting}
                                                                 title="Deactivate card"
                                                             >
-                                                                <CircleMinus className="w-4 h-4" />
+                                                                <CircleMinus className="w-3.5 h-3.5" />
                                                             </Button>
                                                         ) : (
                                                             <Button
                                                                 variant="outline"
                                                                 size="sm"
                                                                 onClick={() => handleActivate(card.id)}
-                                                                className="text-green-600 hover:text-green-700"
+                                                                className="h-7 w-7 p-0 text-green-600 hover:text-green-700"
                                                                 disabled={isActivating}
                                                                 title="Activate card"
                                                             >
-                                                                <Power className="w-4 h-4" />
+                                                                <Power className="w-3.5 h-3.5" />
                                                             </Button>
                                                         )}
                                                     </div>

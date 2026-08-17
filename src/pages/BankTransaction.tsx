@@ -3080,15 +3080,6 @@ export default function BankTransaction() {
            Cash
          </button>
          <button
-           onClick={() => setActiveTab('debit')}
-           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'debit'
-             ? 'bg-[#f7c46d] text-black'
-             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
-             }`}
-         >
-           Debit
-         </button>
-         <button
            onClick={() => setActiveTab('credit')}
            className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'credit'
              ? 'bg-[#f7c46d] text-black'
@@ -3096,6 +3087,15 @@ export default function BankTransaction() {
              }`}
          >
            Credit
+         </button>
+         <button
+           onClick={() => setActiveTab('debit')}
+           className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'debit'
+             ? 'bg-[#f7c46d] text-black'
+             : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
+             }`}
+         >
+           Debit
          </button>
        </div>
 
@@ -3596,8 +3596,8 @@ export default function BankTransaction() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="Debit">Debit</SelectItem>
                             <SelectItem value="Credit">Credit</SelectItem>
+                            <SelectItem value="Debit">Debit</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
