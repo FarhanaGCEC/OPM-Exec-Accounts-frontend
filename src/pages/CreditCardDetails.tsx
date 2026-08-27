@@ -46,6 +46,7 @@ import {
     type CreditCardDetail 
 } from '../services/creditCardService';
 import { canManageCreditCards, creditCardAdminOnlyMessage } from '../lib/authPayload';
+import CreditCardBankLogo from '../components/CreditCardBankLogo';
 
 const creditCardSchema = z.object({
     issuingBank: z.string().min(1, 'Issuing Bank is required').trim(),
@@ -520,8 +521,13 @@ export default function CreditCardDetails() {
                                             key={card.id}
                                             className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                                         >
-                                            <TableCell className="text-gray-700 font-medium text-sm text-left max-w-[10rem] truncate">
-                                                {card.issuingBank}
+                                            <TableCell className="text-gray-700 font-medium text-sm text-left max-w-[14rem]">
+                                                <CreditCardBankLogo
+                                                    issuingBank={card.issuingBank}
+                                                    size={28}
+                                                    showName
+                                                    className="max-w-full"
+                                                />
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap">
                                             {displayCreditCardHolderName(card.cardHolder)}

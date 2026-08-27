@@ -6,7 +6,7 @@ export const BULK_TX_MAX_ROWS = 500;
 
 export type BulkApiTransactionRow = {
   date: string;
-  type: 'Debit' | 'Credit';
+  type: 'Credit' | 'Debit' ;
   paymentType: 'cash' | 'cheque' | 'creditcard' | 'online' | 'dd';
   amount: number;
   categoryId?: number;
@@ -187,7 +187,7 @@ function normalizeType(raw: string): 'Debit' | 'Credit' | null {
 }
 
 function resolveCategoryId(
-  type: 'Debit' | 'Credit',
+  type: 'Credit' | 'Debit' ,
   rawCategory: string | undefined,
   payables: PayablesCategory[],
   receivables: ReceivablesCategory[]

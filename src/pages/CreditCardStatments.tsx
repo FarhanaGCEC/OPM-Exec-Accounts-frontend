@@ -39,6 +39,8 @@ import type { ApiResponse } from '../lib/api';
 import { userMessageFromChangeRequestSubmit } from '../lib/changeRequestUi';
 import { isApprovalRequiredError } from '../lib/approvalError';
 import { setAppSidebarOpen } from '../lib/sidebarControl';
+import CreditCardBankLogo from '../components/CreditCardBankLogo';
+import { resolveCreditCardBankLogo } from '../lib/creditCardBankLogo';
 import * as XLSX from 'xlsx';
 import {
   applyXlsxArialToWorkbook,
@@ -158,7 +160,7 @@ function formatStatementCardIdentityLabel(
     return [holder, bank, last4].filter(Boolean).join(' ');
 }
 
-/** Single-line Card Holder + Issuing Bank + last 4. */
+/** Single-line Card Holder + Issuing Bank + last 4, with bank logo. */
 function StatementCardIdentityCell({
     cardHolder,
     cardNumber,
@@ -174,10 +176,18 @@ function StatementCardIdentityCell({
     const title = [label, fullBank && fullBank !== shortBank ? fullBank : '']
         .filter(Boolean)
         .join(' · ');
+    const hasLogo = Boolean(resolveCreditCardBankLogo(issuingBank));
+
     return (
-        <div className="min-w-0 max-w-full leading-tight" title={title || undefined}>
+        <div
+            className="flex min-w-0 max-w-full items-center gap-1.5 leading-tight"
+            title={title || undefined}
+        >
+            {hasLogo ? (
+                <CreditCardBankLogo issuingBank={issuingBank} size={22} className="flex-shrink-0" />
+            ) : null}
             {label ? (
-                <div className="truncate text-gray-700 !text-xs font-bold">{label}</div>
+                <div className="min-w-0 truncate text-gray-700 !text-xs font-bold">{label}</div>
             ) : (
                 <span className="text-gray-400">—</span>
             )}

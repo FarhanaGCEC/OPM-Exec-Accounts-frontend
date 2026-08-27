@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Layout from '../components/Layout';
+import CreditCardBankLogo from '../components/CreditCardBankLogo';
 import { Card, CardContent } from '../components/ui/card';
 import {
     Table,
@@ -1247,10 +1248,14 @@ export default function CreditCardPaymentsPage() {
                                                     )}
                                                 </span>
                                             </TableCell>
-                                            <TableCell className="text-gray-700 text-sm text-left max-w-[10rem] truncate">
-                                                <span className="text-black" style={{ fontWeight: 900 }}>
-                                                    {card.issuingBank }
-                                                </span>
+                                            <TableCell className="text-gray-700 text-sm text-left max-w-[14rem]">
+                                                <CreditCardBankLogo
+                                                    issuingBank={card.issuingBank}
+                                                    size={28}
+                                                    showName
+                                                    className="max-w-full text-black"
+                                                    name={card.issuingBank}
+                                                />
                                             </TableCell>
                                             <TableCell className="text-gray-700 text-sm text-left whitespace-nowrap">
                                             {card.cardHolder === 'Suleman' ? 'MST' : card.cardHolder}

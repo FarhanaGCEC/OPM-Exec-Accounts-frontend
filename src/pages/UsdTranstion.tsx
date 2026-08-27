@@ -740,46 +740,46 @@ export default function UsdTranstion() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-[#f7c46d] border-0">
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Date</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Description</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Details</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Debit</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Bank Charges</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Credit</TableHead>
-                    <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Balance</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Date</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Description</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Details</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Debit</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Bank Charges</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Credit</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Balance</TableHead>
                     {canMutate && (
-                      <TableHead className="font-semibold text-black text-sm text-left py-3 px-4">Actions</TableHead>
+                      <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Actions</TableHead>
                     )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredTransactions.map((transaction) => (
                     <TableRow key={transaction.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
-                      <TableCell className="text-gray-700 text-sm py-3 px-4">{formatDate(transaction.date)}</TableCell>
-                      <TableCell className="text-gray-700 font-medium text-sm py-3 px-4">{transaction.description}</TableCell>
-                      <TableCell className="text-gray-600 text-sm py-3 px-4">{transaction.details}</TableCell>
-                      <TableCell className="text-sm py-3 px-4">
+                      <TableCell className="text-gray-700 text-sm py-1 px-3">{formatDate(transaction.date)}</TableCell>
+                      <TableCell className="text-gray-700 font-medium text-sm py-1 px-3">{transaction.description}</TableCell>
+                      <TableCell className="text-gray-600 text-sm py-1 px-3">{transaction.details}</TableCell>
+                      <TableCell className="text-sm py-1 px-3">
                         {transaction.debit ? (
                           <span className="text-red-600 font-semibold">${formatAmount(transaction.debit)}</span>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm py-3 px-4">
+                      <TableCell className="text-sm py-1 px-3">
                         {transaction.bankCharges ? (
                           <span className="text-red-600 font-semibold">${formatAmount(transaction.bankCharges)}</span>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm py-3 px-4">
+                      <TableCell className="text-sm py-1 px-3">
                         {transaction.credit ? (
                           <span className="text-black font-semibold">${formatAmount(transaction.credit)}</span>
                         ) : (
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm py-3 px-4">
+                      <TableCell className="text-sm py-1 px-3">
                         {(() => {
                           const balanceValue = transaction.balance ? parseFloat(String(transaction.balance).replace(/,/g, '')) : 0;
                           const isNegative = balanceValue < 0;
@@ -791,7 +791,7 @@ export default function UsdTranstion() {
                         })()}
                       </TableCell>
                       {canMutate && (
-                        <TableCell className="text-sm py-3 px-4">
+                        <TableCell className="text-sm py-1 px-3">
                           <div className="flex items-center gap-2">
                             <Button
                               variant="ghost"
