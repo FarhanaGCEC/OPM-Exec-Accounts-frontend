@@ -1,10 +1,10 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import { clearAuthStorage } from './authPayload';
+import { resolveApiBaseUrl } from './apiBaseUrl';
 
-// Same-origin `/api` → Vite dev proxy or Vercel rewrite to your backend. Avoid pointing this at the
-// raw server URL in the browser — that triggers CORS while Postman does not.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+// Same-origin `/api` → Vite dev proxy or Vercel rewrite to your backend.
+const API_BASE_URL = resolveApiBaseUrl();
 
 if (import.meta.env.DEV) {
   const b = String(API_BASE_URL);

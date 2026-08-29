@@ -1,5 +1,6 @@
 import api from '../lib/api';
 import type { ApiResponse } from '../lib/api';
+import { resolveApiBaseUrl } from '../lib/apiBaseUrl';
 import { parseApproveChangeRequestData } from '../lib/changeRequestUi';
 
 export type ChangeRequestAction = 'edit' | 'delete';
@@ -118,7 +119,7 @@ function rowsFromResponse(res: ApiResponse<unknown>): ChangeRequestRow[] {
  * Token is query-only because `EventSource` cannot set Authorization headers.
  */
 function buildAdminStreamUrl(token: string): string {
-  const base = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+  const base = resolveApiBaseUrl();
   const path = `${base}/admin/change-requests/stream`;
   if (base.startsWith('http://') || base.startsWith('https://')) {
     const u = new URL(path);

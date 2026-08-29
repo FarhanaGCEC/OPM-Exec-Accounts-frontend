@@ -1,5 +1,7 @@
+import { resolveApiBaseUrl } from './apiBaseUrl';
+
 function apiBaseOrigin(): string | null {
-  const base = String(import.meta.env.VITE_API_BASE_URL || '/api').trim();
+  const base = resolveApiBaseUrl();
   if (!/^https?:\/\//i.test(base)) return null;
   try {
     return new URL(base).origin;
@@ -101,7 +103,7 @@ export function resolveAttachmentHref(pathOrUrl: string | null | undefined): str
     s = rewriteHttpApiToSameOriginProxy(s);
     return withApiAuthToken(s);
   }
-  const base = import.meta.env.VITE_API_BASE_URL || '/api';
+  const base = resolveApiBaseUrl();
   const path = s.startsWith('/') ? s : `/${s}`;
   if (base.startsWith('http://') || base.startsWith('https://')) {
     return withApiAuthToken(`${base.replace(/\/$/, '')}${path}`);
