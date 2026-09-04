@@ -48,6 +48,7 @@ const fxAdcbFormSchema = z
     chequeNumber: z.string().optional(),
     amount: z.string().optional(),
     bankCharges: z.string().optional(),
+    remarks: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     const amountValue =
@@ -88,6 +89,7 @@ export const emptyFxAdcbFormValues: FxAdcbFormValues = {
   chequeNumber: '',
   amount: '',
   bankCharges: '',
+  remarks: '',
 };
 
 interface FxAdcbTransactionFormDialogProps {
@@ -348,6 +350,30 @@ export default function FxAdcbTransactionFormDialog({
                           .replace(/(\..*)\./g, '$1');
                         field.onChange(next);
                       }}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="remarks"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel className="text-lg font-medium text-gray-700">
+                    Remarks
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="text"
+                      placeholder="Optional remarks"
+                      value={field.value ?? ''}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                      onChange={field.onChange}
                     />
                   </FormControl>
                   <FormMessage />

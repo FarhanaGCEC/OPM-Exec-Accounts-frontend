@@ -55,6 +55,7 @@ interface GbpTransaction {
   credit?: number | string | null;
   bankCharges?: number;
   balance?: number | string;
+  remarks?: string | null;
 }
 
 interface DailyBankStatementMeta {
@@ -131,6 +132,7 @@ export default function GbpTranstion() {
           credit: txn.credit,
           bankCharges: txn.bankCharges,
           balance: txn.balance,
+          remarks: txn.remarks ?? null,
         }));
         setTransactions(mappedTransactions);
       } else {
@@ -371,6 +373,7 @@ export default function GbpTranstion() {
       chequeNumber,
       amount,
       bankCharges,
+      remarks: transaction.remarks ?? '',
     });
     setError(null);
     setIsModalOpen(true);
@@ -445,6 +448,11 @@ export default function GbpTranstion() {
         date: formatDateForApi(values.date) || values.date.trim(),
         description,
         details,
+        ...(values.remarks?.trim()
+          ? { remarks: values.remarks.trim() }
+          : editingTransaction?.id
+            ? { remarks: null }
+            : {}),
         ...buildFxDebitCreditBankChargesPayload(
           values.type,
           amountValue,
@@ -549,7 +557,7 @@ export default function GbpTranstion() {
       addRow([]);
 
       // Headers
-      const headers = ['Date', 'Description', 'Details', 'Debit', 'Bank Charges', 'Credit', 'Balance'];
+      const headers = ['Date', 'Description', 'Details', 'Debit', 'Bank Charges', 'Credit', 'Balance', 'Remarks'];
       addRow(headers);
       addRow([], { font: { bold: true } });
 
@@ -572,6 +580,7 @@ export default function GbpTranstion() {
           bankChargesValue,
           creditValue,
           balanceValue,
+          transaction.remarks?.trim() || '',
         ]);
 
         // Format number columns with $ symbol
@@ -612,6 +621,7 @@ export default function GbpTranstion() {
         { width: 18 }, // Bank Charges
         { width: 18 }, // Credit
         { width: 18 }, // Balance
+        { width: 24 }, // Remarks
       ];
 
       // Generate filename and download
@@ -746,6 +756,7 @@ export default function GbpTranstion() {
                     <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Bank Charges</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Credit</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Balance</TableHead>
+                    <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Remarks</TableHead>
                     {canMutate && (
                       <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Actions</TableHead>
                     )}
@@ -788,6 +799,9 @@ export default function GbpTranstion() {
                             </span>
                           );
                         })()}
+                      </TableCell>
+                      <TableCell className="text-gray-600 text-sm py-1 px-3 max-w-[12rem] truncate" title={transaction.remarks || undefined}>
+                        {transaction.remarks?.trim() || ''}
                       </TableCell>
                       {canMutate && (
                         <TableCell className="text-sm py-1 px-3">

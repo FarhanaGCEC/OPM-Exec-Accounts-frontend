@@ -1222,6 +1222,7 @@ export const transactionService = {
     debit?: string | number;
     credit?: string | number;
     bankCharges?: string | number;
+    remarks?: string | null;
   }): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {
       date: formatDateForApi(data.date),
@@ -1243,6 +1244,10 @@ export const transactionService = {
     if (data.bankCharges !== undefined) {
       apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
     }
+
+    if (data.remarks !== undefined) {
+      apiData.remarks = data.remarks?.trim() ? data.remarks.trim() : null;
+    }
     
     return api.post<BankTransaction>('/usd-transactions', apiData);
   },
@@ -1254,6 +1259,7 @@ export const transactionService = {
     debit?: string | number;
     credit?: string | number;
     bankCharges?: string | number;
+    remarks?: string | null;
   }>): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {};
     
@@ -1274,6 +1280,10 @@ export const transactionService = {
     // Bank charges should be sent as number with key bank_charges
     if (data.bankCharges !== undefined) {
       apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+
+    if (data.remarks !== undefined) {
+      apiData.remarks = data.remarks?.trim() ? data.remarks.trim() : null;
     }
     
     return api.patch<BankTransaction>(`/usd-transactions/${id}`, apiData);
@@ -1295,6 +1305,7 @@ export const transactionService = {
     debit?: string | number;
     credit?: string | number;
     bankCharges?: string | number;
+    remarks?: string | null;
   }): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {
       date: formatDateForApi(data.date),
@@ -1316,6 +1327,10 @@ export const transactionService = {
     if (data.bankCharges !== undefined) {
       apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
     }
+
+    if (data.remarks !== undefined) {
+      apiData.remarks = data.remarks?.trim() ? data.remarks.trim() : null;
+    }
     
     return api.post<BankTransaction>('/gbp-transactions', apiData);
   },
@@ -1327,6 +1342,7 @@ export const transactionService = {
     debit?: string | number;
     credit?: string | number;
     bankCharges?: string | number;
+    remarks?: string | null;
   }>): Promise<ApiResponse<BankTransaction>> => {
     const apiData: any = {};
     
@@ -1347,6 +1363,10 @@ export const transactionService = {
     // Bank charges should be sent as number with key bank_charges
     if (data.bankCharges !== undefined) {
       apiData.bank_charges = typeof data.bankCharges === 'string' ? parseFloat(data.bankCharges.replace(/,/g, '')) : data.bankCharges;
+    }
+
+    if (data.remarks !== undefined) {
+      apiData.remarks = data.remarks?.trim() ? data.remarks.trim() : null;
     }
     
     return api.patch<BankTransaction>(`/gbp-transactions/${id}`, apiData);
