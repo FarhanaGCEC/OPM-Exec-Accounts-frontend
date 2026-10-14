@@ -911,7 +911,7 @@ export default function CreditCardStatements() {
                             }
                         }}
                         disabled={!card.id}
-                        className="h-8 w-8 p-0 text-black hover:bg-[#f7c46d]/40"
+                        className="h-8 w-8 p-0 text-black hover:bg-[#d90522]/15"
                         title="Edit statement"
                         aria-label="Edit statement"
                     >
@@ -2139,7 +2139,7 @@ export default function CreditCardStatements() {
                         variant="outline"
                         onClick={handleDownloadExcel}
                         disabled={loading || creditCards.length === 0}
-                        className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2 "
+                        className="bg-white hover:bg-[#a8061d] text-black border-0 flex items-center gap-2 "
                     >
                         <Download className="w-4 h-4" />
                         <span>Download Excel</span>
@@ -2162,7 +2162,7 @@ export default function CreditCardStatements() {
                     <PopoverContent className="w-auto p-0" align="end">
                         <div className="p-4 space-y-4">
                             {/* Selected Period Display */}
-                            <div className="border border-gray-300 rounded-lg p-3 bg-[#f7c46d]">
+                            <div className="border border-gray-300 rounded-lg p-3 bg-[#a8061d]">
                                 <div className="text-xs font-medium text-gray-600 mb-1">Selected Period</div>
                                 <div className="flex items-center space-x-2">
                                     <CalendarIcon className="w-4 h-4 text-gray-600" />
@@ -2180,7 +2180,7 @@ export default function CreditCardStatements() {
                                             onClick={() => setSelectedYear(year)}
                                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                 selectedYear === year
-                                                    ? 'bg-[#f7c46d] text-black'
+                                                    ? 'bg-[#a8061d] text-black'
                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                         >
@@ -2200,7 +2200,7 @@ export default function CreditCardStatements() {
                                             onClick={() => toggleMonth(index)}
                                             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                 selectedMonths.includes(index)
-                                                    ? 'bg-[#f7c46d] text-black'
+                                                    ? 'bg-[#a8061d] text-black'
                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                             }`}
                                         >
@@ -2221,7 +2221,7 @@ export default function CreditCardStatements() {
                                 </Button>
                                 <Button
                                     onClick={handleApplyPeriod}
-                                    className="flex-1 bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                    className="flex-1 bg-[#a8061d] hover:bg-[#6b0210] text-black"
                                     disabled={selectedMonths.length === 0}
                                 >
                                     Apply

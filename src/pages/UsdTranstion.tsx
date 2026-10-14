@@ -669,7 +669,7 @@ export default function UsdTranstion() {
           {canMutate && (
             <Button
               onClick={handleAddNew}
-              className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+              className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg"
               disabled={loading}
             >
               <Plus className="w-4 h-4 text-black" />
@@ -731,7 +731,7 @@ export default function UsdTranstion() {
       <div className="mx-4">
         {loading && transactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin text-[#f7c46d]" />
+            <Loader2 className="w-8 h-8 animate-spin text-[#d90522]" />
           </div>
         ) : filteredTransactions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
@@ -749,7 +749,7 @@ export default function UsdTranstion() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-[#f7c46d] border-0">
+                  <TableRow className="bg-[#a8061d] border-0">
                     <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Date</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Description</TableHead>
                     <TableHead className="font-semibold text-black text-sm text-left py-1 px-3">Details</TableHead>
@@ -859,7 +859,7 @@ export default function UsdTranstion() {
                   const selected = e.target.files?.[0] || null;
                   setReportFile(selected);
                 }}
-                className="block w-full rounded border border-gray-300 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#f7c46d] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-black"
+                className="block w-full rounded border border-gray-300 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#a8061d] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-black"
               />
               {reportFile && <p className="text-xs text-gray-600">Selected: {reportFile.name}</p>}
             </div>
@@ -873,7 +873,7 @@ export default function UsdTranstion() {
               <button
                 onClick={handleReportUpload}
                 disabled={isUploading}
-                className="rounded bg-[#f7c46d] px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5b764] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded bg-[#a8061d] px-4 py-2 text-sm font-semibold text-black hover:bg-[#8f0e1c] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isUploading ? 'Uploading...' : 'Upload'}
               </button>

@@ -83,7 +83,7 @@ export function ChangeRequestPayloadSummary({ row, compact = false }: Props) {
         align="start"
         className="w-[min(100vw-2rem,380px)] p-0 border border-gray-200 shadow-lg"
       >
-        <div className="bg-[#f7c46d] px-3 py-2 border-b border-gray-200">
+        <div className="bg-[#a8061d] px-3 py-2 border-b border-gray-200">
           <p className="text-sm font-bold text-black">Requested changes</p>
           <p className="text-xs text-gray-800">
             {actionLabel} · {resourceLabel}

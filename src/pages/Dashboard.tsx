@@ -153,7 +153,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-gray-600 mb-2">Total Debit</p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-xl font-bold text-gray-900">
-                      AED {formatAmount(totalDebitValue)}
+                      GBP {formatAmount(totalDebitValue)}
                     </p>
                   </div>
                 </div>
@@ -166,7 +166,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-gray-600 mb-2">Total Credit</p>
                   <div className="flex items-baseline space-x-2">
                     <p className="text-xl font-bold text-gray-900">
-                      AED {formatAmount(totalCreditValue)}
+                      GBP {formatAmount(totalCreditValue)}
                     </p>
                   </div>
                 </div>
@@ -180,7 +180,7 @@ export default function Dashboard() {
                     <p
                       className={`text-xl font-bold ${currentBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
                     >
-                      AED {formatAmount(currentBalanceValue)}
+                      GBP {formatAmount(currentBalanceValue)}
                     </p>
                   </div>
                 </div>
@@ -204,7 +204,7 @@ export default function Dashboard() {
                     <p
                       className={`text-xl font-bold px-1.5 rounded ${availableBalanceValue < 0 ? 'text-red-600' : 'text-gray-900'}`}
                     >
-                      AED {formatAmount(availableBalanceValue)}
+                      GBP {formatAmount(availableBalanceValue)}
                     </p>
                   </div>
                 </div>
