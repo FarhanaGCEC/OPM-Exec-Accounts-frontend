@@ -646,8 +646,8 @@ const formatDateForExcel = (date: Date | string | null): string => {
   return `${day}-${month}-${year}`;
 };
 
-/** Match on-screen ledger: GBP prefix + thousands separators. */
-const EXCEL_GBP_NUM_FMT = '"GBP "#,##0.00';
+/** Match on-screen ledger: AED prefix + thousands separators. */
+const EXCEL_AED_NUM_FMT = '"AED "#,##0.00';
 
 const LEDGER_TABLE_HEADERS = [
   'Date',
@@ -678,7 +678,7 @@ const applyExcelAedAmount = (
   font?: Partial<ExcelJS.Font>
 ): void => {
   cell.value = value;
-  cell.numFmt = EXCEL_GBP_NUM_FMT;
+  cell.numFmt = EXCEL_AED_NUM_FMT;
   if (font) {
     cell.font = excelExportFont(font) as ExcelJS.Font;
   }
@@ -1197,12 +1197,12 @@ export default function ViewAllTranstion({
     };
 
     // Header rows
-    addRow(['ADCB (GBP)'], { font: { bold: true, size: 14 } });
+    addRow(['ADCB (AED)'], { font: { bold: true, size: 14 } });
     addRow(['GCEC CLOUD SECURITY & SURVEILLANCE L.L.C '], { font: { bold: true, size: 12 } });
     addRow([]);
     
     // Account information
-    addRow(['Account No. :', '12990685920001 - GBP']);
+    addRow(['Account No. :', '12990685920001 - AED']);
     addRow(['IBAN', 'AE720030012990685920001']);
     
     // Date range
@@ -1529,16 +1529,16 @@ export default function ViewAllTranstion({
 
           <TableCell className="text-sm py-2 px-4 text-left align-middle">
             {hasDebit ? (
-              <span className="text-red-600">GBP {formatAmount(txn.debit)}</span>
+              <span className="text-red-600">AED {formatAmount(txn.debit)}</span>
             ) : (
-              <span className="text-red-600">GBP 0.00</span>
+              <span className="text-red-600">AED 0.00</span>
             )}
           </TableCell>
           <TableCell className="text-sm py-2 px-4 text-left align-middle">
             {txn.credit ? (
-              <span className="text-black">GBP {formatAmount(txn.credit)}</span>
+              <span className="text-black">AED {formatAmount(txn.credit)}</span>
             ) : (
-              <span className="text-black">GBP 0.00</span>
+              <span className="text-black">AED 0.00</span>
             )}
           </TableCell>
           <TableCell
@@ -1549,7 +1549,7 @@ export default function ViewAllTranstion({
             {(() => {
               const balanceAmount = parseFloat(String(txn.balance).replace(/,/g, '')) || 0;
               const balanceClass = balanceAmount < 0 ? 'text-red-600 font-bold' : 'text-[#0003eb] font-bold';
-              return <span className={balanceClass}>GBP {formatAmount(txn.balance)}</span>;
+              return <span className={balanceClass}>AED {formatAmount(txn.balance)}</span>;
             })()}
           </TableCell>
           <TableCell className="text-sm py-2 px-4 text-left align-middle">
@@ -1567,10 +1567,10 @@ export default function ViewAllTranstion({
             <span className="text-red-600">{txn.chequeNumber || '-'}</span>
           </TableCell>
           <TableCell className="text-sm py-2 px-4">
-            <span className="text-red-600">GBP {formatAmount(txn.amount)}</span>
+            <span className="text-red-600">AED {formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-sm py-2 px-4">
-            <span className="text-red-600">GBP 0.00</span>
+            <span className="text-red-600">AED 0.00</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-red-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
@@ -1586,10 +1586,10 @@ export default function ViewAllTranstion({
             <span className="text-gray-600">{txn.chequeNumber || '-'}</span>
           </TableCell>
           <TableCell className="text-sm py-2 px-4">
-            <span className="text-red-600">GBP 0.00</span>
+            <span className="text-red-600">AED 0.00</span>
           </TableCell>
           <TableCell className="text-sm py-2 px-4">
-            <span className="text-black">GBP {formatAmount(txn.amount)}</span>
+            <span className="text-black">AED {formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
@@ -1603,10 +1603,10 @@ export default function ViewAllTranstion({
           <TableCell className="text-gray-700 text-sm py-2 px-4">{txn.vendorName}</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.paymentMethod}</TableCell>
           <TableCell className="text-sm py-2 px-4">
-            <span className="text-red-600">GBP 0.00</span>
+            <span className="text-red-600">AED 0.00</span>
           </TableCell>
           <TableCell className="text-sm py-2 px-4">
-            <span className="text-black">GBP{formatAmount(txn.amount)}</span>
+            <span className="text-black">AED{formatAmount(txn.amount)}</span>
           </TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">-</TableCell>
           <TableCell className="text-gray-600 text-sm py-2 px-4">{txn.description || ''}</TableCell>
@@ -1622,7 +1622,7 @@ export default function ViewAllTranstion({
     {/* Main Card */}
     <div className="bg-white rounded shadow-xl overflow-hidden">
           {/* Action Bar */}
-          <div className="bg-[#a8061d] p-4">
+          <div className="bg-[#f7c46d] p-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="text-black font-bold text-lg">
                 {getActiveMonthLabel()}
@@ -1748,7 +1748,7 @@ export default function ViewAllTranstion({
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#a8061d] mx-auto mb-4"></div>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#f7c46d] mx-auto mb-4"></div>
                 <p className="text-base text-gray-500">Loading transactions...</p>
               </div>
             </div>
@@ -1841,7 +1841,7 @@ export default function ViewAllTranstion({
                         className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
                           currentPage === 1
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#a8061d] hover:text-white hover:border-[#a8061d] shadow-sm hover:shadow-md'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#f7c46d] hover:text-white hover:border-[#f7c46d] shadow-sm hover:shadow-md'
                         }`}
                       >
                         Previous
@@ -1857,7 +1857,7 @@ export default function ViewAllTranstion({
                               onClick={() => setCurrentPage(page)}
                               className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                 currentPage === page
-                                  ? 'bg-[#a8061d] text-white shadow-md scale-105'
+                                  ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                   : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                               }`}
                             >
@@ -1872,7 +1872,7 @@ export default function ViewAllTranstion({
                               onClick={() => setCurrentPage(1)}
                               className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                 currentPage === 1
-                                  ? 'bg-[#a8061d] text-white shadow-md scale-105'
+                                  ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                   : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                               }`}
                             >
@@ -1894,7 +1894,7 @@ export default function ViewAllTranstion({
                                     onClick={() => setCurrentPage(page)}
                                     className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                       currentPage === page
-                                        ? 'bg-[#a8061d] text-white shadow-md scale-105'
+                                        ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                         : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                                     }`}
                                   >
@@ -1915,7 +1915,7 @@ export default function ViewAllTranstion({
                               onClick={() => setCurrentPage(totalPages)}
                               className={`min-w-[40px] h-10 px-3 rounded-lg font-medium text-sm transition-all ${
                                 currentPage === totalPages
-                                  ? 'bg-[#a8061d] text-white shadow-md scale-105'
+                                  ? 'bg-[#f7c46d] text-white shadow-md scale-105'
                                   : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 shadow-sm'
                               }`}
                             >
@@ -1932,7 +1932,7 @@ export default function ViewAllTranstion({
                         className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
                           currentPage === totalPages
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#a8061d] hover:text-white hover:border-[#a8061d] shadow-sm hover:shadow-md'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-[#f7c46d] hover:text-white hover:border-[#f7c46d] shadow-sm hover:shadow-md'
                         }`}
                       >
                         Next
@@ -1952,7 +1952,7 @@ export default function ViewAllTranstion({
                               setCurrentPage(page);
                             }
                           }}
-                          className="w-16 h-10 px-2 text-sm text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#a8061d] focus:border-[#a8061d] shadow-sm"
+                          className="w-16 h-10 px-2 text-sm text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#f7c46d] focus:border-[#f7c46d] shadow-sm"
                         />
                         <span className="text-sm text-gray-500">/ {totalPages}</span>
                       </div>
@@ -2009,7 +2009,7 @@ export default function ViewAllTranstion({
                   setReportFile(selected);
                   setUploadError(null);
                 }}
-                className="block w-full rounded border border-gray-300 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#a8061d] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-black"
+                className="block w-full rounded border border-gray-300 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#f7c46d] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-black"
               />
               {reportFile && (
                 <p className="text-xs text-gray-600">
@@ -2030,7 +2030,7 @@ export default function ViewAllTranstion({
               <button
                 onClick={handleReportUpload}
                 disabled={isUploading}
-                className="rounded bg-[#a8061d] px-4 py-2 text-sm font-semibold text-black hover:bg-[#8f0e1c] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded bg-[#f7c46d] px-4 py-2 text-sm font-semibold text-black hover:bg-[#e5b764] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isUploading ? 'Uploading...' : 'Upload'}
               </button>

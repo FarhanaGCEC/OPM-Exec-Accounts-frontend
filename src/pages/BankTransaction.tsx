@@ -411,12 +411,12 @@ function shouldAffectRunningBalance(
 
 function parseLedgerAmount(v: unknown): number {
   if (typeof v === 'number' && !Number.isNaN(v)) return v;
-  return Number(String(v ?? 0).replace(/,/g, '').replace(/AED|GBP/gi, '').trim()) || 0;
+  return Number(String(v ?? 0).replace(/,/g, '').replace('AED', '').trim()) || 0;
 }
 
 function parseFormattedBalance(balance: string | number | undefined | null): number {
   if (typeof balance === 'number' && !Number.isNaN(balance)) return balance;
-  return Number(String(balance ?? '0').replace(/,/g, '').replace(/AED|GBP/gi, '').trim()) || 0;
+  return Number(String(balance ?? '0').replace(/,/g, '').replace('AED', '').trim()) || 0;
 }
 
 function startOfLocalDay(d: Date): Date {
@@ -2328,7 +2328,7 @@ export default function BankTransaction() {
     const transaction = transactions.find(t => String(t.id) === deletingTransactionId);
     if (!transaction) return '';
     const amount = transaction.debitFormatted || transaction.creditFormatted || '0';
-    return `${transaction.categoryName || 'Transaction'} - ${amount} GBP`;
+    return `${transaction.categoryName || 'Transaction'} - ${amount} AED`;
   }, [deletingTransactionId, transactions]);
 
 
@@ -2511,7 +2511,7 @@ export default function BankTransaction() {
     csvRows.push(rowCsv());
     csvRows.push(rowCsv());
 
-    csvRows.push(rowCsv('Account No.', '12990685920001 - GBP'));
+    csvRows.push(rowCsv('Account No.', '12990685920001 - AED'));
     csvRows.push(rowCsv('IBAN', 'AE720030012990685920001'));
     csvRows.push(
       rowCsv('Start Date', csvValueForExcelOpen(formatJsDateDisplay(exportStartDate)))
@@ -2519,7 +2519,7 @@ export default function BankTransaction() {
     csvRows.push(
       rowCsv('End Date', csvValueForExcelOpen(formatJsDateDisplay(exportEndDate)))
     );
-    csvRows.push(rowCsv('Closing (Current)', `GBP ${closingBalance}`));
+    csvRows.push(rowCsv('Closing (Current)', `AED ${closingBalance}`));
     csvRows.push(rowCsv());
     csvRows.push(rowCsv());
 
@@ -2538,8 +2538,8 @@ export default function BankTransaction() {
         clientPendingTopDup
       );
 
-      const debit = `GBP ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-      const credit = `GBP ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const debit = `AED ${debitValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const credit = `AED ${creditValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
       const balanceValue = balanceAfterForDisplay(
         t,
@@ -2555,7 +2555,7 @@ export default function BankTransaction() {
         clientPendingTopDup
       )
         ? ''
-        : `GBP ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+        : `AED ${balanceValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 
       const exportDate = displayTransactionDate(t, clientPendingBottomDup, clientPendingTopDup);
       csvRows.push(
@@ -2615,7 +2615,7 @@ export default function BankTransaction() {
       r += 2;
 
       ws.getCell(r, 1).value = 'Account No.:';
-      ws.getCell(r++, 2).value = '12990685920001 - GBP';
+      ws.getCell(r++, 2).value = '12990685920001 - AED';
       ws.getCell(r, 1).value = 'IBAN:';
       ws.getCell(r++, 2).value = 'AE720030012990685920001';
       ws.getCell(r, 1).value = 'Start Date:';
@@ -2630,7 +2630,7 @@ export default function BankTransaction() {
       r++;
       ws.getCell(r, 1).value = 'Closing (Current):';
       const closingCell = ws.getCell(r, 2);
-      closingCell.value = `GBP ${closingBalanceValue.toLocaleString('en-US', {
+      closingCell.value = `AED ${closingBalanceValue.toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}`;
@@ -2804,12 +2804,12 @@ export default function BankTransaction() {
        <div className="mb-6 flex items-center justify-between border-b border-gray-200 shadow-md pb-4">
         <div className="flex items-center gap-4 ml-16">
       
-          <h2 className="text-2xl font-bold text-gray-900">Daily GBP Transactions</h2>
+          <h2 className="text-2xl font-bold text-gray-900"> Daily Transactions Details</h2>
        </div>
             {canMutate && (
               <Button
                 onClick={handleAddNew}
-                className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4 font-semibold"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4 font-semibold"
                 disabled={loading}
               >
                 <Plus className="w-4 h-4 text-black" />
@@ -3026,7 +3026,7 @@ export default function BankTransaction() {
         </Button>
         <Button
           type="button"
-          className="bg-[#a8061d] hover:bg-[#6b0210] text-black h-10 shrink-0 whitespace-nowrap px-4 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
+          className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-10 shrink-0 whitespace-nowrap px-4 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
           title="Filters apply automatically when you pick dates or type search text"
         >
           <Filter className="w-4 h-4" />
@@ -3046,7 +3046,7 @@ export default function BankTransaction() {
          <button
            onClick={() => setActiveTab('all')}
            className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'all'
-             ? 'bg-[#a8061d] text-black'
+             ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
          >
@@ -3055,7 +3055,7 @@ export default function BankTransaction() {
          <button
            onClick={() => setActiveTab('online')}
            className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'online'
-             ? 'bg-[#a8061d] text-black'
+             ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
          >
@@ -3064,7 +3064,7 @@ export default function BankTransaction() {
          <button
            onClick={() => setActiveTab('cheque')}
            className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'cheque'
-             ? 'bg-[#a8061d] text-black'
+             ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
          >
@@ -3073,7 +3073,7 @@ export default function BankTransaction() {
          <button
            onClick={() => setActiveTab('cash')}
            className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'cash'
-             ? 'bg-[#a8061d] text-black'
+             ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
          >
@@ -3082,7 +3082,7 @@ export default function BankTransaction() {
          <button
            onClick={() => setActiveTab('credit')}
            className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'credit'
-             ? 'bg-[#a8061d] text-black'
+             ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
          >
@@ -3091,7 +3091,7 @@ export default function BankTransaction() {
          <button
            onClick={() => setActiveTab('debit')}
            className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${activeTab === 'debit'
-             ? 'bg-[#a8061d] text-black'
+             ? 'bg-[#f7c46d] text-black'
              : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
              }`}
          >
@@ -3152,8 +3152,8 @@ export default function BankTransaction() {
           <div className="overflow-x-auto">
             <div className="max-h-[600px] overflow-y-auto relative">
               <table className="bank-tx-ledger w-full caption-bottom text-base border rounded-lg [&_th]:!py-1 [&_td]:!py-1">
-                <thead className="sticky top-0 z-20 bg-[#a8061d] shadow-sm">
-                  <tr className="bg-[#a8061d] border-0">
+                <thead className="sticky top-0 z-20 bg-[#f7c46d] shadow-sm">
+                  <tr className="bg-[#f7c46d] border-0">
                     <th className=" text-black text-sm text-left py-2 px-4 align-middle">
                       Date
                     </th>
@@ -3323,19 +3323,19 @@ export default function BankTransaction() {
                       <td className="text-sm py-2 px-4 text-left align-middle">
                         {hasDebit ? (
                           <span className="text-red-600">
-                            GBP {debitShown}
+                            AED {debitShown}
                           </span>
                         ) : (
-                          <span className="text-red-600">GBP 0.00</span>
+                          <span className="text-red-600">AED 0.00</span>
                         )}
                       </td>
                       <td className="text-sm py-2 px-4 text-left align-middle">
                         {creditShown ? (
                           <span className="text-black">
-                            GBP {creditShown}
+                            AED {creditShown}
                           </span>
                         ) : (
-                          <span className="text-black">GBP 0.00</span>
+                          <span className="text-black">AED 0.00</span>
                         )}
                       </td>
                       <td
@@ -3368,7 +3368,7 @@ export default function BankTransaction() {
                               balanceValue < 0 ? 'text-red-600 font-bold' : 'text-[#0003eb] font-bold';
                             return (
                               <span className={balanceClass}>
-                                GBP {formattedBalance}
+                                AED {formattedBalance}
                               </span>
                             );
                           })()
@@ -3389,7 +3389,7 @@ export default function BankTransaction() {
                               <label className="flex items-center gap-1.5 text-xs text-gray-800 whitespace-nowrap">
                                 <input
                                   type="checkbox"
-                                  className="rounded border-gray-400 text-[#d90522] focus:ring-[#a8061d] disabled:opacity-60"
+                                  className="rounded border-gray-400 text-[#f7c46d] focus:ring-[#f7c46d] disabled:opacity-60"
                                   aria-label="Ledger approval"
                                   checked={!!transaction.ledgerApproved}
                                   disabled={
@@ -3484,10 +3484,10 @@ export default function BankTransaction() {
                         Total (filtered by description)
                       </td>
                       <td className="text-sm py-2 px-4 text-left text-red-600 align-middle">
-                        GBP {formatLedgerTotal(descriptionFilterTotals.debit)}
+                        AED {formatLedgerTotal(descriptionFilterTotals.debit)}
                       </td>
                       <td className="text-sm py-2 px-4 text-left text-black align-middle">
-                        GBP {formatLedgerTotal(descriptionFilterTotals.credit)}
+                        AED {formatLedgerTotal(descriptionFilterTotals.credit)}
                       </td>
                       <td colSpan={canMutate ? 3 : 2} className="align-middle" />
                     </tr>
@@ -3804,7 +3804,7 @@ export default function BankTransaction() {
                             href={editingChequeScanHref}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-[#c4122a] underline"
+                            className="text-[#c9a82f] underline"
                           >
                             {editingTransaction?.attachmentName || 'View cheque'}
                           </a>
@@ -3880,7 +3880,7 @@ export default function BankTransaction() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-lg font-medium text-gray-700">
-                      Amount (GBP)
+                      Amount (AED)
                     </FormLabel>
                     <FormControl>
                       <Input
@@ -3914,7 +3914,7 @@ export default function BankTransaction() {
               {/* Submit Button */}
               <Button
                 type="submit"
-                className="sm:col-span-2 w-full bg-[#a8061d] hover:bg-[#6b0210] text-black py-3 mt-2 font-semibold"
+                className="sm:col-span-2 w-full bg-[#f7c46d] hover:bg-[#c9a82f] text-black py-3 mt-2 font-semibold"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
@@ -4008,7 +4008,7 @@ export default function BankTransaction() {
             </Button>
             <Button
               type="button"
-              className="bg-[#a8061d] hover:bg-[#6b0210] text-black font-semibold"
+              className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black font-semibold"
               onClick={() => void handlePdcApproveConfirm()}
               disabled={
                 pdcApprovePdcId != null && pdcLedgerApproving === pdcApprovePdcId
@@ -4056,7 +4056,7 @@ export default function BankTransaction() {
             {approvalOffer?.mode === 'success' ? (
               <Button
                 type="button"
-                  className="bg-[#a8061d] hover:bg-[#6b0210] text-black w-full sm:w-auto font-semibold"
+                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto font-semibold"
                 onClick={() => setApprovalOffer(null)}
               >
                 Done
@@ -4073,7 +4073,7 @@ export default function BankTransaction() {
                 </Button>
                 <Button
                   type="button"
-                  className="bg-[#a8061d] hover:bg-[#6b0210] text-black font-semibold"
+                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black font-semibold"
                   onClick={() => void submitApprovalRequest()}
                   disabled={approvalSubmitting}
                 >

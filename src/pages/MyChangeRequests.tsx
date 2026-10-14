@@ -62,7 +62,7 @@ export default function MyChangeRequests() {
           variant="outline"
           onClick={() => void load()}
           disabled={loading}
-          className="bg-white hover:bg-[#a8061d] text-black border-gray-300 flex items-center gap-2 mr-4 shrink-0"
+          className="bg-white hover:bg-[#f7c46d] text-black border-gray-300 flex items-center gap-2 mr-4 shrink-0"
         >
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -84,8 +84,8 @@ export default function MyChangeRequests() {
           <div className="overflow-x-auto">
             <div className="max-h-[600px] overflow-y-auto relative">
               <table className="w-full caption-bottom text-base border rounded-lg">
-                <thead className="sticky top-0 z-20 bg-[#a8061d] shadow-sm">
-                  <tr className="bg-[#a8061d] border-0">
+                <thead className="sticky top-0 z-20 bg-[#f7c46d] shadow-sm">
+                  <tr className="bg-[#f7c46d] border-0">
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">
                       ID
                     </th>

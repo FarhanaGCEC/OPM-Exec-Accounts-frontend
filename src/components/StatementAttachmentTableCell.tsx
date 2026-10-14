@@ -186,7 +186,7 @@ function AttachmentPreviewDialog({
           {onEditClick ? (
             <Button
               type="button"
-              className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
+              className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
               onClick={() => {
                 onOpenChange(false);
                 onEditClick();
@@ -261,7 +261,7 @@ export function StatementAttachmentTableCell({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 p-0 text-gray-700 hover:bg-[#d90522]/15"
+              className="h-8 w-8 p-0 text-gray-700 hover:bg-[#f7c46d]/40"
               title={href ? `View: ${label}` : displayName || 'Current file'}
               aria-label={href ? `View attachment: ${label}` : 'Current attachment'}
               onClick={() => {
@@ -299,7 +299,7 @@ export function StatementAttachmentTableCell({
             type="button"
             variant="ghost"
             size="icon"
-            className={`h-8 w-8 p-0 hover:bg-[#d90522]/15 ${
+            className={`h-8 w-8 p-0 hover:bg-[#f7c46d]/40 ${
               statementAttachmentFile ? 'text-green-700' : 'text-gray-700'
             }`}
             title={
@@ -353,7 +353,7 @@ export function StatementAttachmentTableCell({
       <>
         <button
           type="button"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-[#fde8eb] hover:border-[#a8061d] transition-colors"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-[#fef9e8] hover:border-[#f7c46d] transition-colors"
           title={availableLimitTitle}
           aria-label={`View attachment: ${label}. ${availableLimitTitle}`}
           onClick={() => setOpen(true)}

@@ -419,7 +419,7 @@ export default function ReciveableCategory() {
                     variant="outline"
                     onClick={handleDownloadExcel}
                     disabled={loading || categories.length === 0}
-                    className="bg-white hover:bg-[#a8061d] text-black border-0 flex items-center gap-2 font-semibold"
+                    className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2 font-semibold"
                 >
                     <Download className="w-4 h-4" />
                     <span>Download Excel</span>
@@ -428,7 +428,7 @@ export default function ReciveableCategory() {
                     variant="outline"
                     onClick={() => setBulkImportOpen(true)}
                     disabled={loading}
-                    className="bg-white hover:bg-[#a8061d] text-black border-0 flex items-center gap-2"
+                    className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2"
                 >
                     <Upload className="w-4 h-4" />
                     <span>Bulk import</span>
@@ -436,7 +436,7 @@ export default function ReciveableCategory() {
                 {canMutate && (
                     <Button
                     onClick={handleAddNew}
-                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
                     disabled={loading}
                     >
                     <Plus className="w-4 h-4 text-black" />
@@ -472,7 +472,7 @@ export default function ReciveableCategory() {
                     <div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
-                                <TableRow className="bg-[#a8061d] border-0 hover:bg-[#6b0210]">
+                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                                         Name
                                     </TableHead>
@@ -572,7 +572,7 @@ export default function ReciveableCategory() {
                                                 {...field}
                                                 disabled={isSubmitting}
                                                 autoFocus
-                                                className="focus-visible:ring-2 focus-visible:ring-[#a8061d]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -591,7 +591,7 @@ export default function ReciveableCategory() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black px-6"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black px-6"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (
@@ -655,7 +655,7 @@ export default function ReciveableCategory() {
                         {receivablesApproval?.mode === 'success' ? (
                             <Button
                                 type="button"
-                                className="bg-[#a8061d] hover:bg-[#6b0210] text-black w-full sm:w-auto"
+                                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
                                 onClick={() => {
                                     setReceivablesApproval(null);
                                     setApprovalNoteDraft('');
@@ -678,7 +678,7 @@ export default function ReciveableCategory() {
                                 </Button>
                                 <Button
                                     type="button"
-                                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                     onClick={() => void submitReceivablesApproval()}
                                     disabled={approvalSubmitting}
                                 >

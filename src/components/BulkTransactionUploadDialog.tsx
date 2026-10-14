@@ -342,7 +342,7 @@ export default function BulkTransactionUploadDialog({
           </Button>
           <Button
             type="button"
-            className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
+            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
             disabled={!validForSubmit}
             onClick={() => void submitFixed()}
           >

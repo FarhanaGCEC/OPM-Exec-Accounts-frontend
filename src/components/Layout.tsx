@@ -57,7 +57,7 @@ export default function Layout({ children }: LayoutProps) {
             e.stopPropagation();
             toggleSidebar();
           }}
-          className={`fixed top-4 z-[60] p-2 bg-black text-[#d90522] rounded-md hover:bg-zinc-900 transition-all duration-200 shadow-md cursor-pointer ${
+          className={`fixed top-4 z-[60] p-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-all duration-200 shadow-md cursor-pointer ${
             isSidebarOpen ? 'left-[252px]' : 'left-4'
           }`}
           aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}

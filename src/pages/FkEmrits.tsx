@@ -794,7 +794,7 @@ export default function FkEmrits() {
           {canMutate && (
             <Button
             onClick={handleAddNew}
-            className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg"
+            className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
             disabled={isBusy}
           >
             <Plus className="w-4 h-4 text-black" />
@@ -815,7 +815,7 @@ export default function FkEmrits() {
             }}
             className={`px-6 py-3 font-medium text-sm transition-colors ${
               selectedCurrency === currency
-                ? 'text-gray-900 border-b-2 border-[#a8061d]'
+                ? 'text-gray-900 border-b-2 border-[#f7c46d]'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -879,7 +879,7 @@ export default function FkEmrits() {
       <div className="mx-8">
         {loading && allTransactions.length === 0 ? (
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin text-[#d90522]" />
+            <Loader2 className="w-8 h-8 animate-spin text-[#f7c46d]" />
           </div>
         ) : filteredTransactions.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
@@ -890,7 +890,7 @@ export default function FkEmrits() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-[#a8061d] border-0">
+                  <TableRow className="bg-[#f7c46d] border-0">
                     {canMutate && (
                       <TableHead className="w-10 py-3 px-2">
                       <Checkbox
@@ -1178,7 +1178,7 @@ export default function FkEmrits() {
               <Button
                 onClick={handleSave}
                 disabled={loading}
-                className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
+                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
               >
                 {loading ? (
                   <>

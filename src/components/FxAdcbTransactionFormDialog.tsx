@@ -383,7 +383,7 @@ export default function FxAdcbTransactionFormDialog({
 
             <Button
               type="submit"
-              className="sm:col-span-2 w-full bg-[#a8061d] hover:bg-[#6b0210] text-black py-3 mt-2 font-semibold"
+              className="sm:col-span-2 w-full bg-[#f7c46d] hover:bg-[#c9a82f] text-black py-3 mt-2 font-semibold"
               disabled={isSubmitting}
             >
               {isSubmitting ? (

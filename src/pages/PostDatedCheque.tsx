@@ -19,15 +19,15 @@ export default function PostDatedCheque() {
             {/* Customer PDC in hand card */}
             <Link to="/customer-pdc" className="block">
               <div className="group relative cursor-pointer transition-all duration-200 hover:scale-105">
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#a8061d] to-[#6b0210] rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#f7c46d] to-[#c9a82f] rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 <div className="relative bg-white rounded-2xl p-8 shadow-xl border border-gray-200 hover:shadow-2xl transition-shadow">
                   <div className="flex items-center gap-4 mb-6">
-                    <div className="p-4 bg-[#a8061d] rounded-xl">
+                    <div className="p-4 bg-[#f7c46d] rounded-xl">
                       <User className="w-8 h-8 text-black" />
                     </div>
                     <div>
                       <h2 className="text-2xl font-bold text-black">Customer PDC in hand</h2>
-                      <p className="text-[#d90522]">Post Dated Cheque</p>
+                      <p className="text-[#f7c46d]">Post Dated Cheque</p>
                     </div>
                   </div>
                 </div>
@@ -37,15 +37,15 @@ export default function PostDatedCheque() {
             {/* GCEC PDC Card */}
             <Link to="/gcec-pdc" className="block">
               <div className="group relative cursor-pointer transition-all duration-200 hover:scale-105">
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#a8061d] to-[#6b0210] rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#f7c46d] to-[#c9a82f] rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 <div className="relative bg-white rounded-2xl p-8 shadow-xl border border-gray-200 hover:shadow-2xl transition-shadow">
                   <div className="flex items-center gap-4 mb-6">
-                    <div className="p-4 bg-[#a8061d] rounded-xl">
+                    <div className="p-4 bg-[#f7c46d] rounded-xl">
                       <Building2 className="w-8 h-8 text-black" />
                     </div>
                     <div>
                       <h2 className="text-2xl font-bold text-black">GCEC issued PDC</h2>
-                      <p className="text-[#d90522]">Corporate Cheques</p>
+                      <p className="text-[#f7c46d]">Corporate Cheques</p>
                     </div>
                   </div>
                 </div>

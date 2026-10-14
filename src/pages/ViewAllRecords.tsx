@@ -25,7 +25,7 @@ export default function ViewAllRecords() {
     {
       title: 'Current Balance',
       value: '41,850',
-      currency: 'GBP',
+      currency: 'AED',
       icon: Wallet,
       cardBg: 'bg-green-100',
       textColor: 'text-green-900',
@@ -34,7 +34,7 @@ export default function ViewAllRecords() {
     {
       title: 'Total Debits',
       value: '63,150',
-      currency: 'GBP',
+      currency: 'AED',
       icon: ArrowUp,
       cardBg: 'bg-red-100',
       textColor: 'text-red-900',
@@ -43,7 +43,7 @@ export default function ViewAllRecords() {
     {
       title: 'Total Credits',
       value: '105,000',
-      currency: 'GBP',
+      currency: 'AED',
       icon: ArrowDown,
       cardBg: 'bg-green-100',
       textColor: 'text-green-900',
@@ -52,7 +52,7 @@ export default function ViewAllRecords() {
     {
       title: 'Pending Cheques',
       value: '183,000',
-      currency: 'GBP',
+      currency: 'AED',
       icon: FileText,
       cardBg: 'bg-orange-100',
       textColor: 'text-orange-900',
@@ -230,7 +230,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('all')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'all'
-              ? 'bg-[#a8061d] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -239,7 +239,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('online')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'online'
-              ? 'bg-[#a8061d] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -248,7 +248,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('cheque')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cheque'
-              ? 'bg-[#a8061d] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -257,7 +257,7 @@ export default function ViewAllRecords() {
           <button
             onClick={() => setActiveTab('cash')}
             className={`px-4 py-2 rounded-lg text-lg font-medium transition-colors ${activeTab === 'cash'
-              ? 'bg-[#a8061d] text-white'
+              ? 'bg-[#f7c46d] text-white'
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
           >
@@ -272,7 +272,7 @@ export default function ViewAllRecords() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#a8061d] border-0">
+                <TableRow className="bg-[#f7c46d] border-0">
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Date
                   </TableHead>
@@ -308,7 +308,7 @@ export default function ViewAllRecords() {
                     <TableCell className="text-sm py-2 text-left">
                       {transaction.debit ? (
                         <span className="text-red-600 font-semibold">
-                          GBP {transaction.debit}
+                          AED {transaction.debit}
                         </span>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -317,14 +317,14 @@ export default function ViewAllRecords() {
                     <TableCell className="text-sm py-2 text-left">
                       {transaction.credit ? (
                         <span className="text-green-600 font-semibold">
-                          GBP {transaction.credit}
+                          AED {transaction.credit}
                         </span>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-gray-700 font-semibold text-sm py-2 text-left">
-                      GBP {transaction.balance}
+                      AED {transaction.balance}
                     </TableCell>
                   </TableRow>
                 ))}

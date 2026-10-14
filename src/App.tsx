@@ -17,7 +17,6 @@ import ProtectedRoute from './components/ProtectedRoute';
 import './App.css';
 import GbpTranstion from './pages/GbpTranstion';
 import UsdTranstion from './pages/UsdTranstion';
-import EurTranstion from './pages/EurTranstion';
 import FkEmrits from './pages/FkEmrits';
 import UserManagement from './pages/UserManagement';
 import AdminRoute from './components/AdminRoute';
@@ -162,14 +161,6 @@ const App = () => {
           element={
             <ProtectedRoute>
               <UsdTranstion />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/eur-transactions"
-          element={
-            <ProtectedRoute>
-              <EurTranstion />
             </ProtectedRoute>
           }
         />

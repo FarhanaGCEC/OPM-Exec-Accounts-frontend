@@ -82,7 +82,7 @@ export default function GCECBeneficiary() {
                 {canMutate && (
                     <Button
                         onClick={() => setIsModalOpen(true)}
-                        className="bg-[#a8061d] text-white flex items-center space-x-2"
+                        className="bg-[#f7c46d] text-white flex items-center space-x-2"
                     >
                         <Plus className="w-4 h-4" />
                         <span>Add New Beneficiary</span>
@@ -95,7 +95,7 @@ export default function GCECBeneficiary() {
                     <div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
-                                <TableRow className="bg-[#a8061d] border-0">
+                                <TableRow className="bg-[#f7c46d] border-0">
                                     <TableHead className="font-semibold text-black text-sm text-center py-2">
                                         Beneficiary Name
                                     </TableHead>
@@ -161,7 +161,7 @@ export default function GCECBeneficiary() {
                             />
                             <Button
                                 type="submit"
-                                className="w-full bg-[#a8061d] text-white py-3 mt-6"
+                                className="w-full bg-[#f7c46d] text-white py-3 mt-6"
                             >
                                 Save Beneficiary
                             </Button>

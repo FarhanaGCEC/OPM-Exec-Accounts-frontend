@@ -28,7 +28,6 @@ const POST_LOGIN_NAV_ORDER: LandingNavItem[] = [
   { path: '/bank', sidebarKey: 'daily_transactions' },
   { path: '/gbp-transactions', sidebarKey: 'gbp_transactions' },
   { path: '/usd-transactions', sidebarKey: 'usd_transactions' },
-  { path: '/eur-transactions', sidebarKey: 'eur_transactions' },
   { path: '/matching', sidebarKey: 'customer_credit_card_payments' },
   { path: '/cheque', sidebarKey: 'post_dated_cheques' },
   { path: '/fks-transactions', sidebarKey: 'fk_emirates_nbd' },

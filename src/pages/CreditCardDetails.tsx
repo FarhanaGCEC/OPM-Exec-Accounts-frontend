@@ -404,7 +404,7 @@ export default function CreditCardDetails() {
                 {canManageCards && (
                     <Button
                         onClick={handleAddClick}
-                        className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+                        className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
                         disabled={loading}
                     >
                         <Plus className="w-4 h-4 text-black" />
@@ -452,7 +452,7 @@ export default function CreditCardDetails() {
                     <div className="overflow-x-auto rounded-lg">
                         <Table className="[&_th]:py-1 [&_td]:py-1 [&_th]:px-3 [&_td]:px-3 [&_th]:leading-tight [&_td]:leading-tight">
                             <TableHeader>
-                                <TableRow className="bg-[#a8061d] border-0 hover:bg-[#6b0210]">
+                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
                                     <TableHead className="font-semibold text-black text-sm text-left">
                                         Issuing Bank
                                     </TableHead>
@@ -625,7 +625,7 @@ export default function CreditCardDetails() {
                                                 {...field}
                                                 disabled={isSubmitting}
                                                 autoFocus
-                                                className="focus-visible:ring-2 focus-visible:ring-[#a8061d]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -645,7 +645,7 @@ export default function CreditCardDetails() {
                                                 placeholder="Enter Card Holder Name"
                                                 {...field}
                                                 disabled={isSubmitting}
-                                                className="focus-visible:ring-2 focus-visible:ring-[#a8061d]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -665,7 +665,7 @@ export default function CreditCardDetails() {
                                                 placeholder="Enter Card Number"
                                                 {...field}
                                                 disabled={isSubmitting}
-                                                className="focus-visible:ring-2 focus-visible:ring-[#a8061d]"
+                                                className="focus-visible:ring-2 focus-visible:ring-[#f7c46d]"
                                             />
                                         </FormControl>
                                         <FormMessage />
@@ -698,7 +698,7 @@ export default function CreditCardDetails() {
                                                                 setSelectedYear(year);
                                                             }}
                                                             disabled={isSubmitting}
-                                                            className="focus-visible:ring-2 focus-visible:ring-[#a8061d] pr-10"
+                                                            className="focus-visible:ring-2 focus-visible:ring-[#f7c46d] pr-10"
                                                         />
                                                         <PopoverTrigger asChild>
                                                             <button
@@ -727,7 +727,7 @@ export default function CreditCardDetails() {
                                                                             }}
                                                                             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                                                 selectedYear === year
-                                                                                    ? 'bg-[#a8061d] text-black'
+                                                                                    ? 'bg-[#f7c46d] text-black'
                                                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                                             }`}
                                                                         >
@@ -752,7 +752,7 @@ export default function CreditCardDetails() {
                                                                             }}
                                                                             className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                                                 selectedMonth === index
-                                                                                    ? 'bg-[#a8061d] text-black'
+                                                                                    ? 'bg-[#f7c46d] text-black'
                                                                                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                                             }`}
                                                                         >
@@ -791,7 +791,7 @@ export default function CreditCardDetails() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
+                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (

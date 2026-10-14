@@ -4,7 +4,7 @@
  */
 export const SIDEBAR_MENU_ITEMS = [
   { key: 'dashboard', label: 'Dashboard' },
-  { key: 'daily_transactions', label: 'Daily GBP Transactions' },
+  { key: 'daily_transactions', label: 'Daily Transactions Details' },
   { key: 'post_dated_cheques', label: 'Post-Dated Cheques' },
   { key: 'creditors_list', label: 'Creditors List' },
   { key: 'debtors_list', label: 'Debtors List' },
@@ -12,7 +12,6 @@ export const SIDEBAR_MENU_ITEMS = [
   { key: 'customer_credit_card_payments', label: 'Customer Credit Card Payments' },
   { key: 'gbp_transactions', label: 'GBP Transactions' },
   { key: 'usd_transactions', label: 'USD Transactions' },
-  { key: 'eur_transactions', label: 'EU Transactions' },
   { key: 'fk_emirates_nbd', label: 'FK EMIRATES NBD' },
   { key: 'user_accounts_management', label: 'User Accounts Management' },
   { key: 'approval_queue', label: 'Approval Queue' },

@@ -97,7 +97,7 @@ function StatementApprovalModalLayer({
                     {offer.mode === 'success' ? (
                         <Button
                             type="button"
-                            className="w-full bg-[#a8061d] text-black hover:bg-[#6b0210] sm:w-auto"
+                            className="w-full bg-[#f7c46d] text-black hover:bg-[#c9a82f] sm:w-auto"
                             onClick={onClose}
                         >
                             Done
@@ -115,7 +115,7 @@ function StatementApprovalModalLayer({
                             </Button>
                             <Button
                                 type="button"
-                                className="bg-[#a8061d] text-black hover:bg-[#6b0210]"
+                                className="bg-[#f7c46d] text-black hover:bg-[#c9a82f]"
                                 onClick={onSubmit}
                                 disabled={submitting}
                             >
