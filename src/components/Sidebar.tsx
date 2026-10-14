@@ -52,24 +52,24 @@ const menuItems: MenuItem[] = [
 
   {
     id: 'bank',
-    label: 'Daily AED Transactions',
+    label: 'Daily GBP Transactions',
     icon: CreditCard,
     path: '/bank',
     sidebarKey: 'daily_transactions',
   },
   {
     id: 'gbp-transactions',
-    label: 'GBP Transactions(ADCB)',
-    icon: CreditCard,
-    path: '/gbp-transactions',
-    sidebarKey: 'gbp_transactions',
-  },
-  {
-    id: 'usd-transactions',
-    label: 'USD Transactions(ADCB)',
+    label: 'USD Transactions',
     icon: CreditCard,
     path: '/usd-transactions',
     sidebarKey: 'usd_transactions',
+  },
+  {
+    id: 'usd-transactions',
+    label: 'EU Transactions',
+    icon: CreditCard,
+    path: '/eur-transactions',
+    sidebarKey: 'eur_transactions',
   },
   {
     id: 'matching',
@@ -81,13 +81,13 @@ const menuItems: MenuItem[] = [
  
   { id: 'cheque', label: 'Post-Dated Cheques', icon: FileText, path: '/cheque', sidebarKey: 'post_dated_cheques' },
   
-  {
-    id: 'fks-transactions',
-    label: 'FK ENBD',
-    icon: CreditCard,
-    path: '/fks-transactions',
-    sidebarKey: 'fk_emirates_nbd',
-  },
+  // {
+  //   id: 'fks-transactions',
+  //   label: 'FK ENBD',
+  //   icon: CreditCard,
+  //   path: '/fks-transactions',
+  //   sidebarKey: 'fk_emirates_nbd',
+  // },
   {
     id: 'credit-card',
     label: 'Credit Cards ',
@@ -234,13 +234,12 @@ export default function Sidebar() {
   const username = userName.toUpperCase();
 
   return (
-    <aside className="w-60 bg-gray-900 flex-shrink-0 flex flex-col h-screen">
-      {/* Logo */}
-      <div className="p-4 border-b border-gray-800">
+    <aside className="w-60 bg-black flex-shrink-0 flex flex-col h-screen">
+      <div className="px-4 py-4 border-b border-white/10">
         <img
-          src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1767004411/gcec-logo-removebg-preview_dtdfbt.png"
-          alt="GCEC Cloud Logo"
-          className="h-12"
+          src="/opmexec-logo.png"
+          alt="OPMExec"
+          className="h-12 w-full object-contain object-left"
         />
       </div>
 
@@ -264,21 +263,21 @@ export default function Sidebar() {
                 className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors
                   ${
                     active
-                      ? 'bg-[#f7c46d] text-gray-900'
-                      : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800'
+                      ? 'bg-[#a8061d] text-white'
+                      : 'text-gray-400 hover:text-gray-300 hover:bg-white/10'
                   }
                 `}
               >
                 <span
                   className={`text-xs font-medium whitespace-nowrap flex-1 text-left inline-flex items-center ${
-                    active ? 'text-gray-900' : 'text-gray-400'
+                    active ? 'text-white' : 'text-gray-400'
                   }`}
                 >
                   <span className="truncate">{item.label}</span>
                   {item.id === 'approval-queue' && approvalPending > 0 && (
                     <span
                       className={`ml-2 flex-shrink-0 inline-flex min-w-[1.25rem] justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
-                        active ? 'bg-gray-900 text-[#f7c46d]' : 'bg-red-600 text-white'
+                        active ? 'bg-white text-[#a8061d]' : 'bg-[#d90522] text-white'
                       }`}
                       title={`${approvalPending} pending change request(s)`}
                     >
@@ -309,8 +308,8 @@ export default function Sidebar() {
                         className={`w-full flex items-center px-3 py-1.5 rounded-md transition-colors text-xs
                           ${
                             subActive
-                              ? 'bg-[#edd06a] text-gray-900 font-medium'
-                              : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                              ? 'bg-[#c4122a] text-white font-medium'
+                              : 'text-gray-500 hover:text-gray-300 hover:bg-white/10'
                           }
                         `}
                       >
@@ -326,7 +325,7 @@ export default function Sidebar() {
       </nav>
 
       {/* User + Logout */}
-      <div className="p-4 border-t border-gray-800">
+      <div className="p-4 border-t border-white/10">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <CircleUser className="w-8 h-8 text-gray-400" />
@@ -337,7 +336,7 @@ export default function Sidebar() {
 
           <button
             onClick={handleLogout}
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-300 hover:bg-white/10 transition-colors"
             title="Logout"
           >
             <LogOut className="w-5 h-5" />

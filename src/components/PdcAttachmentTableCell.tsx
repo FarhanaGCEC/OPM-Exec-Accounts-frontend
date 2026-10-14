@@ -135,7 +135,7 @@ export function PdcAttachmentTableCell({
   const btnClass =
     variant === 'onDark'
       ? 'inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/40 bg-white/10 text-white hover:bg-white/20 transition-colors'
-      : 'inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-[#fef9e8] hover:border-[#f7c46d] transition-colors';
+      : 'inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-700 hover:bg-[#fde8eb] hover:border-[#a8061d] transition-colors';
 
   const handleEdit = () => {
     setOpen(false);
@@ -176,7 +176,7 @@ export function PdcAttachmentTableCell({
                     href={isPublicHttpsUrl(href) ? previewHref || href : href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[#c9a82f] underline text-sm"
+                    className="text-[#c4122a] underline text-sm"
                   >
                     Open PDF in new tab
                   </a>
@@ -193,7 +193,7 @@ export function PdcAttachmentTableCell({
                 href={previewHref || href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[#c9a82f] underline text-sm"
+                className="text-[#c4122a] underline text-sm"
               >
                 Open file in new tab
               </a>
@@ -203,7 +203,7 @@ export function PdcAttachmentTableCell({
             {onEditClick && (
               <Button
                 type="button"
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
                 onClick={handleEdit}
               >
                 Edit

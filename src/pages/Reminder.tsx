@@ -192,7 +192,7 @@ export default function Reminder() {
                     className={`group relative border-l-4 ${
                       cheque.status === 'urgent' 
                         ? 'border-red-500 bg-gradient-to-r from-red-50 to-red-100/50' 
-                        : 'border-[#f7c46d] bg-gradient-to-r from-[#fdf8e8] to-orange-50/50'
+                        : 'border-[#a8061d] bg-gradient-to-r from-[#fde8eb] to-orange-50/50'
                     } rounded-r-xl p-4 hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5`}
                   >
                     <div className="flex items-start justify-between gap-4">
@@ -261,7 +261,7 @@ export default function Reminder() {
                       <span className="shrink-0 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
                         {cheque.pdcType.startsWith('GCEC') ? (
                           <>
-                            <span className="text-[#C29438]">GCEC PDC</span>
+                            <span className="text-[#c4122a]">GCEC PDC</span>
                            
                           </>
                         ) : (

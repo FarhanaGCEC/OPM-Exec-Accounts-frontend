@@ -106,27 +106,17 @@ export default function Auth() {
   console.log('[Auth] Rendering JSX...');
   
   return (
-    <div className="flex items-center justify-center min-h-screen bg-white">
-      <Card className="w-full bg-gray-100 rounded-lg border-0 shadow-lg sm:w-96 md:w-96 relative pt-16">
+    <div className="flex min-h-screen flex-col overflow-y-auto bg-black px-4 py-8">
+      <div className="m-auto w-full max-w-md">
+        <img
+          src="/opmexec-logo.png"
+          alt="OPMExec"
+          className="mx-auto mb-6 block h-auto w-full object-contain"
+        />
+      <Card className="w-full bg-zinc-100 rounded-lg border border-[#a8061d]/30 shadow-lg">
         <CardHeader className="flex flex-col items-center pb-6">
-          <div className="absolute -top-[80px] left-1/2 transform -translate-x-1/2 flex items-center justify-center">
-            <img 
-              src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1757503157/Screenshot_2025-09-02_at_11.52.12_AM-removebg-preview_qv6odb.png" 
-              alt="GCEC Cloud Logo" 
-              width={150} 
-              height={150}
-              className="block"
-              onError={(e) => {
-                console.error('[Auth] Image failed to load');
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-              onLoad={() => {
-                console.log('[Auth] Image loaded successfully');
-              }}
-            />
-          </div>
           <h2 className="text-2xl font-bold text-center text-black mt-2">
-          GMS Accounts Login
+          OPMExec Accounts
           </h2>
         </CardHeader>
         <form onSubmit={onSubmit}>
@@ -220,7 +210,7 @@ export default function Auth() {
               type="submit"
               className="w-full text-white rounded-md py-2.5 hover:opacity-90 transition-opacity font-semibold bg-transparent"
               style={{
-                background: 'linear-gradient(11deg, rgba(0, 0, 0, 1) 30%, rgba(194, 148, 56, 1) 100%)',
+                background: 'linear-gradient(90deg, #6b0210 0%, #d90522 100%)',
               }}
               disabled={loading}
             >
@@ -229,6 +219,7 @@ export default function Auth() {
           </CardFooter>
         </form>
       </Card>
+      </div>
     </div>
   );
 }

@@ -274,7 +274,7 @@ export default function UserManagement() {
         <Button
           type="button"
           onClick={openCreateModal}
-          className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
+          className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg mr-4"
           disabled={loading}
         >
           <Plus className="w-4 h-4 text-black" />
@@ -293,8 +293,8 @@ export default function UserManagement() {
           <div className="overflow-x-auto">
             <div className="max-h-[600px] overflow-y-auto relative">
               <table className="w-full caption-bottom text-base border rounded-lg">
-                <thead className="sticky top-0 z-20 bg-[#f7c46d] shadow-sm">
-                  <tr className="bg-[#f7c46d] border-0">
+                <thead className="sticky top-0 z-20 bg-[#a8061d] shadow-sm">
+                  <tr className="bg-[#a8061d] border-0">
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">Username</th>
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle">Role</th>
                     <th className="font-semibold text-black text-sm text-left py-2 px-4 align-middle w-[120px]">
@@ -475,7 +475,7 @@ export default function UserManagement() {
               </Button>
               <Button
                 type="submit"
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
                 disabled={createSubmitting}
               >
                 {createSubmitting ? 'Creating…' : 'Create user'}
@@ -578,7 +578,7 @@ export default function UserManagement() {
               </Button>
               <Button
                 type="submit"
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
                 disabled={editSubmitting || editPermissionsLoading}
               >
                 {editSubmitting ? 'Saving…' : 'Save changes'}

@@ -1019,7 +1019,7 @@ export default function CreditCardPaymentsPage() {
             {canCreatePayment && (
                 <Button
                 onClick={handleAddNew}
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg"
                 disabled={loading}
                 >
                 <Plus className="w-4 h-4 text-black" />
@@ -1048,7 +1048,7 @@ export default function CreditCardPaymentsPage() {
                         </PopoverTrigger>
                         <PopoverContent className="w-72 p-4" align="start">
                             <div className="space-y-4">
-                                <div className="rounded-md border border-[#f7c46d] bg-[#fff7e8] px-3 py-2">
+                                <div className="rounded-md border border-[#a8061d] bg-[#fde8eb] px-3 py-2">
                                     <p className="text-xs font-medium text-gray-600">Selected Period</p>
                                     <p className="text-sm font-medium text-gray-900">{selectedPeriodLabel}</p>
                                 </div>
@@ -1058,7 +1058,7 @@ export default function CreditCardPaymentsPage() {
                                     <select
                                         value={selectedYear}
                                         onChange={(e) => setSelectedYear(Number(e.target.value))}
-                                        className="h-9 w-full rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                                        className="h-9 w-full rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#a8061d]"
                                     >
                                         {yearOptions.map((year) => (
                                             <option key={year} value={year}>
@@ -1102,7 +1102,7 @@ export default function CreditCardPaymentsPage() {
                                                 onClick={() => toggleMonth(index)}
                                                 className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                                                     selectedMonths.includes(index)
-                                                        ? 'bg-[#f7c46d] text-black'
+                                                        ? 'bg-[#a8061d] text-black'
                                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                                 }`}
                                             >
@@ -1120,7 +1120,7 @@ export default function CreditCardPaymentsPage() {
                     <select
                         value={selectedIssuingBank}
                         onChange={(e) => setSelectedIssuingBank(e.target.value)}
-                        className="h-10 min-w-40 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                        className="h-10 min-w-40 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#a8061d]"
                     >
                         <option value="all">All Banks</option>
                         {issuingBankOptions.map((bank) => (
@@ -1137,7 +1137,7 @@ export default function CreditCardPaymentsPage() {
                         onChange={(e) =>
                             setSelectedPaymentType(e.target.value as 'all' | CreditCardPaymentType)
                         }
-                        className="h-10 min-w-32 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#f7c46d]"
+                        className="h-10 min-w-32 rounded-md border border-gray-300 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#a8061d]"
                     >
                         <option value="all">All Types</option>
                         <option value="paid">Paid</option>
@@ -1154,7 +1154,7 @@ export default function CreditCardPaymentsPage() {
                     Apply Filter
                 </Button>
             </div>
-            <div className="rounded-md bg-[#fff7e8] px-4 py-2 text-right">
+            <div className="rounded-md bg-[#fde8eb] px-4 py-2 text-right">
                 <p className="text-xs font-medium text-gray-600">
                     Total Payment ({appliedPeriodLabel}
                     {appliedIssuingBank !== 'all' ? ` · ${appliedIssuingBank}` : ''}
@@ -1187,7 +1187,7 @@ export default function CreditCardPaymentsPage() {
                     <div className="overflow-x-auto rounded-lg">
                         <Table className="[&_th]:py-1 [&_td]:py-1 [&_th]:px-3 [&_td]:px-3 [&_th]:leading-tight [&_td]:leading-tight">
                             <TableHeader>
-                                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
+                                <TableRow className="bg-[#a8061d] border-0 hover:bg-[#6b0210]">
                                     <TableHead className="font-semibold text-black text-sm text-left">
                                         Payment Date
                                     </TableHead>
@@ -1276,7 +1276,7 @@ export default function CreditCardPaymentsPage() {
                                                         <Button
                                                             variant="outline"
                                                             size="sm"
-                                                            className="h-7 px-2 bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                                            className="h-7 px-2 bg-[#a8061d] hover:bg-[#6b0210] text-black"
                                                             onClick={() => handleEditClick(card)}
                                                             disabled={isSubmitting || deletingPaymentId === card.id}
                                                         >
@@ -1634,7 +1634,7 @@ export default function CreditCardPaymentsPage() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
                                     disabled={isSubmitting}
                                 >
                                     {isSubmitting ? (

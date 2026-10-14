@@ -728,7 +728,7 @@ console.log("hello")
                     variant="outline"
                     onClick={handleDownloadExcel}
                     disabled={loading || filteredCheques.length === 0}
-                    className="bg-white hover:bg-[#f7c46d] text-black border-0 flex items-center gap-2 font-semibold"
+                    className="bg-white hover:bg-[#a8061d] text-black border-0 flex items-center gap-2 font-semibold"
                 >
                     <Download className="w-4 h-4" />
                     <span>Download Excel</span>
@@ -736,7 +736,7 @@ console.log("hello")
                 {canMutate && (
                   <Button
                     onClick={handleAddNew}
-                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg"
                     disabled={loading}
                   >
                     <Plus className="w-4 h-4 text-black" />
@@ -769,7 +769,7 @@ console.log("hello")
               placeholder="Search by Payee..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-12 pr-4 py-6 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#f7c46d] focus:border-transparent"
+              className="pl-12 pr-4 py-6 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#a8061d] focus:border-transparent"
             />
           </div>
 
@@ -794,7 +794,7 @@ console.log("hello")
             <div className="overflow-x-auto">
                 <Table className="[&_th]:!py-1 [&_td]:!py-1">
                 <TableHeader>
-                    <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
+                    <TableRow className="bg-[#a8061d] border-0 hover:bg-[#6b0210]">
                     <TableHead className="font-semibold text-black text-sm text-left py-2">
                         Date
                     </TableHead>
@@ -1205,7 +1205,7 @@ console.log("hello")
                         href={resolveAttachmentHref(editingCheque.attachmentUrl) ?? '#'}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[#c9a82f] underline"
+                        className="text-[#c4122a] underline"
                         >
                         {editingCheque.attachmentName || 'View attachment'}
                         </a>
@@ -1245,7 +1245,7 @@ console.log("hello")
                     </Button>
                     <Button
                     type="submit"
-                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black px-6"
+                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black px-6"
                     disabled={isSubmitting}
                     >
                     {isSubmitting ? (
@@ -1295,7 +1295,7 @@ console.log("hello")
                 {pdcApproval?.mode === 'success' ? (
                 <Button
                     type="button"
-                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black w-full sm:w-auto"
                     onClick={() => setPdcApproval(null)}
                 >
                     Done
@@ -1312,7 +1312,7 @@ console.log("hello")
                     </Button>
                     <Button
                     type="button"
-                    className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                    className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
                     onClick={() => void submitPdcApproval()}
                     disabled={approvalSubmitting}
                     >

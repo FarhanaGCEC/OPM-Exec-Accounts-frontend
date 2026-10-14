@@ -831,7 +831,7 @@ export default function PaymentMatching() {
             {canMutate && (
               <Button
                 onClick={handleAddNew}
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black flex items-center space-x-2 transition-colors rounded-lg"
+                className="bg-[#a8061d] hover:bg-[#6b0210] text-black flex items-center space-x-2 transition-colors rounded-lg"
                 disabled={loading}
               >
                 <Plus className="w-4 h-4 text-black" />
@@ -880,7 +880,7 @@ export default function PaymentMatching() {
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#f7c46d] border-0 hover:bg-[#c9a82f]">
+                <TableRow className="bg-[#a8061d] border-0 hover:bg-[#6b0210]">
                   <TableHead className="font-semibold text-black text-sm text-left py-2">
                     Payment Date
                   </TableHead>
@@ -1295,7 +1295,7 @@ export default function PaymentMatching() {
                 </Button>
                 <Button
                   type="submit"
-                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black px-6"
+                  className="bg-[#a8061d] hover:bg-[#6b0210] text-black px-6"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (
@@ -1342,7 +1342,7 @@ export default function PaymentMatching() {
             {purchaseBillApproval?.mode === 'success' ? (
               <Button
                 type="button"
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black w-full sm:w-auto"
+                className="bg-[#a8061d] hover:bg-[#6b0210] text-black w-full sm:w-auto"
                 onClick={() => setPurchaseBillApproval(null)}
               >
                 Done
@@ -1359,7 +1359,7 @@ export default function PaymentMatching() {
                 </Button>
                 <Button
                   type="button"
-                  className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black"
+                  className="bg-[#a8061d] hover:bg-[#6b0210] text-black"
                   onClick={() => void submitPurchaseBillApproval()}
                   disabled={approvalSubmitting}
                 >

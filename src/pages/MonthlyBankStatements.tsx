@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 import api from '../lib/api';
 import { canUploadStatements } from '../lib/authPayload';
 
-type CurrencyCode = 'AED' | 'USD' | 'GBP';
+type CurrencyCode = 'GBP' | 'USD' | 'EUR';
 type DocumentType = 'bank_statement' | 'monthly_invoice';
 
 type MonthlyDocumentMeta = {
@@ -43,7 +43,7 @@ type PendingUploadRow = {
   monthlyInvoiceFile: File | null;
 };
 
-const CURRENCIES: CurrencyCode[] = ['AED', 'USD', 'GBP'];
+const CURRENCIES: CurrencyCode[] = ['GBP', 'USD', 'EUR'];
 
 const DOCUMENT_LABELS: Record<DocumentType, string> = {
   bank_statement: 'Bank Statement',
@@ -176,7 +176,7 @@ export default function MonthlyBankStatements() {
   const canUpload = canUploadStatements();
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
-  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>('AED');
+  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>('GBP');
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth);
   const [rows, setRows] = useState<GridRow[]>(
@@ -193,9 +193,9 @@ export default function MonthlyBankStatements() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [pendingUploads, setPendingUploads] = useState<Record<CurrencyCode, PendingUploadRow>>({
-    AED: { bankStatementFile: null, monthlyInvoiceFile: null },
-    USD: { bankStatementFile: null, monthlyInvoiceFile: null },
     GBP: { bankStatementFile: null, monthlyInvoiceFile: null },
+    USD: { bankStatementFile: null, monthlyInvoiceFile: null },
+    EUR: { bankStatementFile: null, monthlyInvoiceFile: null },
   });
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -525,7 +525,7 @@ export default function MonthlyBankStatements() {
       )}
 
       <div className="m-8 overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-sm">
-        <div className="border-b bg-gradient-to-r from-[#f7c46d] to-[#edd06a] px-6 py-4">
+        <div className="border-b bg-gradient-to-r from-[#a8061d] to-[#c4122a] px-6 py-4">
           <p className="text-sm font-semibold text-gray-900">
             {selectedMonthLabel} {selectedYear}
           </p>
@@ -545,7 +545,7 @@ export default function MonthlyBankStatements() {
                     onClick={() => setSelectedCurrency(currency)}
                     className={`px-6 py-3 text-sm font-medium transition-colors ${
                       selectedCurrency === currency
-                        ? 'border-b-2 border-[#f7c46d] text-gray-900'
+                        ? 'border-b-2 border-[#a8061d] text-gray-900'
                         : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
@@ -771,7 +771,7 @@ export default function MonthlyBankStatements() {
                               disabled={
                                 uploadingKey === uploadBankKey || !pending.bankStatementFile
                               }
-                              className="h-10 w-full min-w-0 rounded-full bg-[#f7c46d] px-3 text-black hover:bg-[#c9a82f]"
+                              className="h-10 w-full min-w-0 rounded-full bg-[#a8061d] px-3 text-black hover:bg-[#6b0210]"
                             >
                               {uploadingKey === uploadBankKey ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -794,7 +794,7 @@ export default function MonthlyBankStatements() {
                               disabled={
                                 uploadingKey === uploadInvoiceKey || !pending.monthlyInvoiceFile
                               }
-                              className="h-10 w-full min-w-0 rounded-full bg-[#f7c46d] px-3 text-black hover:bg-[#c9a82f]"
+                              className="h-10 w-full min-w-0 rounded-full bg-[#a8061d] px-3 text-black hover:bg-[#6b0210]"
                             >
                               {uploadingKey === uploadInvoiceKey ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

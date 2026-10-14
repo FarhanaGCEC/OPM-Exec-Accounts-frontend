@@ -32,9 +32,11 @@
 
 @layer base {
   :root {
-    /* GCEC brand gold — use #f7c46d / hover #dea44a in Tailwind as bg-[#f7c46d] etc. */
-    --brand-gold: #f7c46d;
-    --brand-gold-hover: #dea44a;
+    /* OPMExec reds: deep #6b0210, wordmark #a8061d, mid #c4122a, bright #d90522 */
+    --brand-red: #a8061d;
+    --brand-red-deep: #6b0210;
+    --brand-red-mid: #c4122a;
+    --brand-red-bright: #d90522;
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -104,7 +106,8 @@
 
 /* Credit card statements — sticky month bar + column headers on main scroll. */
 .cc-statement-month-bar {
-  background-color: #f7c46d;
+  background-color: #a8061d;
+  color: #fff;
 }
 
 .cc-statement-month-bar--sticky {
@@ -202,4 +205,32 @@ body.cc-statement-col-resizing * {
 }
 .bank-tx-ledger tbody tr[data-row-bg='gcec'] > td {
   background-color: #fef9c3 !important;
+}
+
+/* Solid OPMExec red fills keep light text, including headers that still use text-black. */
+.bg-\[\#a8061d\],
+.bg-\[\#c4122a\],
+.bg-\[\#6b0210\],
+.from-\[\#a8061d\] {
+  color: #fff;
+}
+
+.bg-\[\#a8061d\] :is(th, td, p, span, div, h2, h3, label, a, svg).text-black,
+.bg-\[\#a8061d\] :is(th, td, p, span, div, h2, h3).text-gray-900,
+.bg-\[\#a8061d\] :is(p, span, div).text-gray-800,
+.bg-\[\#a8061d\] :is(p, span, div, svg).text-gray-700,
+.bg-\[\#a8061d\] :is(p, span, div, svg).text-gray-600,
+.bg-\[\#c4122a\] :is(th, td, p, span, div).text-black,
+.bg-\[\#c4122a\] :is(th, td, p, span, div).text-gray-900,
+.from-\[\#a8061d\] :is(p, span, div).text-gray-900,
+.from-\[\#a8061d\] :is(p, span, div).text-black,
+.cc-statement-month-bar :is(h1, h2, h3, button, span, p).text-black,
+.hover\:bg-\[\#6b0210\]:hover :is(th, td) {
+  color: #fff;
+}
+
+.hover\:bg-\[\#a8061d\]:hover,
+.hover\:bg-\[\#6b0210\]:hover,
+.file\:bg-\[\#a8061d\]::file-selector-button {
+  color: #fff;
 }

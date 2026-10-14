@@ -226,7 +226,7 @@ export default function FxAdcbTransactionFilterBar({
               </Button>
               <Button
                 type="button"
-                className="bg-[#f7c46d] hover:bg-[#c9a82f] text-black h-10 shrink-0 whitespace-nowrap px-4 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
+                className="bg-[#a8061d] hover:bg-[#6b0210] text-black h-10 shrink-0 whitespace-nowrap px-4 shadow-md hover:shadow-lg transition-shadow flex items-center justify-center gap-2"
                 title="Filters apply automatically"
               >
                 <Filter className="w-4 h-4" />
@@ -246,7 +246,7 @@ export default function FxAdcbTransactionFilterBar({
             onClick={() => onActiveTabChange(tab.id)}
             className={`px-4 py-2 rounded-lg text-lg font-semibold transition-colors ${
               activeTab === tab.id
-                ? 'bg-[#f7c46d] text-black'
+                ? 'bg-[#a8061d] text-black'
                 : 'bg-white text-black border border-gray-300 hover:bg-gray-50'
             }`}
           >

@@ -64,7 +64,7 @@ const TransactionRowMobile = ({ transaction }: { transaction: Transaction }) => 
             className={`font-semibold text-sm ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
               }`}
           >
-            AED {transaction.amount}
+            GBP {transaction.amount}
           </p>
         </div>
         <StatusBadge status={transaction.status} />
@@ -90,7 +90,7 @@ const TransactionTableRow = ({ transaction }: { transaction: Transaction }) => {
         className={`font-semibold text-xs py-2 ${transaction.type === 'Debit' ? 'text-red-600' : 'text-green-600'
           }`}
       >
-        AED {transaction.amount}
+        GBP {transaction.amount}
       </TableCell>
       <TableCell className="py-2">
         <StatusBadge status={transaction.status} />
@@ -133,7 +133,7 @@ export default function RecentTransactions({
         <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader >
-              <TableRow className="bg-[#f7c46d] border-b border-gray-200">
+              <TableRow className="bg-[#a8061d] border-b border-gray-200">
                 <TableHead className="font-semibold text-white text-xs text-center py-2">
                   DATE
                 </TableHead>
