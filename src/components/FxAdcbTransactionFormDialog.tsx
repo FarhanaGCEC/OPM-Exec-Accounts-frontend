@@ -95,8 +95,8 @@ export const emptyFxAdcbFormValues: FxAdcbFormValues = {
 interface FxAdcbTransactionFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  currencyLabel: 'USD' | 'GBP';
-  currencySymbol: '$' | '£';
+  currencyLabel: 'USD' | 'GBP' | 'EUR';
+  currencySymbol: '$' | '£' | '€';
   editing: boolean;
   initialValues: FxAdcbFormValues;
   payablesCategories: PayablesCategory[];
